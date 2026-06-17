@@ -1002,8 +1002,8 @@ components:
             type: object
             properties:
               route: { $ref: '#/components/schemas/Route' }
-              version: { type: object }
-              action: { type: string, enum: [created, version_added] }
+              version: { type: integer, description: Versionsnummer der angelegten/aktualisierten Route }
+              action: { type: string, enum: [created, added_version] }
     UserList:
       description: User-Liste
       content:

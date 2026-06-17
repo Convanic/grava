@@ -256,11 +256,37 @@ vergeben.
 
 Antwort `201` (neu) bzw. `200` (neue Version bei gleichem `client_route_uuid`):
 ```json
-{ "route": { … Route … }, "version": { … }, "action": "created" }
+{ "route": { … Route … }, "version": 1, "action": "created" }
 ```
+`version` ist die Versionsnummer (Integer); `action` ist `"created"` oder
+`"added_version"`.
 Idempotenz: gleicher `client_route_uuid` desselben Users ⇒ neue **Version**
 statt Duplikat. Geometrie wird serverseitig geparst (Distanz/Höhenmeter/BBox);
 ungültige Geometrie ⇒ `422`.
+
+#### Route-Sync & Surface-Scores (iOS)
+
+Für den Sync aufgezeichneter Fahrten gilt:
+
+- **Stabiler `client_route_uuid`:** Die App vergibt pro Fahrt **einmalig** eine
+  UUID v4 und schickt sie bei jedem Upload mit. Damit ist der Upload
+  idempotent: erneutes Hochladen derselben Fahrt erzeugt eine neue **Version**
+  (`action: "added_version"`, `version` zählt hoch), keine zweite Route. Title,
+  Description und Visibility werden beim Re-Upload mit aktualisiert; ältere
+  Versionen bleiben über `GET /routes/{id}/payload?version=N` abrufbar.
+- **`source: "app"`** kennzeichnet in der App aufgezeichnete Routen.
+- **Surface-Scores bleiben erhalten (byte-genauer Roundtrip):** Der Server
+  speichert den hochgeladenen Payload **unverändert** und parst ihn nur, um
+  Stats (Distanz/Höhenmeter/BBox/Centroid) abzuleiten. Die GPX-Extension
+  `<ge:surfaceScore>` (Namespace `https://gravelexplorer.benx.de/gpx/v1`) wird
+  nicht angetastet und kommt über `GET /routes/{id}/payload` Byte für Byte
+  zurück. Die App kann ihre Score-Daten also verlustfrei zurücklesen.
+- **Soft-Delete:** Nach einem `DELETE /routes/{id}` ist derselbe
+  `client_route_uuid` verbrannt — ein erneuter Upload mit dieser UUID wird
+  abgelehnt (`422`). Für ein erneutes Hochladen eine **neue** UUID vergeben.
+- **Upload-Limit:** `POST /routes` akzeptiert bis 25 MB (`REQUEST_MAX_UPLOAD_BYTES`);
+  darüber `413 payload_too_large`. Bei JSON+Base64 zählt die dekodierte Größe.
+- **Voraussetzung:** verifizierte E-Mail (sonst `403 email_not_verified`).
 
 ### 5.3 Discovery (öffentlich)
 

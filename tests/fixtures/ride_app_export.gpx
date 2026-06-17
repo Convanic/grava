@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="GravelExplorer" xmlns="http://www.topografix.com/GPX/1/1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:ge="https://gravelexplorer.benx.de/gpx/v1" xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd">
+<metadata><name>Gravel Ride May 1, 2026 at 7:30 AM</name><time>2026-05-01T07:30:00Z</time></metadata>
+<trk><name>Gravel Ride May 1, 2026 at 7:30 AM</name><trkseg>
+<trkpt lat="49.15" lon="8.6"><time>2026-05-01T07:30:00Z</time><extensions><ge:surfaceScore>4</ge:surfaceScore></extensions></trkpt>
+<trkpt lat="49.151" lon="8.602"><time>2026-05-01T07:30:05Z</time><extensions><ge:surfaceScore>4</ge:surfaceScore></extensions></trkpt>
+<trkpt lat="49.152" lon="8.6035"><time>2026-05-01T07:30:10Z</time><extensions><ge:surfaceScore>2</ge:surfaceScore></extensions></trkpt>
+<trkpt lat="49.1531" lon="8.605"><time>2026-05-01T07:30:15Z</time><extensions><ge:surfaceScore>2</ge:surfaceScore></extensions></trkpt>
+<trkpt lat="49.1542" lon="8.6065"><time>2026-05-01T07:30:20Z</time><extensions><ge:surfaceScore>5</ge:surfaceScore></extensions></trkpt>
+</trkseg></trk>
+</gpx>

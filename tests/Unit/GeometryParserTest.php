@@ -58,4 +58,25 @@ final class GeometryParserTest extends TestCase
         $this->expectException(GeometryParseException::class);
         $this->parser->parse('{"type":"LineString","coordinates":[[200,49.5],[8.5,49.6]]}');
     }
+
+    /**
+     * M5: Das exakte GPX-Format der iOS-App (GPXExport.swift) trägt pro
+     * Trackpoint einen `<ge:surfaceScore>` in einem `<extensions>`-Block.
+     * Der Parser muss die Geometrie sauber lesen und die unbekannte
+     * Extension ignorieren (nicht ablehnen).
+     */
+    public function testParsesAppGpxWithSurfaceScoreExtensions(): void
+    {
+        $gpx = file_get_contents(__DIR__ . '/../fixtures/ride_app_export.gpx');
+        $this->assertNotFalse($gpx, 'Fixture konnte nicht gelesen werden.');
+
+        $parsed = $this->parser->parse($gpx);
+
+        $this->assertSame('gpx', $parsed->sourceFormat);
+        $this->assertSame(5, $parsed->pointCount(), 'Alle Trackpoints trotz Extensions erkannt.');
+        $this->assertNotNull($parsed->startedAt, 'startedAt aus <time> abgeleitet.');
+        $this->assertNotNull($parsed->endedAt, 'endedAt aus <time> abgeleitet.');
+        $this->assertSame('2026-05-01T07:30:00+00:00', $parsed->startedAt->format('c'));
+        $this->assertSame('2026-05-01T07:30:20+00:00', $parsed->endedAt->format('c'));
+    }
 }
