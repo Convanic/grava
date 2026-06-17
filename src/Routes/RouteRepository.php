@@ -261,6 +261,147 @@ final class RouteRepository
     }
 
     /**
+     * M3 Phase 2: Discovery-Suche über alle public Routen, mit
+     * optionalen BBox-/Tag-/Distance-/Volltext-Filtern.
+     *
+     * @param array{
+     *     bbox?: array{min_lat: float, min_lon: float, max_lat: float, max_lon: float}|null,
+     *     tags?: list<string>,
+     *     min_distance_m?: int|null,
+     *     max_distance_m?: int|null,
+     *     q?: string|null,
+     *     sort?: 'newest'|'oldest'|'distance_asc'|'distance_desc',
+     *     limit: int,
+     *     offset: int,
+     * } $filters
+     * @param list<int> $excludeUserIds  blockierte User aus Sicht des Viewers (beide Richtungen).
+     * @return array{routes: list<array<string,mixed>>, total: int}
+     */
+    public function searchPublic(array $filters, array $excludeUserIds): array
+    {
+        $limit  = max(1, min(50, (int)($filters['limit']  ?? 20)));
+        $offset = max(0, (int)($filters['offset'] ?? 0));
+
+        $where  = ["r.visibility = 'public'", 'r.deleted_at IS NULL', 'u.public_handle IS NOT NULL', "u.status = 'active'"];
+        $params = [];
+
+        if (!empty($filters['bbox'])) {
+            $bb = $filters['bbox'];
+            // BBox-Filter über die Centroid-POINT-Spalte. Wir nutzen
+            // hier KEINE ST_Contains-Polygonprüfung, sondern simple
+            // Lat/Lon-Bandbreite — das ist exakt äquivalent für
+            // axis-aligned BBoxes auf SRID 4326 und kommt mit dem
+            // Spatial-Index aus M2 prima zurecht (er greift weniger
+            // gut, wenn man einen BBox-Polygon konstruiert).
+            $where[] = 'r.bbox_min_lat <= ? AND r.bbox_max_lat >= ?
+                        AND r.bbox_min_lon <= ? AND r.bbox_max_lon >= ?';
+            // Schnitt-Test: route-bbox überschneidet sich mit query-bbox,
+            // wenn route.minLat <= query.maxLat && route.maxLat >= query.minLat
+            // (und analog Lon).
+            $params[] = (float)$bb['max_lat'];
+            $params[] = (float)$bb['min_lat'];
+            $params[] = (float)$bb['max_lon'];
+            $params[] = (float)$bb['min_lon'];
+        }
+
+        if (!empty($filters['min_distance_m'])) {
+            $where[]  = 'r.distance_m >= ?';
+            $params[] = (int)$filters['min_distance_m'];
+        }
+        if (!empty($filters['max_distance_m'])) {
+            $where[]  = 'r.distance_m <= ?';
+            $params[] = (int)$filters['max_distance_m'];
+        }
+        if (!empty($filters['q'])) {
+            $where[]  = 'LOWER(r.title) LIKE ?';
+            $params[] = '%' . strtolower((string)$filters['q']) . '%';
+        }
+        if (!empty($filters['tags'])) {
+            // Alle gewünschten Tags müssen vorhanden sein → so viele
+            // EXISTS-Subqueries wie Tags. Bei n=1..3 Tags ist das
+            // performant; mehr ist semantisch ohnehin selten.
+            foreach ($filters['tags'] as $tag) {
+                $where[] = 'EXISTS (SELECT 1 FROM route_tags rt WHERE rt.route_id = r.id AND rt.tag = ?)';
+                $params[] = (string)$tag;
+            }
+        }
+        if ($excludeUserIds !== []) {
+            $placeholders = implode(',', array_fill(0, count($excludeUserIds), '?'));
+            $where[] = "r.user_id NOT IN ({$placeholders})";
+            foreach ($excludeUserIds as $uid) {
+                $params[] = (int)$uid;
+            }
+        }
+
+        $orderBy = match ((string)($filters['sort'] ?? 'newest')) {
+            'oldest'         => 'r.created_at ASC',
+            'distance_asc'   => 'r.distance_m ASC, r.created_at DESC',
+            'distance_desc'  => 'r.distance_m DESC, r.created_at DESC',
+            default          => 'r.created_at DESC', // newest
+        };
+
+        $whereSql = implode("\n           AND ", $where);
+
+        // Total-Count separat, ohne LIMIT/OFFSET. Bei <100k public
+        // Routen ist das ein akzeptabler Roundtrip; wenn der Index
+        // greift (idx_routes_public_discovery + Tag-EXISTS), liegt
+        // die Latenz im einstelligen Millisekundenbereich.
+        $countSql = "SELECT COUNT(*)
+                       FROM routes r
+                       JOIN users u ON u.id = r.user_id
+                      WHERE {$whereSql}";
+        $countStmt = Db::pdo()->prepare($countSql);
+        $countStmt->execute($params);
+        $total = (int)$countStmt->fetchColumn();
+
+        $sql = self::publicSelect() . "
+                       JOIN users u ON u.id = r.user_id
+                      WHERE {$whereSql}
+                      ORDER BY {$orderBy}
+                      LIMIT ? OFFSET ?";
+
+        // Kleiner Twist: publicSelect() macht einen LEFT JOIN
+        // route_versions; wir hängen unseren INNER JOIN users hinten
+        // an, was syntaktisch gültig ist (kommt nach dem LEFT JOIN
+        // im FROM-Block).
+
+        $stmt = Db::pdo()->prepare($sql);
+        $i = 1;
+        foreach ($params as $p) {
+            $stmt->bindValue($i++, $p);
+        }
+        $stmt->bindValue($i++, $limit, PDO::PARAM_INT);
+        $stmt->bindValue($i,   $offset, PDO::PARAM_INT);
+        $stmt->execute();
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        // Owner-Daten in einer zweiten Query auflösen — pro Route
+        // das gleiche User-Set wäre möglich, aber bei n=20 Items ist
+        // das eine 20er-IN-Query, die immer noch schnell ist.
+        $userIds = array_unique(array_map(fn($r) => (int)$r['user_id'], $rows));
+        $owners = [];
+        if ($userIds !== []) {
+            $ph = implode(',', array_fill(0, count($userIds), '?'));
+            $oStmt = Db::pdo()->prepare("SELECT id, public_handle, display_name FROM users WHERE id IN ({$ph})");
+            $oStmt->execute($userIds);
+            foreach ($oStmt->fetchAll(PDO::FETCH_ASSOC) as $o) {
+                $owners[(int)$o['id']] = [
+                    'handle'       => (string)$o['public_handle'],
+                    'display_name' => $o['display_name'] === null ? null : (string)$o['display_name'],
+                ];
+            }
+        }
+
+        $shaped = [];
+        foreach ($rows as $row) {
+            $shape = self::publicShape($row);
+            $shape['owner'] = $owners[(int)$row['user_id']] ?? null;
+            $shaped[] = $shape;
+        }
+        return ['routes' => $shaped, 'total' => $total];
+    }
+
+    /**
      * Findet hart-zu-löschende Routen: alle, die seit mindestens
      * `$graceDays` Tagen soft-deleted sind. Liefert das Tupel,
      * das die Storage-Schicht für FS-Cleanup braucht.

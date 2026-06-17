@@ -26,6 +26,7 @@ use App\Controllers\Api\AuthController;
 use App\Controllers\Api\RouteController;
 use App\Controllers\Api\SharedRouteController;
 use App\Controllers\Api\UserController;
+use App\Controllers\Api\DiscoverController;
 use App\Controllers\Web\AuthPagesController;
 use App\Controllers\Web\DashboardController;
 use App\Controllers\Web\PublicSharePageController;
@@ -33,6 +34,8 @@ use App\Controllers\Web\RoutePagesController;
 use App\Controllers\Web\SettingsPagesController;
 use App\Controllers\Web\WebRefreshController;
 use App\Http\Middleware\Csrf;
+use App\Discovery\DiscoveryService;
+use App\Http\Middleware\OptionalBearer;
 use App\Http\Middleware\RequireBearer;
 use App\Http\Middleware\RequireVerified;
 use App\Http\Request;
@@ -157,13 +160,17 @@ $router  = new Router();
 
 $apiBase = rtrim((string)$config->get('API_BASE_PATH', '/api/v1'), '/');
 $requireBearer   = new RequireBearer($tokens);
+$optionalBearer  = new OptionalBearer($tokens);
 $requireVerified = new RequireVerified();
 $csrf            = new Csrf();
+
+$discovery = new DiscoveryService($routeRepo);
 
 $apiAuth    = new AuthController($auth, $rate);
 $apiUsers   = new UserController($auth);
 $apiRoutes  = new RouteController($routeService, $shareTokens, $config);
 $apiShared  = new SharedRouteController($shareTokens);
+$apiDiscover = new DiscoverController($discovery);
 $webAuth    = new AuthPagesController($auth, $cookieAuth, $webSession, $rate, $basePath . '/views');
 $webHome    = new DashboardController($webSession, $auth, $basePath . '/views');
 $webRefresh = new WebRefreshController($cookieAuth, $webSession);
@@ -209,6 +216,13 @@ $router->delete("{$apiBase}/routes/{id}/shares/{shareId}",        fn($r) => $api
 
 // Public Share-Endpoint — kein Bearer, kein CSRF (read-only GET).
 $router->get("{$apiBase}/share/{token}",                          fn($r) => $apiShared->show($r));
+
+// ---- Discovery (M3 Phase 2) ----
+// Anonym OK, OptionalBearer setzt request->user nur bei gültigem
+// Token. Eingeloggte Viewer bekommen ihre Block-Beziehungen aus
+// dem Result-Set gefiltert.
+$router->get("{$apiBase}/discover/routes",                        fn($r) => $apiDiscover->routes($r), [$optionalBearer]);
+$router->get("{$apiBase}/discover/users",                         fn($r) => $apiDiscover->users($r),  [$optionalBearer]);
 
 // ---- Web pages ----
 $router->get('/',                  fn($r) => Response::redirect('/dashboard'));
