@@ -15,9 +15,14 @@ use App\Routes\ShareTokenService;
  *
  *   Liefert die geteilte Route in Public Form mit `shared: true` und
  *   einem optionalen Payload-Download-Hinweis. Wenn der Token
- *   unbekannt, abgelaufen oder revoked ist, gibt es 404. Wir
- *   antworten **nicht** mit "Token vorhanden, aber abgelaufen" —
- *   das wäre ein Probing-Side-Channel.
+ *   unbekannt, abgelaufen oder revoked ist, gibt es 410 Gone —
+ *   semantisch passend zu §10/6 des Smoke-Plans und konsistent mit
+ *   der Web-UI ({@see App\Controllers\Web\PublicSharePageController}).
+ *
+ *   Wir differenzieren bewusst NICHT im Response-Body zwischen
+ *   „Token unbekannt" und „Token revoked" — beides wäre ein
+ *   Probing-Side-Channel. Der einheitliche 410 sagt dem Aufrufer
+ *   nur „der Link, den du hast, ist nicht (mehr) gültig".
  */
 final class SharedRouteController
 {
@@ -28,7 +33,7 @@ final class SharedRouteController
         $token = (string)($req->routeParams['token'] ?? '');
         $route = $this->shares->resolve($token);
         if ($route === null) {
-            Response::error('not_found', 'Geteilte Route nicht gefunden.', 404);
+            Response::error('share_gone', 'Dieser Share-Link ist nicht mehr verfügbar.', 410);
         }
         Response::json(['route' => $route]);
     }
