@@ -19,12 +19,23 @@
             "App\\": "src/"
         }
     },
+    "autoload-dev": {
+        "psr-4": {
+            "Tests\\": "tests/"
+        }
+    },
     "config": {
         "sort-packages": true,
         "optimize-autoloader": true
     },
     "scripts": {
         "migrate": "@php public/index.php cli:migrate",
-        "cleanup": "@php public/index.php cron:cleanup"
+        "cleanup": "@php public/index.php cron:cleanup",
+        "test": "phpunit",
+        "test:unit": "phpunit --testsuite unit",
+        "test:integration": "phpunit --testsuite integration"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^11"
     }
 }

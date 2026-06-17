@@ -59,9 +59,11 @@ final class StravaPagesController
 
     public function callback(Request $req): void
     {
-        // Kein WebSession-Zwang: der State trägt die user_id. Strava
-        // ruft diesen Endpoint serverseitig-redirected im Browser des
-        // Users auf.
+        // Session-Binding gegen OAuth-CSRF/Account-Linking: Der Callback
+        // läuft als Top-Level-Redirect im Browser des eingeloggten Users
+        // (SameSite=Lax sendet das Session-Cookie mit). Wir verlangen eine
+        // Session und koppeln den State an genau diesen User.
+        $user  = $this->requireUser('/settings/integrations');
         $state = (string)($req->query['state'] ?? '');
         $code  = (string)($req->query['code'] ?? '');
         $err   = (string)($req->query['error'] ?? '');
@@ -70,7 +72,7 @@ final class StravaPagesController
             Response::redirect('/settings/integrations');
         }
         try {
-            $this->strava->handleCallback($state, $code);
+            $this->strava->handleCallback($state, $code, (int)$user['internal_id']);
             $this->flash('Strava verbunden. Du kannst jetzt Aktivitäten importieren.');
         } catch (StravaException $e) {
             $this->flash('Fehler: ' . $e->getMessage());

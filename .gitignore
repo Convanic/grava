@@ -1,5 +1,7 @@
 /vendor/
 /.env
+/.phpunit.cache/
+/.phpunit.result.cache
 /storage/logs/*
 !/storage/logs/.gitkeep
 /storage/mail/*

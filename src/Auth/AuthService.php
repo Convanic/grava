@@ -424,6 +424,20 @@ final class AuthService
                 }
             }
 
+            // M4c: Notifications hart entfernen — als Empfänger UND als
+            // Auslöser. Da der User nur soft-deleted wird, greift kein
+            // CASCADE; sonst blieben Einträge mit actor_id = gelöschter
+            // User samt public_handle in FREMDEN Inboxen sichtbar.
+            try {
+                $pdo->prepare('DELETE FROM notifications WHERE user_id = ? OR actor_id = ?')
+                    ->execute([$userId, $userId]);
+            } catch (\PDOException $e) {
+                if (!str_contains($e->getMessage(), '1146')) {
+                    throw $e;
+                }
+                error_log('AuthService::deleteAccount: notifications-Tabelle existiert nicht, überspringe.');
+            }
+
             $pdo->commit();
         } catch (\Throwable $e) {
             $pdo->rollBack();

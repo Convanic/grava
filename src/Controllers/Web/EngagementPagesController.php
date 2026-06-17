@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace App\Controllers\Web;
 
+use App\Auth\AuthService;
+use App\Auth\RateLimiter;
 use App\Auth\WebSession;
 use App\Engagement\CommentService;
 use App\Engagement\EngagementException;
@@ -23,6 +25,8 @@ final class EngagementPagesController
         private readonly WebSession $webSession,
         private readonly LikeService $likes,
         private readonly CommentService $comments,
+        private readonly ?AuthService $auth = null,
+        private readonly ?RateLimiter $rate = null,
     ) {}
 
     public function like(Request $req): void
@@ -52,6 +56,22 @@ final class EngagementPagesController
     public function comment(Request $req): void
     {
         [$viewer, $handle, $pid] = $this->resolve($req);
+
+        // Parität zur API (POST /api/v1/.../comments): verifizierte
+        // E-Mail erforderlich + dasselbe Rate-Limit. Ohne diese Checks
+        // wäre das Web-UI ein Bypass für unverifizierte Spam-Accounts.
+        if ($this->auth !== null) {
+            $user = $this->auth->loadUserPublic($viewer);
+            if (empty($user['email_verified'])) {
+                $this->flash('Bitte bestätige zuerst deine E-Mail-Adresse, um zu kommentieren.');
+                Response::redirect($this->backTo($handle, $pid));
+            }
+        }
+        if ($this->rate !== null && $this->rate->hit('comment_create', 'u:' . $viewer, 30)) {
+            $this->flash('Zu viele Kommentare. Bitte später erneut.');
+            Response::redirect($this->backTo($handle, $pid));
+        }
+
         $body = (string)($req->post['body'] ?? '');
         try {
             $this->comments->create($pid, $viewer, $body);

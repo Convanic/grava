@@ -243,7 +243,7 @@ $webShare   = new PublicSharePageController($shareTokens, $basePath . '/views');
 $webSetting = new SettingsPagesController($webSession, $auth, $basePath . '/views', $avatarServ);
 $webDiscover = new DiscoveryPagesController($webSession, $auth, $discovery, $profileServ, $feedServ, $basePath . '/views', $likeServ, $commentServ, $notifServ, $heatmapServ);
 $webSocial   = new SocialPagesController($webSession, $auth, $followServ, $blockServ);
-$webEngage   = new EngagementPagesController($webSession, $likeServ, $commentServ);
+$webEngage   = new EngagementPagesController($webSession, $likeServ, $commentServ, $auth, $rate);
 $webStrava   = new StravaPagesController($webSession, $auth, $stravaServ, $basePath . '/views');
 
 // ---- JSON API ----
