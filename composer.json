@@ -1,0 +1,29 @@
+{
+    "name": "gravelexplorer/backend",
+    "description": "GravelExplorer backend (auth, accounts) — Milestone 1.",
+    "type": "project",
+    "license": "proprietary",
+    "require": {
+        "php": "^8.2",
+        "ext-pdo": "*",
+        "ext-pdo_mysql": "*",
+        "ext-json": "*",
+        "ext-openssl": "*",
+        "phpmailer/phpmailer": "^6.9",
+        "vlucas/phpdotenv": "^5.6",
+        "ramsey/uuid": "^4.7"
+    },
+    "autoload": {
+        "psr-4": {
+            "App\\": "src/"
+        }
+    },
+    "config": {
+        "sort-packages": true,
+        "optimize-autoloader": true
+    },
+    "scripts": {
+        "migrate": "@php public/index.php cli:migrate",
+        "cleanup": "@php public/index.php cron:cleanup"
+    }
+}

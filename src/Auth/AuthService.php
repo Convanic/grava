@@ -1,0 +1,382 @@
+<?php
+declare(strict_types=1);
+
+namespace App\Auth;
+
+use App\Config\Config;
+use App\Database\Db;
+use App\Mail\MailService;
+use App\Support\Clock;
+use App\Support\Uuid;
+use PDO;
+
+/**
+ * Core authentication & account business logic. Controllers (API + web)
+ * stay thin and delegate every rule to this service.
+ */
+final class AuthService
+{
+    public function __construct(
+        private readonly Config $config,
+        private readonly PasswordService $passwords,
+        private readonly TokenService $tokens,
+        private readonly MailService $mailer,
+    ) {}
+
+    /**
+     * @param 'ios'|'web'|'other' $client
+     * @return array{tokens:array,user:array}
+     * @throws AuthException
+     */
+    public function register(string $email, string $password, ?string $displayName, string $client, ?string $ua, ?string $ipBin): array
+    {
+        $pdo = Db::pdo();
+        $now = Clock::nowUtcString();
+
+        $stmt = $pdo->prepare('SELECT id FROM users WHERE email = ? LIMIT 1');
+        $stmt->execute([$email]);
+        if ($stmt->fetchColumn()) {
+            throw new AuthException(
+                'validation_error',
+                'Diese E-Mail-Adresse wird bereits verwendet.',
+                422,
+                ['email' => ['Already in use.']],
+            );
+        }
+
+        $publicId = Uuid::v4();
+        $hash     = $this->passwords->hash($password);
+
+        $pdo->beginTransaction();
+        try {
+            $ins = $pdo->prepare(
+                'INSERT INTO users (public_id, email, password_hash, display_name, status, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, "active", ?, ?)'
+            );
+            $ins->execute([$publicId, $email, $hash, $displayName, $now, $now]);
+            $userId = (int)$pdo->lastInsertId();
+
+            $rawVerify = TokenService::randomToken();
+            $verifyExpires = Clock::utcPlusSeconds($this->config->int('EMAIL_VERIFY_TTL', 86400));
+            $vins = $pdo->prepare(
+                'INSERT INTO email_verifications (user_id, token_hash, expires_at, created_at)
+                 VALUES (?, ?, ?, ?)'
+            );
+            $vins->execute([$userId, TokenService::hashToken($rawVerify), $verifyExpires, $now]);
+
+            $pdo->commit();
+        } catch (\Throwable $e) {
+            $pdo->rollBack();
+            throw $e;
+        }
+
+        $this->sendVerifyMail($email, $displayName, $rawVerify);
+
+        $tokens = $this->tokens->issueSession($userId, $client, $ua, $ipBin);
+        return [
+            'tokens' => $tokens,
+            'user'   => $this->loadUserPublic($userId),
+        ];
+    }
+
+    /**
+     * @return array{tokens:array,user:array}
+     * @throws AuthException
+     */
+    public function login(string $email, string $password, string $client, ?string $ua, ?string $ipBin): array
+    {
+        $pdo = Db::pdo();
+        $stmt = $pdo->prepare('SELECT id, email, password_hash, status FROM users WHERE email = ? LIMIT 1');
+        $stmt->execute([$email]);
+        $row = $stmt->fetch();
+
+        if (!$row || $row['status'] !== 'active' || !$this->passwords->verify($password, $row['password_hash'])) {
+            throw new AuthException('invalid_credentials', 'Ungültige Anmeldedaten.', 401);
+        }
+
+        if ($this->passwords->needsRehash($row['password_hash'])) {
+            $newHash = $this->passwords->hash($password);
+            $upd = $pdo->prepare('UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?');
+            $upd->execute([$newHash, Clock::nowUtcString(), (int)$row['id']]);
+        }
+
+        $tokens = $this->tokens->issueSession((int)$row['id'], $client, $ua, $ipBin);
+        return [
+            'tokens' => $tokens,
+            'user'   => $this->loadUserPublic((int)$row['id']),
+        ];
+    }
+
+    /**
+     * @return array{tokens:array,user:array}
+     * @throws AuthException
+     */
+    public function refresh(string $refreshToken, ?string $ua, ?string $ipBin): array
+    {
+        $rotated = $this->tokens->rotateRefresh($refreshToken, $ua, $ipBin);
+        if ($rotated === null) {
+            throw new AuthException('invalid_token', 'Refresh-Token ist ungültig oder abgelaufen.', 401);
+        }
+
+        return [
+            'tokens' => $rotated,
+            'user'   => $this->loadUserPublic($rotated['user_id']),
+        ];
+    }
+
+    public function logout(int $sessionId): void
+    {
+        $this->tokens->revokeSession($sessionId);
+    }
+
+    public function logoutAll(int $userId): void
+    {
+        $this->tokens->revokeAllForUser($userId);
+    }
+
+    public function updateProfile(int $userId, ?string $displayName): array
+    {
+        $pdo = Db::pdo();
+        $pdo->prepare('UPDATE users SET display_name = ?, updated_at = ? WHERE id = ?')
+            ->execute([$displayName, Clock::nowUtcString(), $userId]);
+        return $this->loadUserPublic($userId);
+    }
+
+    /**
+     * @throws AuthException
+     */
+    public function changePassword(int $userId, int $currentSessionId, string $currentPassword, string $newPassword): void
+    {
+        $pdo = Db::pdo();
+        $stmt = $pdo->prepare('SELECT password_hash, email FROM users WHERE id = ? LIMIT 1');
+        $stmt->execute([$userId]);
+        $row = $stmt->fetch();
+
+        if (!$row || !$this->passwords->verify($currentPassword, $row['password_hash'])) {
+            throw new AuthException('invalid_credentials', 'Aktuelles Passwort ist falsch.', 401);
+        }
+
+        $hash = $this->passwords->hash($newPassword);
+        $pdo->prepare('UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?')
+            ->execute([$hash, Clock::nowUtcString(), $userId]);
+
+        $this->tokens->revokeAllForUser($userId, $currentSessionId);
+    }
+
+    public function requestPasswordReset(string $email, ?string $ipBin): void
+    {
+        $pdo = Db::pdo();
+        $stmt = $pdo->prepare('SELECT id, email, display_name, status FROM users WHERE email = ? LIMIT 1');
+        $stmt->execute([$email]);
+        $row = $stmt->fetch();
+
+        if (!$row || $row['status'] !== 'active') {
+            return;
+        }
+
+        $raw = TokenService::randomToken();
+        $expires = Clock::utcPlusSeconds($this->config->int('PASSWORD_RESET_TTL', 3600));
+        $now = Clock::nowUtcString();
+
+        $pdo->prepare(
+            'INSERT INTO password_resets (user_id, token_hash, expires_at, created_at, request_ip)
+             VALUES (?, ?, ?, ?, ?)'
+        )->execute([(int)$row['id'], TokenService::hashToken($raw), $expires, $now, $ipBin]);
+
+        $this->sendResetMail($row['email'], $row['display_name'], $raw);
+    }
+
+    /**
+     * @throws AuthException
+     */
+    public function resetPassword(string $token, string $newPassword): void
+    {
+        $pdo = Db::pdo();
+        $now = Clock::nowUtcString();
+
+        $stmt = $pdo->prepare(
+            'SELECT id, user_id FROM password_resets
+             WHERE token_hash = ? AND expires_at > ? AND consumed_at IS NULL
+             LIMIT 1'
+        );
+        $stmt->execute([TokenService::hashToken($token), $now]);
+        $row = $stmt->fetch();
+
+        if (!$row) {
+            throw new AuthException(
+                'invalid_token',
+                'Reset-Token ist ungültig oder abgelaufen.',
+                410,
+            );
+        }
+
+        $hash = $this->passwords->hash($newPassword);
+        $pdo->beginTransaction();
+        try {
+            $pdo->prepare('UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?')
+                ->execute([$hash, $now, (int)$row['user_id']]);
+            $pdo->prepare('UPDATE password_resets SET consumed_at = ? WHERE id = ?')
+                ->execute([$now, (int)$row['id']]);
+            $pdo->commit();
+        } catch (\Throwable $e) {
+            $pdo->rollBack();
+            throw $e;
+        }
+
+        $this->tokens->revokeAllForUser((int)$row['user_id']);
+    }
+
+    /**
+     * @return array user
+     * @throws AuthException
+     */
+    public function verifyEmail(string $token): array
+    {
+        $pdo = Db::pdo();
+        $now = Clock::nowUtcString();
+
+        $stmt = $pdo->prepare(
+            'SELECT id, user_id FROM email_verifications
+             WHERE token_hash = ? AND expires_at > ? AND consumed_at IS NULL
+             LIMIT 1'
+        );
+        $stmt->execute([TokenService::hashToken($token), $now]);
+        $row = $stmt->fetch();
+
+        if (!$row) {
+            throw new AuthException(
+                'invalid_token',
+                'Verifizierungstoken ist ungültig oder abgelaufen.',
+                410,
+            );
+        }
+
+        $pdo->beginTransaction();
+        try {
+            $pdo->prepare('UPDATE users SET email_verified_at = ?, updated_at = ? WHERE id = ?')
+                ->execute([$now, $now, (int)$row['user_id']]);
+            $pdo->prepare('UPDATE email_verifications SET consumed_at = ? WHERE id = ?')
+                ->execute([$now, (int)$row['id']]);
+            $pdo->commit();
+        } catch (\Throwable $e) {
+            $pdo->rollBack();
+            throw $e;
+        }
+
+        return $this->loadUserPublic((int)$row['user_id']);
+    }
+
+    public function resendVerification(string $email): void
+    {
+        $pdo = Db::pdo();
+        $stmt = $pdo->prepare('SELECT id, email, display_name, email_verified_at, status FROM users WHERE email = ? LIMIT 1');
+        $stmt->execute([$email]);
+        $row = $stmt->fetch();
+
+        if (!$row || $row['status'] !== 'active' || $row['email_verified_at'] !== null) {
+            return;
+        }
+        $this->createAndSendVerification((int)$row['id'], $row['email'], $row['display_name']);
+    }
+
+    public function resendVerificationForUser(int $userId): void
+    {
+        $pdo = Db::pdo();
+        $stmt = $pdo->prepare('SELECT email, display_name, email_verified_at FROM users WHERE id = ? LIMIT 1');
+        $stmt->execute([$userId]);
+        $row = $stmt->fetch();
+        if (!$row || $row['email_verified_at'] !== null) {
+            return;
+        }
+        $this->createAndSendVerification($userId, $row['email'], $row['display_name']);
+    }
+
+    /**
+     * @throws AuthException
+     */
+    public function deleteAccount(int $userId, string $password): void
+    {
+        $pdo = Db::pdo();
+        $stmt = $pdo->prepare('SELECT password_hash FROM users WHERE id = ? AND status = "active" LIMIT 1');
+        $stmt->execute([$userId]);
+        $row = $stmt->fetch();
+        if (!$row || !$this->passwords->verify($password, $row['password_hash'])) {
+            throw new AuthException('invalid_credentials', 'Ungültiges Passwort.', 401);
+        }
+
+        $now = Clock::nowUtcString();
+        $scrubbedEmail = "deleted+{$userId}@invalid";
+
+        $pdo->beginTransaction();
+        try {
+            $pdo->prepare(
+                'UPDATE users SET status = "deleted", deleted_at = ?, email = ?, display_name = NULL, updated_at = ?
+                 WHERE id = ?'
+            )->execute([$now, $scrubbedEmail, $now, $userId]);
+            $pdo->commit();
+        } catch (\Throwable $e) {
+            $pdo->rollBack();
+            throw $e;
+        }
+
+        $this->tokens->revokeAllForUser($userId);
+    }
+
+    /** @return array<string,mixed> public user representation */
+    public function loadUserPublic(int $userId): array
+    {
+        $pdo = Db::pdo();
+        $stmt = $pdo->prepare(
+            'SELECT public_id, email, display_name, email_verified_at, created_at
+             FROM users WHERE id = ? LIMIT 1'
+        );
+        $stmt->execute([$userId]);
+        $row = $stmt->fetch();
+        if (!$row) {
+            return [];
+        }
+        return [
+            'id'             => $row['public_id'],
+            'email'          => $row['email'],
+            'display_name'   => $row['display_name'],
+            'email_verified' => $row['email_verified_at'] !== null,
+            'created_at'     => Clock::toIso8601($row['created_at']),
+        ];
+    }
+
+    private function createAndSendVerification(int $userId, string $email, ?string $displayName): void
+    {
+        $raw = TokenService::randomToken();
+        $expires = Clock::utcPlusSeconds($this->config->int('EMAIL_VERIFY_TTL', 86400));
+        Db::pdo()->prepare(
+            'INSERT INTO email_verifications (user_id, token_hash, expires_at, created_at)
+             VALUES (?, ?, ?, ?)'
+        )->execute([$userId, TokenService::hashToken($raw), $expires, Clock::nowUtcString()]);
+
+        $this->sendVerifyMail($email, $displayName, $raw);
+    }
+
+    private function sendVerifyMail(string $email, ?string $displayName, string $rawToken): void
+    {
+        $url = rtrim((string)$this->config->get('APP_URL', ''), '/') . '/verify-email?token=' . urlencode($rawToken);
+        $hours = max(1, (int)round($this->config->int('EMAIL_VERIFY_TTL', 86400) / 3600));
+        $this->mailer->send($email, $displayName, 'verify_email', [
+            'display_name' => $displayName,
+            'verify_url'   => $url,
+            'hours_valid'  => $hours,
+            'app_name'     => 'GravelExplorer',
+        ]);
+    }
+
+    private function sendResetMail(string $email, ?string $displayName, string $rawToken): void
+    {
+        $url = rtrim((string)$this->config->get('APP_URL', ''), '/') . '/reset-password?token=' . urlencode($rawToken);
+        $minutes = max(1, (int)round($this->config->int('PASSWORD_RESET_TTL', 3600) / 60));
+        $this->mailer->send($email, $displayName, 'reset_password', [
+            'display_name' => $displayName,
+            'reset_url'    => $url,
+            'minutes_valid'=> $minutes,
+            'app_name'     => 'GravelExplorer',
+        ]);
+    }
+}

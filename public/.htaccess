@@ -1,0 +1,30 @@
+Options -Indexes
+DirectoryIndex index.php
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Optional HTTPS-Erzwingung in Produktion. In MAMP/lokal nicht aktiv,
+    # da kein HTTPS-Zertifikat eingerichtet ist. Setze APP_ENV=production
+    # und entferne die folgenden zwei Zeilen-Kommentare, um zu erzwingen.
+    # RewriteCond %{HTTPS} !=on
+    # RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+    # Route alles, was nicht existiert, auf index.php
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule ^ index.php [QSA,L]
+</IfModule>
+
+# Security-Header
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set X-Frame-Options "DENY"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+    Header always set Permissions-Policy "geolocation=(), microphone=(), camera=()"
+</IfModule>
+
+# Versteckte Dateien verbieten
+<FilesMatch "^\.">
+    Require all denied
+</FilesMatch>
