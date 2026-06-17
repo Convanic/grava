@@ -4,5 +4,7 @@
 !/storage/logs/.gitkeep
 /storage/mail/*
 !/storage/mail/.gitkeep
+/storage/routes/*
+!/storage/routes/.gitkeep
 .DS_Store
 *.log
