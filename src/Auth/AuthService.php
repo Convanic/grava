@@ -412,7 +412,7 @@ final class AuthService
             // bei follows/blocks greift kein CASCADE, weil der User nur
             // soft-deleted wird. Single-Placeholder-WHERE, daher eigene
             // Blöcke statt des Zwei-Parameter-Loops oben.
-            foreach (['route_likes', 'route_comments'] as $tbl) {
+            foreach (['route_likes', 'route_comments', 'oauth_connections', 'oauth_states'] as $tbl) {
                 try {
                     $pdo->prepare("DELETE FROM {$tbl} WHERE user_id = ?")
                         ->execute([$userId]);
