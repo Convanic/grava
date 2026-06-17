@@ -406,6 +406,84 @@ final class RouteRepository
     }
 
     /**
+     * M3 Phase 5: Activity-Feed-Query — public Routen aller User,
+     * denen `$followerUserId` folgt. Block-Filter werden vom
+     * FeedService durch `$excludeUserIds` reingereicht.
+     *
+     * @param list<int> $excludeUserIds  blockierte User aus Sicht des Viewers
+     * @return array{routes: list<array<string,mixed>>, total: int}
+     */
+    public function feedFor(int $followerUserId, array $excludeUserIds, int $limit, int $offset): array
+    {
+        $limit  = max(1, min(50, $limit));
+        $offset = max(0, $offset);
+
+        $where  = [
+            'f.follower_id = ?',
+            "r.visibility = 'public'",
+            'r.deleted_at IS NULL',
+        ];
+        $params = [$followerUserId];
+        if ($excludeUserIds !== []) {
+            $ph = implode(',', array_fill(0, count($excludeUserIds), '?'));
+            $where[] = "r.user_id NOT IN ({$ph})";
+            foreach ($excludeUserIds as $uid) {
+                $params[] = (int)$uid;
+            }
+        }
+        $whereSql = implode("\n           AND ", $where);
+
+        $countSql = "SELECT COUNT(*)
+                       FROM routes r
+                       JOIN follows f ON f.followee_id = r.user_id
+                      WHERE {$whereSql}";
+        $cnt = Db::pdo()->prepare($countSql);
+        $cnt->execute($params);
+        $total = (int)$cnt->fetchColumn();
+
+        $sql = self::publicSelect() . "
+                       JOIN follows f ON f.followee_id = r.user_id
+                      WHERE {$whereSql}
+                      ORDER BY r.created_at DESC
+                      LIMIT ? OFFSET ?";
+
+        $stmt = Db::pdo()->prepare($sql);
+        $i = 1;
+        foreach ($params as $p) {
+            $stmt->bindValue($i++, $p);
+        }
+        $stmt->bindValue($i++, $limit, PDO::PARAM_INT);
+        $stmt->bindValue($i,   $offset, PDO::PARAM_INT);
+        $stmt->execute();
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        // Owner-Daten in einer zweiten Query (gleiches Pattern wie
+        // searchPublic — DRY-Refactor wäre möglich, aber bei zwei
+        // Aufrufstellen lohnt sich der Aufwand nicht).
+        $userIds = array_unique(array_map(fn($r) => (int)$r['user_id'], $rows));
+        $owners = [];
+        if ($userIds !== []) {
+            $ph = implode(',', array_fill(0, count($userIds), '?'));
+            $oStmt = Db::pdo()->prepare("SELECT id, public_handle, display_name FROM users WHERE id IN ({$ph})");
+            $oStmt->execute($userIds);
+            foreach ($oStmt->fetchAll(PDO::FETCH_ASSOC) as $o) {
+                $owners[(int)$o['id']] = [
+                    'handle'       => $o['public_handle'] === null ? null : (string)$o['public_handle'],
+                    'display_name' => $o['display_name']  === null ? null : (string)$o['display_name'],
+                ];
+            }
+        }
+
+        $shaped = [];
+        foreach ($rows as $row) {
+            $shape = self::publicShape($row);
+            $shape['owner'] = $owners[(int)$row['user_id']] ?? null;
+            $shaped[] = $shape;
+        }
+        return ['routes' => $shaped, 'total' => $total];
+    }
+
+    /**
      * Findet hart-zu-löschende Routen: alle, die seit mindestens
      * `$graceDays` Tagen soft-deleted sind. Liefert das Tupel,
      * das die Storage-Schicht für FS-Cleanup braucht.
