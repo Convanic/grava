@@ -101,7 +101,11 @@ backend/
 - Ohne `MAIL_HOST` → E-Mails werden als `.eml` in `storage/mail/` geschrieben
   (lokales Debugging). Einfach mit Mail.app/Thunderbird öffnen.
 
-## API-Endpunkte (Milestone 1)
+## API-Endpunkte
+
+> **Vollständige, aktuelle API-Referenz (M1–M4):** [`docs/API.md`](docs/API.md)
+> (Integrationsguide für die iOS-App) und [`openapi.yaml`](openapi.yaml)
+> (OpenAPI 3.1). Die folgende Tabelle deckt nur Milestone 1 ab.
 
 Alle Endpunkte unter `API_BASE_PATH` (Default `/api/v1`):
 

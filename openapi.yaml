@@ -1,0 +1,1181 @@
+openapi: 3.1.0
+info:
+  title: GravelExplorer API
+  version: "1.0.0"
+  description: >
+    HTTP-API des GravelExplorer-Backends (Milestones 1–4) für die iOS-App.
+    Bearer-Token-Auth. Alle Zeitstempel sind ISO-8601 UTC. IDs sind UUID-Strings.
+    Erklärender Guide: siehe docs/API.md.
+servers:
+  - url: https://gravelexplorer.benx.de/api/v1
+    description: Produktion
+  - url: http://gravelexplorer.test/api/v1
+    description: Lokal (MAMP)
+
+tags:
+  - name: Auth
+  - name: Users
+  - name: Routes
+  - name: Discovery
+  - name: Profiles
+  - name: Social
+  - name: Feed
+  - name: Likes
+  - name: Comments
+  - name: Notifications
+  - name: Avatars
+  - name: Strava
+  - name: Heatmap
+
+security:
+  - bearerAuth: []
+
+paths:
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: Konto anlegen (immer 202, keine Tokens)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, minLength: 10 }
+                display_name: { type: string, maxLength: 60 }
+      responses:
+        "202": { $ref: '#/components/responses/Message' }
+        "422": { $ref: '#/components/responses/ValidationError' }
+        "429": { $ref: '#/components/responses/RateLimited' }
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Login → Tokens
+      security: []
+      parameters: [ { $ref: '#/components/parameters/XClient' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string }
+      responses:
+        "200": { $ref: '#/components/responses/TokenBundle' }
+        "401": { $ref: '#/components/responses/Error' }
+        "403": { $ref: '#/components/responses/Error' }
+        "429": { $ref: '#/components/responses/RateLimited' }
+
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Access- und Refresh-Token rotieren
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refresh_token]
+              properties:
+                refresh_token: { type: string }
+      responses:
+        "200": { $ref: '#/components/responses/TokenBundle' }
+        "401": { $ref: '#/components/responses/Error' }
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Aktuelle Session beenden
+      responses:
+        "204": { description: OK }
+        "401": { $ref: '#/components/responses/Error' }
+
+  /auth/logout-all:
+    post:
+      tags: [Auth]
+      summary: Alle Sessions beenden
+      responses:
+        "204": { description: OK }
+        "401": { $ref: '#/components/responses/Error' }
+
+  /auth/password/change:
+    post:
+      tags: [Auth]
+      summary: Passwort ändern (invalidiert alle Sessions)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [current_password, new_password]
+              properties:
+                current_password: { type: string }
+                new_password: { type: string, minLength: 10 }
+      responses:
+        "204": { description: OK }
+        "401": { $ref: '#/components/responses/Error' }
+        "422": { $ref: '#/components/responses/ValidationError' }
+
+  /auth/password/forgot:
+    post:
+      tags: [Auth]
+      summary: Passwort-Reset anfordern (immer 202)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email }
+      responses:
+        "202": { $ref: '#/components/responses/Message' }
+
+  /auth/password/reset:
+    post:
+      tags: [Auth]
+      summary: Passwort per Token setzen
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, new_password]
+              properties:
+                token: { type: string }
+                new_password: { type: string, minLength: 10 }
+      responses:
+        "204": { description: OK }
+        "401": { $ref: '#/components/responses/Error' }
+        "422": { $ref: '#/components/responses/ValidationError' }
+
+  /auth/email/verify:
+    post:
+      tags: [Auth]
+      summary: E-Mail-Adresse per Token bestätigen
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user: { $ref: '#/components/schemas/User' }
+        "401": { $ref: '#/components/responses/Error' }
+        "422": { $ref: '#/components/responses/ValidationError' }
+
+  /auth/email/verify/resend:
+    post:
+      tags: [Auth]
+      summary: Verify-Mail erneut senden (immer 202)
+      security:
+        - bearerAuth: []
+        - {}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email: { type: string, format: email }
+      responses:
+        "202": { $ref: '#/components/responses/Message' }
+
+  /users/me:
+    get:
+      tags: [Users]
+      summary: Eigenes Profil
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user: { $ref: '#/components/schemas/User' }
+        "401": { $ref: '#/components/responses/Error' }
+    patch:
+      tags: [Users]
+      summary: Profil ändern
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                display_name: { type: string, maxLength: 60 }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user: { $ref: '#/components/schemas/User' }
+        "401": { $ref: '#/components/responses/Error' }
+        "422": { $ref: '#/components/responses/ValidationError' }
+    delete:
+      tags: [Users]
+      summary: Konto löschen
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password]
+              properties:
+                password: { type: string }
+      responses:
+        "204": { description: OK }
+        "401": { $ref: '#/components/responses/Error' }
+
+  /users/me/handle:
+    patch:
+      tags: [Users]
+      summary: public_handle einmalig setzen (E-Mail verifiziert nötig)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [public_handle]
+              properties:
+                public_handle:
+                  type: string
+                  pattern: '^[a-z0-9_]{3,30}$'
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user: { $ref: '#/components/schemas/User' }
+        "401": { $ref: '#/components/responses/Error' }
+        "403": { $ref: '#/components/responses/Error' }
+        "409": { $ref: '#/components/responses/Error' }
+        "422": { $ref: '#/components/responses/ValidationError' }
+
+  /routes:
+    post:
+      tags: [Routes]
+      summary: Route hochladen / neue Version (E-Mail verifiziert nötig)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title, payload_base64]
+              properties:
+                title: { type: string }
+                description: { type: string, nullable: true }
+                visibility: { $ref: '#/components/schemas/Visibility' }
+                source: { $ref: '#/components/schemas/Source' }
+                tags:
+                  type: array
+                  items: { type: string }
+                client_route_uuid: { type: string, format: uuid, nullable: true }
+                payload_base64:
+                  type: string
+                  description: Base64-kodierte GPX- oder GeoJSON-Datei
+          multipart/form-data:
+            schema:
+              type: object
+              required: [title, payload]
+              properties:
+                title: { type: string }
+                description: { type: string }
+                visibility: { $ref: '#/components/schemas/Visibility' }
+                source: { $ref: '#/components/schemas/Source' }
+                tags: { type: string, description: "kommagetrennt oder JSON-Array" }
+                client_route_uuid: { type: string, format: uuid }
+                payload: { type: string, format: binary }
+      responses:
+        "201": { $ref: '#/components/responses/RouteUpsert' }
+        "200": { $ref: '#/components/responses/RouteUpsert' }
+        "401": { $ref: '#/components/responses/Error' }
+        "422": { $ref: '#/components/responses/ValidationError' }
+    get:
+      tags: [Routes]
+      summary: Eigene Routen
+      parameters:
+        - { $ref: '#/components/parameters/Limit' }
+        - { $ref: '#/components/parameters/Offset' }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  routes:
+                    type: array
+                    items: { $ref: '#/components/schemas/Route' }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+        "401": { $ref: '#/components/responses/Error' }
+
+  /routes/{id}:
+    parameters: [ { $ref: '#/components/parameters/RouteId' } ]
+    get:
+      tags: [Routes]
+      summary: Eigene Route
+      responses:
+        "200": { $ref: '#/components/responses/SingleRoute' }
+        "401": { $ref: '#/components/responses/Error' }
+        "404": { $ref: '#/components/responses/Error' }
+    patch:
+      tags: [Routes]
+      summary: Metadaten ändern
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title: { type: string }
+                description: { type: string, nullable: true }
+                visibility: { $ref: '#/components/schemas/Visibility' }
+                tags:
+                  type: array
+                  items: { type: string }
+      responses:
+        "200": { $ref: '#/components/responses/SingleRoute' }
+        "401": { $ref: '#/components/responses/Error' }
+        "404": { $ref: '#/components/responses/Error' }
+        "422": { $ref: '#/components/responses/ValidationError' }
+    delete:
+      tags: [Routes]
+      summary: Route soft-löschen
+      responses:
+        "204": { description: OK }
+        "401": { $ref: '#/components/responses/Error' }
+        "404": { $ref: '#/components/responses/Error' }
+
+  /routes/{id}/payload:
+    parameters:
+      - { $ref: '#/components/parameters/RouteId' }
+      - name: version
+        in: query
+        schema: { type: integer, minimum: 1 }
+    get:
+      tags: [Routes]
+      summary: Geometrie-Datei herunterladen
+      responses:
+        "200":
+          description: GPX oder GeoJSON
+          content:
+            application/gpx+xml: { schema: { type: string } }
+            application/geo+json: { schema: { type: string } }
+        "401": { $ref: '#/components/responses/Error' }
+        "404": { $ref: '#/components/responses/Error' }
+
+  /routes/{id}/shares:
+    parameters: [ { $ref: '#/components/parameters/RouteId' } ]
+    post:
+      tags: [Routes]
+      summary: Share-Link erzeugen
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                expires_at: { type: string, format: date-time, nullable: true }
+      responses:
+        "201":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  share_id: { type: integer }
+                  token: { type: string }
+                  url: { type: string, format: uri }
+                  expires_at: { type: string, format: date-time, nullable: true }
+        "401": { $ref: '#/components/responses/Error' }
+        "404": { $ref: '#/components/responses/Error' }
+    get:
+      tags: [Routes]
+      summary: Share-Liste
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  shares: { type: array, items: { type: object } }
+        "401": { $ref: '#/components/responses/Error' }
+
+  /routes/{id}/shares/{shareId}:
+    parameters:
+      - { $ref: '#/components/parameters/RouteId' }
+      - name: shareId
+        in: path
+        required: true
+        schema: { type: integer }
+    delete:
+      tags: [Routes]
+      summary: Share widerrufen
+      responses:
+        "204": { description: OK }
+        "401": { $ref: '#/components/responses/Error' }
+        "404": { $ref: '#/components/responses/Error' }
+
+  /share/{token}:
+    parameters:
+      - name: token
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      tags: [Routes]
+      summary: Öffentliche Route über Share-Token (kein Auth)
+      security: []
+      responses:
+        "200": { $ref: '#/components/responses/SingleRoute' }
+        "404": { $ref: '#/components/responses/Error' }
+
+  /discover/routes:
+    get:
+      tags: [Discovery]
+      summary: Öffentliche Routen entdecken
+      security:
+        - bearerAuth: []
+        - {}
+      parameters:
+        - { $ref: '#/components/parameters/Limit' }
+        - { $ref: '#/components/parameters/Offset' }
+        - { $ref: '#/components/parameters/Sort' }
+        - name: q
+          in: query
+          schema: { type: string }
+        - name: tag
+          in: query
+          schema: { type: array, items: { type: string } }
+        - name: bbox
+          in: query
+          description: "minLat,minLon,maxLat,maxLon"
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  routes: { type: array, items: { $ref: '#/components/schemas/Route' } }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+
+  /discover/users:
+    get:
+      tags: [Discovery]
+      summary: Öffentliche Profile entdecken
+      security:
+        - bearerAuth: []
+        - {}
+      parameters:
+        - { $ref: '#/components/parameters/Limit' }
+        - { $ref: '#/components/parameters/Offset' }
+        - name: q
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  users: { type: array, items: { $ref: '#/components/schemas/PublicProfile' } }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+
+  /users/by-handle/{handle}:
+    parameters: [ { $ref: '#/components/parameters/Handle' } ]
+    get:
+      tags: [Profiles]
+      summary: Öffentliches Profil
+      security:
+        - bearerAuth: []
+        - {}
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user: { $ref: '#/components/schemas/PublicProfile' }
+        "404": { $ref: '#/components/responses/Error' }
+
+  /users/by-handle/{handle}/routes:
+    parameters: [ { $ref: '#/components/parameters/Handle' } ]
+    get:
+      tags: [Profiles]
+      summary: Öffentliche Routen eines Profils
+      security:
+        - bearerAuth: []
+        - {}
+      parameters:
+        - { $ref: '#/components/parameters/Limit' }
+        - { $ref: '#/components/parameters/Offset' }
+        - { $ref: '#/components/parameters/Sort' }
+        - name: q
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  routes: { type: array, items: { $ref: '#/components/schemas/Route' } }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+        "404": { $ref: '#/components/responses/Error' }
+
+  /users/by-handle/{handle}/follow:
+    parameters: [ { $ref: '#/components/parameters/Handle' } ]
+    post:
+      tags: [Social]
+      summary: Folgen
+      responses:
+        "201": { $ref: '#/components/responses/Ok' }
+        "200": { $ref: '#/components/responses/Ok' }
+        "404": { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [Social]
+      summary: Entfolgen
+      responses:
+        "204": { description: OK }
+        "404": { $ref: '#/components/responses/Error' }
+
+  /users/by-handle/{handle}/block:
+    parameters: [ { $ref: '#/components/parameters/Handle' } ]
+    post:
+      tags: [Social]
+      summary: Blockieren
+      responses:
+        "201": { $ref: '#/components/responses/Ok' }
+        "200": { $ref: '#/components/responses/Ok' }
+        "404": { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [Social]
+      summary: Block aufheben
+      responses:
+        "204": { description: OK }
+        "404": { $ref: '#/components/responses/Error' }
+
+  /users/me/follows:
+    get:
+      tags: [Social]
+      summary: Wem ich folge
+      responses:
+        "200": { $ref: '#/components/responses/UserList' }
+        "401": { $ref: '#/components/responses/Error' }
+  /users/me/followers:
+    get:
+      tags: [Social]
+      summary: Meine Follower
+      responses:
+        "200": { $ref: '#/components/responses/UserList' }
+        "401": { $ref: '#/components/responses/Error' }
+  /users/me/blocks:
+    get:
+      tags: [Social]
+      summary: Von mir blockierte User
+      responses:
+        "200": { $ref: '#/components/responses/UserList' }
+        "401": { $ref: '#/components/responses/Error' }
+
+  /feed:
+    get:
+      tags: [Feed]
+      summary: Routen gefolgter User (neueste zuerst)
+      parameters:
+        - { $ref: '#/components/parameters/Limit' }
+        - { $ref: '#/components/parameters/Offset' }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  routes: { type: array, items: { $ref: '#/components/schemas/Route' } }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+        "401": { $ref: '#/components/responses/Error' }
+
+  /routes/{id}/like:
+    parameters: [ { $ref: '#/components/parameters/RouteId' } ]
+    post:
+      tags: [Likes]
+      summary: Route liken (idempotent)
+      responses:
+        "200": { $ref: '#/components/responses/Ok' }
+        "201": { $ref: '#/components/responses/Ok' }
+        "401": { $ref: '#/components/responses/Error' }
+        "404": { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [Likes]
+      summary: Unlike
+      responses:
+        "204": { description: OK }
+        "401": { $ref: '#/components/responses/Error' }
+        "404": { $ref: '#/components/responses/Error' }
+
+  /routes/{id}/likes:
+    parameters: [ { $ref: '#/components/parameters/RouteId' } ]
+    get:
+      tags: [Likes]
+      summary: Like-Summary
+      security:
+        - bearerAuth: []
+        - {}
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count: { type: integer }
+                  liked_by_viewer: { type: boolean }
+                  recent: { type: array, items: { type: string } }
+        "404": { $ref: '#/components/responses/Error' }
+
+  /routes/{id}/comments:
+    parameters: [ { $ref: '#/components/parameters/RouteId' } ]
+    get:
+      tags: [Comments]
+      summary: Kommentare auflisten
+      security:
+        - bearerAuth: []
+        - {}
+      parameters:
+        - { $ref: '#/components/parameters/Limit' }
+        - { $ref: '#/components/parameters/Offset' }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  comments: { type: array, items: { $ref: '#/components/schemas/Comment' } }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+        "404": { $ref: '#/components/responses/Error' }
+    post:
+      tags: [Comments]
+      summary: Kommentar anlegen (E-Mail verifiziert nötig, Rate-Limit)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [body]
+              properties:
+                body: { type: string, minLength: 1, maxLength: 2000 }
+      responses:
+        "201":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  comment: { $ref: '#/components/schemas/Comment' }
+        "401": { $ref: '#/components/responses/Error' }
+        "404": { $ref: '#/components/responses/Error' }
+        "422": { $ref: '#/components/responses/ValidationError' }
+        "429": { $ref: '#/components/responses/RateLimited' }
+
+  /routes/{id}/comments/{cid}:
+    parameters:
+      - { $ref: '#/components/parameters/RouteId' }
+      - name: cid
+        in: path
+        required: true
+        schema: { type: integer }
+    delete:
+      tags: [Comments]
+      summary: Kommentar löschen (Autor oder Routen-Owner)
+      responses:
+        "204": { description: OK }
+        "401": { $ref: '#/components/responses/Error' }
+        "403": { $ref: '#/components/responses/Error' }
+        "404": { $ref: '#/components/responses/Error' }
+
+  /notifications:
+    get:
+      tags: [Notifications]
+      summary: Benachrichtigungen
+      parameters:
+        - { $ref: '#/components/parameters/Limit' }
+        - { $ref: '#/components/parameters/Offset' }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  notifications: { type: array, items: { $ref: '#/components/schemas/Notification' } }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+        "401": { $ref: '#/components/responses/Error' }
+
+  /notifications/unread-count:
+    get:
+      tags: [Notifications]
+      summary: Anzahl ungelesener Benachrichtigungen
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count: { type: integer }
+        "401": { $ref: '#/components/responses/Error' }
+
+  /notifications/read:
+    post:
+      tags: [Notifications]
+      summary: Alle (oder ausgewählte) als gelesen markieren
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ids: { type: array, items: { type: integer } }
+      responses:
+        "200": { $ref: '#/components/responses/Ok' }
+        "204": { description: OK }
+        "401": { $ref: '#/components/responses/Error' }
+
+  /notifications/{nid}/read:
+    parameters:
+      - name: nid
+        in: path
+        required: true
+        schema: { type: integer }
+    post:
+      tags: [Notifications]
+      summary: Eine Benachrichtigung als gelesen markieren
+      responses:
+        "204": { description: OK }
+        "401": { $ref: '#/components/responses/Error' }
+        "404": { $ref: '#/components/responses/Error' }
+
+  /users/me/avatar:
+    post:
+      tags: [Avatars]
+      summary: Avatar hochladen (multipart, E-Mail verifiziert nötig)
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [avatar]
+              properties:
+                avatar: { type: string, format: binary }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  avatar_path: { type: string }
+        "401": { $ref: '#/components/responses/Error' }
+        "422": { $ref: '#/components/responses/ValidationError' }
+    delete:
+      tags: [Avatars]
+      summary: Avatar entfernen
+      responses:
+        "204": { description: OK }
+        "401": { $ref: '#/components/responses/Error' }
+
+  /integrations/strava:
+    get:
+      tags: [Strava]
+      summary: Strava-Verbindungsstatus
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  connected: { type: boolean }
+                  athlete_id: { type: string, nullable: true }
+                  scope: { type: string, nullable: true }
+                  connected_at: { type: string, format: date-time, nullable: true }
+        "401": { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [Strava]
+      summary: Strava-Verbindung trennen
+      responses:
+        "204": { description: OK }
+        "401": { $ref: '#/components/responses/Error' }
+
+  /integrations/strava/import:
+    post:
+      tags: [Strava]
+      summary: Aktivitäten importieren (idempotent, E-Mail verifiziert nötig)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  imported: { type: integer }
+                  skipped: { type: integer }
+                  total: { type: integer }
+        "401": { $ref: '#/components/responses/Error' }
+
+  /heatmap:
+    get:
+      tags: [Heatmap]
+      summary: Crowd-Heatmap als GeoJSON-FeatureCollection
+      security: []
+      parameters:
+        - name: bbox
+          in: query
+          description: "minLon,minLat,maxLon,maxLat"
+          schema: { type: string }
+      responses:
+        "200":
+          description: GeoJSON FeatureCollection
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HeatmapFeatureCollection' }
+        "422": { $ref: '#/components/responses/ValidationError' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque
+
+  parameters:
+    XClient:
+      name: X-Client
+      in: header
+      required: false
+      schema: { type: string, enum: [ios, web, other] }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, default: 50, minimum: 1, maximum: 200 }
+    Offset:
+      name: offset
+      in: query
+      schema: { type: integer, default: 0, minimum: 0 }
+    Sort:
+      name: sort
+      in: query
+      schema: { type: string, enum: [newest, oldest, distance_asc, distance_desc], default: newest }
+    RouteId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    Handle:
+      name: handle
+      in: path
+      required: true
+      schema: { type: string, pattern: '^[a-z0-9_]{3,30}$' }
+
+  responses:
+    Error:
+      description: Fehler
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    ValidationError:
+      description: Validierungsfehler
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    RateLimited:
+      description: Rate-Limit erreicht
+      headers:
+        Retry-After:
+          schema: { type: integer }
+          description: Sekunden bis zum nächsten Versuch
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Message:
+      description: Generische Nachricht
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              message: { type: string }
+    Ok:
+      description: OK
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              ok: { type: boolean }
+    TokenBundle:
+      description: Token-Bundle
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/TokenBundle' }
+    SingleRoute:
+      description: Eine Route
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              route: { $ref: '#/components/schemas/Route' }
+    RouteUpsert:
+      description: Route angelegt/aktualisiert
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              route: { $ref: '#/components/schemas/Route' }
+              version: { type: object }
+              action: { type: string, enum: [created, version_added] }
+    UserList:
+      description: User-Liste
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              users: { type: array, items: { $ref: '#/components/schemas/PublicProfile' } }
+
+  schemas:
+    Visibility:
+      type: string
+      enum: [private, unlisted, public]
+    Source:
+      type: string
+      enum: [app, import, strava, manual]
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string }
+            message: { type: string }
+            fields:
+              type: object
+              additionalProperties:
+                type: array
+                items: { type: string }
+    Pagination:
+      type: object
+      properties:
+        limit: { type: integer }
+        offset: { type: integer }
+        total: { type: integer }
+        has_more: { type: boolean }
+    User:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        display_name: { type: string, nullable: true }
+        public_handle: { type: string, nullable: true }
+        email_verified: { type: boolean }
+        created_at: { type: string, format: date-time }
+    PublicProfile:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        display_name: { type: string, nullable: true }
+        public_handle: { type: string }
+        created_at: { type: string, format: date-time }
+        follower_count: { type: integer }
+        following_count: { type: integer }
+        route_count: { type: integer }
+        is_self: { type: boolean }
+        is_followed_by_viewer: { type: boolean }
+      description: Felder können je nach Viewer variieren.
+    TokenBundle:
+      type: object
+      properties:
+        access_token: { type: string }
+        access_expires_in: { type: integer }
+        refresh_token: { type: string }
+        refresh_expires_in: { type: integer }
+        token_type: { type: string, enum: [Bearer] }
+        user: { $ref: '#/components/schemas/User' }
+    LatLon:
+      type: object
+      properties:
+        lat: { type: number }
+        lon: { type: number }
+    Route:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        client_route_uuid: { type: string, format: uuid, nullable: true }
+        title: { type: string }
+        description: { type: string, nullable: true }
+        visibility: { $ref: '#/components/schemas/Visibility' }
+        source: { $ref: '#/components/schemas/Source' }
+        version: { type: integer, nullable: true }
+        format: { type: string, nullable: true, enum: [gpx, geojson] }
+        stats:
+          type: object
+          properties:
+            distance_m: { type: integer, nullable: true }
+            elevation_gain_m: { type: integer, nullable: true }
+            point_count: { type: integer, nullable: true }
+            started_at: { type: string, format: date-time, nullable: true }
+            ended_at: { type: string, format: date-time, nullable: true }
+            bbox:
+              nullable: true
+              type: object
+              properties:
+                min_lat: { type: number }
+                min_lon: { type: number }
+                max_lat: { type: number }
+                max_lon: { type: number }
+            centroid:
+              nullable: true
+              allOf: [ { $ref: '#/components/schemas/LatLon' } ]
+        tags:
+          type: array
+          items: { type: string }
+        owner:
+          nullable: true
+          type: object
+          properties:
+            handle: { type: string }
+            display_name: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        deleted_at: { type: string, format: date-time, nullable: true }
+    Comment:
+      type: object
+      properties:
+        id: { type: integer }
+        body: { type: string }
+        created_at: { type: string, format: date-time }
+        author:
+          type: object
+          properties:
+            handle: { type: string }
+            display_name: { type: string, nullable: true }
+        can_delete: { type: boolean }
+    Notification:
+      type: object
+      properties:
+        id: { type: integer }
+        type: { type: string, enum: [follow, like, comment] }
+        created_at: { type: string, format: date-time }
+        read: { type: boolean }
+        actor:
+          type: object
+          properties:
+            handle: { type: string }
+            display_name: { type: string, nullable: true }
+        route:
+          nullable: true
+          type: object
+          properties:
+            id: { type: string, format: uuid }
+            title: { type: string }
+    HeatmapFeatureCollection:
+      type: object
+      properties:
+        type: { type: string, enum: [FeatureCollection] }
+        features:
+          type: array
+          items:
+            type: object
+            properties:
+              type: { type: string, enum: [Feature] }
+              geometry:
+                type: object
+                properties:
+                  type: { type: string, enum: [Point] }
+                  coordinates:
+                    type: array
+                    items: { type: number }
+                    minItems: 2
+                    maxItems: 2
+                    description: "[lon, lat]"
+              properties:
+                type: object
+                properties:
+                  weight: { type: integer }
+        meta:
+          type: object
+          properties:
+            grid: { type: number }
+            cell_count: { type: integer }
+            max_weight: { type: integer }
