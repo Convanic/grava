@@ -67,6 +67,22 @@ final class Commands
         $notifDays  = $this->config->int('NOTIFICATIONS_READ_GRACE_DAYS', 90);
         $notifPurged = $this->notifications?->purgeOldRead($notifDays) ?? 0;
 
+        // 4) M4e: verwaiste OAuth-States (abgebrochene Connects) entfernen.
+        //    Werden bei erfolgreichem Callback single-use konsumiert;
+        //    der Rest ist nach einer Stunde sicher tot.
+        $statesPurged = 0;
+        try {
+            $stmt = \App\Database\Db::pdo()->prepare(
+                'DELETE FROM oauth_states WHERE created_at <= (UTC_TIMESTAMP() - INTERVAL 1 HOUR)'
+            );
+            $stmt->execute();
+            $statesPurged = $stmt->rowCount();
+        } catch (\PDOException $e) {
+            if (!str_contains($e->getMessage(), '1146')) {
+                throw $e;
+            }
+        }
+
         $merged = [];
         foreach ($tokenRes as $k => $v) {
             $merged[$k] = $v;
@@ -75,6 +91,7 @@ final class Commands
             $merged['routes_' . $k] = $v;
         }
         $merged['notifications_purged'] = $notifPurged;
+        $merged['oauth_states_purged']  = $statesPurged;
 
         echo "Cleanup abgeschlossen:\n";
         foreach ($merged as $k => $v) {

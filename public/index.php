@@ -30,6 +30,7 @@ use App\Controllers\Api\AvatarController;
 use App\Controllers\Api\CommentController;
 use App\Controllers\Api\DiscoverController;
 use App\Controllers\Api\FeedController;
+use App\Controllers\Api\IntegrationsController;
 use App\Controllers\Api\LikeController;
 use App\Controllers\Api\NotificationController;
 use App\Controllers\Api\ProfileController;
@@ -38,6 +39,7 @@ use App\Controllers\Web\AuthPagesController;
 use App\Controllers\Web\DashboardController;
 use App\Controllers\Web\DiscoveryPagesController;
 use App\Controllers\Web\EngagementPagesController;
+use App\Controllers\Web\StravaPagesController;
 use App\Controllers\Web\PublicSharePageController;
 use App\Controllers\Web\RoutePagesController;
 use App\Controllers\Web\SettingsPagesController;
@@ -52,7 +54,11 @@ use App\Discovery\ProfileService;
 use App\Engagement\CommentService;
 use App\Engagement\LikeService;
 use App\Engagement\NotificationService;
+use App\Integrations\Strava\FakeStravaClient;
+use App\Integrations\Strava\RealStravaClient;
+use App\Integrations\Strava\StravaService;
 use App\Media\AvatarService;
+use App\Support\Crypto;
 use App\Http\Middleware\OptionalBearer;
 use App\Http\Middleware\RequireBearer;
 use App\Http\Middleware\RequireVerified;
@@ -192,6 +198,26 @@ $likeServ      = new LikeService($notifServ);
 $commentServ   = new CommentService($notifServ);
 $avatarServ    = new AvatarService($config);
 
+// M4e: Strava-Integration. Dev-Seam — Fake-Client, wenn STRAVA_FAKE=1
+// oder keine STRAVA_CLIENT_ID gesetzt ist; sonst echter HTTP-Client.
+$stravaClientId     = (string)($config->get('STRAVA_CLIENT_ID', '') ?? '');
+$stravaClientSecret = (string)($config->get('STRAVA_CLIENT_SECRET', '') ?? '');
+$stravaRedirectUri  = (string)($config->get('STRAVA_REDIRECT_URI', '') ?? '');
+$stravaFake         = (string)($config->get('STRAVA_FAKE', '') ?? '') === '1' || $stravaClientId === '';
+$stravaClient       = $stravaFake
+    ? new FakeStravaClient()
+    : new RealStravaClient($stravaClientId, $stravaClientSecret);
+$cryptoServ    = new Crypto((string)$config->get('APP_KEY', ''));
+$stravaServ    = new StravaService(
+    $stravaClient,
+    $cryptoServ,
+    $routeService,
+    $stravaClientId,
+    $stravaRedirectUri,
+    $stravaFake,
+    (string)$config->get('APP_URL', ''),
+);
+
 $apiAuth    = new AuthController($auth, $rate);
 $apiUsers   = new UserController($auth);
 $apiRoutes  = new RouteController($routeService, $shareTokens, $config);
@@ -204,6 +230,7 @@ $apiLike     = new LikeController($likeServ);
 $apiComment  = new CommentController($commentServ, $rate);
 $apiNotif    = new NotificationController($notifServ);
 $apiAvatar   = new AvatarController($avatarServ);
+$apiIntegr   = new IntegrationsController($stravaServ);
 $webAuth    = new AuthPagesController($auth, $cookieAuth, $webSession, $rate, $basePath . '/views');
 $webHome    = new DashboardController($webSession, $auth, $basePath . '/views');
 $webRefresh = new WebRefreshController($cookieAuth, $webSession);
@@ -213,6 +240,7 @@ $webSetting = new SettingsPagesController($webSession, $auth, $basePath . '/view
 $webDiscover = new DiscoveryPagesController($webSession, $auth, $discovery, $profileServ, $feedServ, $basePath . '/views', $likeServ, $commentServ, $notifServ);
 $webSocial   = new SocialPagesController($webSession, $auth, $followServ, $blockServ);
 $webEngage   = new EngagementPagesController($webSession, $likeServ, $commentServ);
+$webStrava   = new StravaPagesController($webSession, $auth, $stravaServ, $basePath . '/views');
 
 // ---- JSON API ----
 $router->post("{$apiBase}/auth/register",                fn($r) => $apiAuth->register($r));
@@ -310,6 +338,11 @@ $router->post("{$apiBase}/notifications/{nid}/read",              fn($r) => $api
 $router->post("{$apiBase}/users/me/avatar",                       fn($r) => $apiAvatar->upload($r), [$requireBearer, $requireVerified]);
 $router->delete("{$apiBase}/users/me/avatar",                     fn($r) => $apiAvatar->delete($r), [$requireBearer]);
 
+// ---- Integrationen / Strava (M4e) ----
+$router->get("{$apiBase}/integrations/strava",                    fn($r) => $apiIntegr->stravaStatus($r),     [$requireBearer]);
+$router->post("{$apiBase}/integrations/strava/import",            fn($r) => $apiIntegr->stravaImport($r),     [$requireBearer, $requireVerified]);
+$router->delete("{$apiBase}/integrations/strava",                 fn($r) => $apiIntegr->stravaDisconnect($r), [$requireBearer]);
+
 // ---- Web pages ----
 $router->get('/',                  fn($r) => Response::redirect('/dashboard'));
 $router->get('/login',             fn($r) => $webAuth->showLogin($r));
@@ -348,6 +381,13 @@ $router->post('/settings/handle',                        fn($r) => $webSetting->
 $router->get ('/settings/avatar',                        fn($r) => $webSetting->showAvatar($r));
 $router->post('/settings/avatar',                        fn($r) => $webSetting->doAvatar($r), [$csrf]);
 $router->post('/settings/avatar/delete',                 fn($r) => $webSetting->doAvatarDelete($r), [$csrf]);
+
+// M4e: Strava-Integration (Web-Flow + OAuth-Callback).
+$router->get ('/settings/integrations',                  fn($r) => $webStrava->settings($r));
+$router->get ('/auth/strava/connect',                    fn($r) => $webStrava->connect($r));
+$router->get ('/auth/strava/callback',                   fn($r) => $webStrava->callback($r));
+$router->post('/settings/integrations/import',           fn($r) => $webStrava->import($r),     [$csrf]);
+$router->post('/settings/integrations/disconnect',       fn($r) => $webStrava->disconnect($r), [$csrf]);
 
 // ---- Discovery / Profile / Feed Web-UI (M3 Phase 6) ----
 // Anonym OK auf /discover/* und /u/{handle}*. /feed verlangt Login.
