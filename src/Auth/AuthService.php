@@ -345,6 +345,28 @@ final class AuthService
                 'UPDATE users SET status = "deleted", deleted_at = ?, email = ?, display_name = NULL, updated_at = ?
                  WHERE id = ?'
             )->execute([$now, $scrubbedEmail, $now, $userId]);
+
+            // M2 Phase 1: Auch die Routen des Users soft-löschen, damit
+            // sie nicht mehr in der Bibliothek auftauchen und der
+            // Cleanup-Cron sie nach dem konfigurierten Karenz-Zeitraum
+            // hart entfernen kann (Files + DB-Zeilen). Wenn die
+            // routes-Tabelle noch nicht existiert (z. B. weil die
+            // M2-Migration noch nicht eingespielt ist), schlucken wir
+            // den Fehler — der User darf nicht an einer fehlenden
+            // Tabelle scheitern.
+            try {
+                $pdo->prepare(
+                    'UPDATE routes SET deleted_at = ?, updated_at = ?
+                     WHERE user_id = ? AND deleted_at IS NULL'
+                )->execute([$now, $now, $userId]);
+            } catch (\PDOException $e) {
+                // 1146 = Base table or view not found — nur dann ignorieren.
+                if (!str_contains($e->getMessage(), '1146')) {
+                    throw $e;
+                }
+                error_log('AuthService::deleteAccount: routes-Tabelle existiert nicht, überspringe Soft-Delete der Routen.');
+            }
+
             $pdo->commit();
         } catch (\Throwable $e) {
             $pdo->rollBack();
