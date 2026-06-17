@@ -451,6 +451,14 @@ form textarea { resize: vertical; }
     background: #d33;
     border-radius: 999px;
 }
+.heat-bar {
+    display: block;
+    min-width: 4px;
+    height: 14px;
+    border-radius: 3px;
+    background: linear-gradient(90deg, #ffd24d, #ff7a1a, #d33);
+}
+
 .notif-list { list-style: none; padding: 0; margin: 16px 0 0; }
 .notif-item {
     padding: 12px 14px;

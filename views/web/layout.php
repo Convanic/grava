@@ -21,6 +21,7 @@ $mainClass    = 'container' . ($_layoutWide ? ' container--wide' : '');
             <a href="/dashboard">Dashboard</a>
             <a href="/routes">Routen</a>
             <a href="/discover">Entdecken</a>
+            <a href="/heatmap">Heatmap</a>
             <a href="/feed">Feed</a>
             <?php $_notifUnread = $_notifUnread ?? 0; ?>
             <a href="/notifications">Mitteilungen<?php if ((int)$_notifUnread > 0): ?> <span class="notif-badge"><?= (int)$_notifUnread ?></span><?php endif; ?></a>
@@ -33,6 +34,7 @@ $mainClass    = 'container' . ($_layoutWide ? ' container--wide' : '');
             </form>
         <?php else: ?>
             <a href="/discover">Entdecken</a>
+            <a href="/heatmap">Heatmap</a>
             <a href="/login">Login</a>
             <a href="/register">Registrieren</a>
         <?php endif; ?>

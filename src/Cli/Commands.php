@@ -7,6 +7,7 @@ use App\Auth\TokenService;
 use App\Config\Config;
 use App\Database\Migrator;
 use App\Engagement\NotificationService;
+use App\Heatmap\HeatmapService;
 use App\Routes\RouteService;
 
 final class Commands
@@ -17,6 +18,7 @@ final class Commands
         private readonly RouteService $routes,
         private readonly Config $config,
         private readonly ?NotificationService $notifications = null,
+        private readonly ?HeatmapService $heatmap = null,
     ) {}
 
     public function run(array $argv): int
@@ -31,6 +33,10 @@ final class Commands
             case 'cron:cleanup':
             case 'cleanup':
                 return $this->cleanup();
+
+            case 'cron:heatmap':
+            case 'heatmap':
+                return $this->rebuildHeatmap();
 
             case 'help':
             default:
@@ -90,8 +96,12 @@ final class Commands
         foreach ($routesRes as $k => $v) {
             $merged['routes_' . $k] = $v;
         }
+        // 5) M4f: Heatmap-Grid aus public Routen neu aggregieren.
+        $heatmapCells = $this->heatmap?->rebuild() ?? 0;
+
         $merged['notifications_purged'] = $notifPurged;
         $merged['oauth_states_purged']  = $statesPurged;
+        $merged['heatmap_cells']        = $heatmapCells;
 
         echo "Cleanup abgeschlossen:\n";
         foreach ($merged as $k => $v) {
@@ -110,13 +120,25 @@ final class Commands
         return 0;
     }
 
+    private function rebuildHeatmap(): int
+    {
+        if ($this->heatmap === null) {
+            echo "HeatmapService nicht verfügbar.\n";
+            return 1;
+        }
+        $cells = $this->heatmap->rebuild();
+        echo "Heatmap neu aggregiert: {$cells} Zellen.\n";
+        return 0;
+    }
+
     private function help(): void
     {
         echo "GravelExplorer Backend CLI\n";
         echo "Nutzung: php public/index.php <befehl>\n\n";
         echo "Befehle:\n";
         echo "  cli:migrate      Wendet ausstehende Migrationen an\n";
-        echo "  cron:cleanup     Löscht abgelaufene Tokens, Sessions, Verifizierungen, Rate-Limits\n";
+        echo "  cron:cleanup     Löscht abgelaufene Tokens, Sessions, Verifizierungen, Rate-Limits + Heatmap-Rebuild\n";
+        echo "  cron:heatmap     Aggregiert die Crowd-Heatmap aus public Routen neu\n";
         echo "  help             Zeigt diese Hilfe\n";
     }
 }

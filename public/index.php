@@ -30,6 +30,7 @@ use App\Controllers\Api\AvatarController;
 use App\Controllers\Api\CommentController;
 use App\Controllers\Api\DiscoverController;
 use App\Controllers\Api\FeedController;
+use App\Controllers\Api\HeatmapController;
 use App\Controllers\Api\IntegrationsController;
 use App\Controllers\Api\LikeController;
 use App\Controllers\Api\NotificationController;
@@ -54,6 +55,7 @@ use App\Discovery\ProfileService;
 use App\Engagement\CommentService;
 use App\Engagement\LikeService;
 use App\Engagement\NotificationService;
+use App\Heatmap\HeatmapService;
 use App\Integrations\Strava\FakeStravaClient;
 use App\Integrations\Strava\RealStravaClient;
 use App\Integrations\Strava\StravaService;
@@ -152,7 +154,7 @@ $shareTokens  = new ShareTokenService($routeRepo);
 // CLI dispatch
 // ---------------------------------------------------------------------------
 if (PHP_SAPI === 'cli') {
-    $cli = new Commands($basePath, $tokens, $routeService, $config, new NotificationService());
+    $cli = new Commands($basePath, $tokens, $routeService, $config, new NotificationService(), new HeatmapService());
     exit($cli->run($_SERVER['argv'] ?? []));
 }
 
@@ -197,6 +199,7 @@ $feedServ      = new FeedService($routeRepo, $discovery);
 $likeServ      = new LikeService($notifServ);
 $commentServ   = new CommentService($notifServ);
 $avatarServ    = new AvatarService($config);
+$heatmapServ   = new HeatmapService();
 
 // M4e: Strava-Integration. Dev-Seam — Fake-Client, wenn STRAVA_FAKE=1
 // oder keine STRAVA_CLIENT_ID gesetzt ist; sonst echter HTTP-Client.
@@ -231,13 +234,14 @@ $apiComment  = new CommentController($commentServ, $rate);
 $apiNotif    = new NotificationController($notifServ);
 $apiAvatar   = new AvatarController($avatarServ);
 $apiIntegr   = new IntegrationsController($stravaServ);
+$apiHeatmap  = new HeatmapController($heatmapServ);
 $webAuth    = new AuthPagesController($auth, $cookieAuth, $webSession, $rate, $basePath . '/views');
 $webHome    = new DashboardController($webSession, $auth, $basePath . '/views');
 $webRefresh = new WebRefreshController($cookieAuth, $webSession);
 $webRoutes  = new RoutePagesController($webSession, $auth, $routeService, $shareTokens, $config, $basePath . '/views');
 $webShare   = new PublicSharePageController($shareTokens, $basePath . '/views');
 $webSetting = new SettingsPagesController($webSession, $auth, $basePath . '/views', $avatarServ);
-$webDiscover = new DiscoveryPagesController($webSession, $auth, $discovery, $profileServ, $feedServ, $basePath . '/views', $likeServ, $commentServ, $notifServ);
+$webDiscover = new DiscoveryPagesController($webSession, $auth, $discovery, $profileServ, $feedServ, $basePath . '/views', $likeServ, $commentServ, $notifServ, $heatmapServ);
 $webSocial   = new SocialPagesController($webSession, $auth, $followServ, $blockServ);
 $webEngage   = new EngagementPagesController($webSession, $likeServ, $commentServ);
 $webStrava   = new StravaPagesController($webSession, $auth, $stravaServ, $basePath . '/views');
@@ -343,6 +347,8 @@ $router->get("{$apiBase}/integrations/strava",                    fn($r) => $api
 $router->post("{$apiBase}/integrations/strava/import",            fn($r) => $apiIntegr->stravaImport($r),     [$requireBearer, $requireVerified]);
 $router->delete("{$apiBase}/integrations/strava",                 fn($r) => $apiIntegr->stravaDisconnect($r), [$requireBearer]);
 
+$router->get("{$apiBase}/heatmap",                                fn($r) => $apiHeatmap->index($r));
+
 // ---- Web pages ----
 $router->get('/',                  fn($r) => Response::redirect('/dashboard'));
 $router->get('/login',             fn($r) => $webAuth->showLogin($r));
@@ -394,6 +400,7 @@ $router->post('/settings/integrations/disconnect',       fn($r) => $webStrava->d
 // Social-Aktionen (Follow/Unfollow/Block/Unblock) sind POST + CSRF + Login.
 $router->get ('/discover',                               fn($r) => $webDiscover->discoverRoutes($r));
 $router->get ('/discover/users',                         fn($r) => $webDiscover->discoverUsers($r));
+$router->get ('/heatmap',                                fn($r) => $webDiscover->heatmap($r));
 $router->get ('/u/{handle}',                             fn($r) => $webDiscover->profile($r));
 $router->get ('/u/{handle}/r/{id}',                      fn($r) => $webDiscover->profileRoute($r));
 $router->get ('/feed',                                   fn($r) => $webDiscover->feed($r));
