@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace App\Controllers\Web;
 
 use App\Auth\WebSession;
+use App\Engagement\CommentService;
 use App\Engagement\EngagementException;
 use App\Engagement\LikeService;
 use App\Http\Middleware\Csrf;
@@ -12,7 +13,7 @@ use App\Http\Response;
 
 /**
  * M4: POST-Handler für Engagement-Aktionen aus dem Web-UI (Like/
- * Unlike — Kommentare folgen in M4b). Jeder Endpoint ist Auth +
+ * Unlike + Kommentar anlegen/löschen). Jeder Endpoint ist Auth +
  * CSRF (via Routen-Binding in public/index.php) und redirected
  * zurück auf die Routen-Detail-Seite `/u/{handle}/r/{id}`.
  */
@@ -21,6 +22,7 @@ final class EngagementPagesController
     public function __construct(
         private readonly WebSession $webSession,
         private readonly LikeService $likes,
+        private readonly CommentService $comments,
     ) {}
 
     public function like(Request $req): void
@@ -41,6 +43,32 @@ final class EngagementPagesController
         try {
             $this->likes->unlike($pid, $viewer);
             $this->flash('Like entfernt.');
+        } catch (EngagementException $e) {
+            $this->flash('Fehler: ' . $e->getMessage());
+        }
+        Response::redirect($this->backTo($handle, $pid));
+    }
+
+    public function comment(Request $req): void
+    {
+        [$viewer, $handle, $pid] = $this->resolve($req);
+        $body = (string)($req->post['body'] ?? '');
+        try {
+            $this->comments->create($pid, $viewer, $body);
+            $this->flash('Kommentar gepostet.');
+        } catch (EngagementException $e) {
+            $this->flash('Fehler: ' . $e->getMessage());
+        }
+        Response::redirect($this->backTo($handle, $pid));
+    }
+
+    public function commentDelete(Request $req): void
+    {
+        [$viewer, $handle, $pid] = $this->resolve($req);
+        $cid = (int)($req->routeParams['cid'] ?? 0);
+        try {
+            $this->comments->delete($pid, $cid, $viewer);
+            $this->flash('Kommentar gelöscht.');
         } catch (EngagementException $e) {
             $this->flash('Fehler: ' . $e->getMessage());
         }

@@ -26,6 +26,7 @@ use App\Controllers\Api\AuthController;
 use App\Controllers\Api\RouteController;
 use App\Controllers\Api\SharedRouteController;
 use App\Controllers\Api\UserController;
+use App\Controllers\Api\CommentController;
 use App\Controllers\Api\DiscoverController;
 use App\Controllers\Api\FeedController;
 use App\Controllers\Api\LikeController;
@@ -46,6 +47,7 @@ use App\Discovery\DiscoveryService;
 use App\Discovery\FeedService;
 use App\Discovery\FollowService;
 use App\Discovery\ProfileService;
+use App\Engagement\CommentService;
 use App\Engagement\LikeService;
 use App\Http\Middleware\OptionalBearer;
 use App\Http\Middleware\RequireBearer;
@@ -182,6 +184,7 @@ $followServ    = new FollowService();
 $blockServ     = new BlockService();
 $feedServ      = new FeedService($routeRepo, $discovery);
 $likeServ      = new LikeService();
+$commentServ   = new CommentService();
 
 $apiAuth    = new AuthController($auth, $rate);
 $apiUsers   = new UserController($auth);
@@ -192,15 +195,16 @@ $apiProfile  = new ProfileController($profileServ);
 $apiSocial   = new SocialController($followServ, $blockServ);
 $apiFeed     = new FeedController($feedServ);
 $apiLike     = new LikeController($likeServ);
+$apiComment  = new CommentController($commentServ, $rate);
 $webAuth    = new AuthPagesController($auth, $cookieAuth, $webSession, $rate, $basePath . '/views');
 $webHome    = new DashboardController($webSession, $auth, $basePath . '/views');
 $webRefresh = new WebRefreshController($cookieAuth, $webSession);
 $webRoutes  = new RoutePagesController($webSession, $auth, $routeService, $shareTokens, $config, $basePath . '/views');
 $webShare   = new PublicSharePageController($shareTokens, $basePath . '/views');
 $webSetting = new SettingsPagesController($webSession, $auth, $basePath . '/views');
-$webDiscover = new DiscoveryPagesController($webSession, $auth, $discovery, $profileServ, $feedServ, $basePath . '/views', $likeServ);
+$webDiscover = new DiscoveryPagesController($webSession, $auth, $discovery, $profileServ, $feedServ, $basePath . '/views', $likeServ, $commentServ);
 $webSocial   = new SocialPagesController($webSession, $auth, $followServ, $blockServ);
-$webEngage   = new EngagementPagesController($webSession, $likeServ);
+$webEngage   = new EngagementPagesController($webSession, $likeServ, $commentServ);
 
 // ---- JSON API ----
 $router->post("{$apiBase}/auth/register",                fn($r) => $apiAuth->register($r));
@@ -277,6 +281,13 @@ $router->post("{$apiBase}/routes/{id}/like",                      fn($r) => $api
 $router->delete("{$apiBase}/routes/{id}/like",                    fn($r) => $apiLike->unlike($r),  [$requireBearer]);
 $router->get("{$apiBase}/routes/{id}/likes",                      fn($r) => $apiLike->summary($r), [$optionalBearer]);
 
+// ---- Comments (M4b) ----
+// GET anonym OK; POST erfordert verifizierte E-Mail (Spam-Schutz);
+// DELETE durch Autor oder Routen-Owner. Nicht-sichtbar → 404.
+$router->get("{$apiBase}/routes/{id}/comments",                   fn($r) => $apiComment->list($r),   [$optionalBearer]);
+$router->post("{$apiBase}/routes/{id}/comments",                  fn($r) => $apiComment->create($r), [$requireBearer, $requireVerified]);
+$router->delete("{$apiBase}/routes/{id}/comments/{cid}",          fn($r) => $apiComment->delete($r), [$requireBearer]);
+
 // ---- Web pages ----
 $router->get('/',                  fn($r) => Response::redirect('/dashboard'));
 $router->get('/login',             fn($r) => $webAuth->showLogin($r));
@@ -327,8 +338,10 @@ $router->post('/u/{handle}/block',                       fn($r) => $webSocial->b
 $router->post('/u/{handle}/unblock',                     fn($r) => $webSocial->unblock($r),   [$csrf]);
 
 // ---- Engagement Web-UI (M4a Likes) ----
-$router->post('/u/{handle}/r/{id}/like',                 fn($r) => $webEngage->like($r),      [$csrf]);
-$router->post('/u/{handle}/r/{id}/unlike',               fn($r) => $webEngage->unlike($r),    [$csrf]);
+$router->post('/u/{handle}/r/{id}/like',                 fn($r) => $webEngage->like($r),          [$csrf]);
+$router->post('/u/{handle}/r/{id}/unlike',               fn($r) => $webEngage->unlike($r),        [$csrf]);
+$router->post('/u/{handle}/r/{id}/comment',              fn($r) => $webEngage->comment($r),       [$csrf]);
+$router->post('/u/{handle}/r/{id}/comments/{cid}/delete', fn($r) => $webEngage->commentDelete($r), [$csrf]);
 
 // Healthcheck
 $router->get('/healthz', function ($r): void {
