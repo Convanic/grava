@@ -26,6 +26,7 @@ use App\Controllers\Api\AuthController;
 use App\Controllers\Api\RouteController;
 use App\Controllers\Api\SharedRouteController;
 use App\Controllers\Api\UserController;
+use App\Controllers\Api\AvatarController;
 use App\Controllers\Api\CommentController;
 use App\Controllers\Api\DiscoverController;
 use App\Controllers\Api\FeedController;
@@ -51,6 +52,7 @@ use App\Discovery\ProfileService;
 use App\Engagement\CommentService;
 use App\Engagement\LikeService;
 use App\Engagement\NotificationService;
+use App\Media\AvatarService;
 use App\Http\Middleware\OptionalBearer;
 use App\Http\Middleware\RequireBearer;
 use App\Http\Middleware\RequireVerified;
@@ -188,6 +190,7 @@ $blockServ     = new BlockService();
 $feedServ      = new FeedService($routeRepo, $discovery);
 $likeServ      = new LikeService($notifServ);
 $commentServ   = new CommentService($notifServ);
+$avatarServ    = new AvatarService($config);
 
 $apiAuth    = new AuthController($auth, $rate);
 $apiUsers   = new UserController($auth);
@@ -200,12 +203,13 @@ $apiFeed     = new FeedController($feedServ);
 $apiLike     = new LikeController($likeServ);
 $apiComment  = new CommentController($commentServ, $rate);
 $apiNotif    = new NotificationController($notifServ);
+$apiAvatar   = new AvatarController($avatarServ);
 $webAuth    = new AuthPagesController($auth, $cookieAuth, $webSession, $rate, $basePath . '/views');
 $webHome    = new DashboardController($webSession, $auth, $basePath . '/views');
 $webRefresh = new WebRefreshController($cookieAuth, $webSession);
 $webRoutes  = new RoutePagesController($webSession, $auth, $routeService, $shareTokens, $config, $basePath . '/views');
 $webShare   = new PublicSharePageController($shareTokens, $basePath . '/views');
-$webSetting = new SettingsPagesController($webSession, $auth, $basePath . '/views');
+$webSetting = new SettingsPagesController($webSession, $auth, $basePath . '/views', $avatarServ);
 $webDiscover = new DiscoveryPagesController($webSession, $auth, $discovery, $profileServ, $feedServ, $basePath . '/views', $likeServ, $commentServ, $notifServ);
 $webSocial   = new SocialPagesController($webSession, $auth, $followServ, $blockServ);
 $webEngage   = new EngagementPagesController($webSession, $likeServ, $commentServ);
@@ -299,6 +303,13 @@ $router->get("{$apiBase}/notifications/unread-count",             fn($r) => $api
 $router->post("{$apiBase}/notifications/read",                    fn($r) => $apiNotif->markAll($r),     [$requireBearer]);
 $router->post("{$apiBase}/notifications/{nid}/read",              fn($r) => $apiNotif->markOne($r),     [$requireBearer]);
 
+// ---- Avatare (M4d) ----
+// Upload/Delete auth-required (+verifiziert für Upload). Serving ist
+// public (eigene URL /u/{handle}/avatar weiter unten bei den Web-Routen).
+// POST statt PUT: PHP parst multipart-Bodies nur bei POST in $_FILES.
+$router->post("{$apiBase}/users/me/avatar",                       fn($r) => $apiAvatar->upload($r), [$requireBearer, $requireVerified]);
+$router->delete("{$apiBase}/users/me/avatar",                     fn($r) => $apiAvatar->delete($r), [$requireBearer]);
+
 // ---- Web pages ----
 $router->get('/',                  fn($r) => Response::redirect('/dashboard'));
 $router->get('/login',             fn($r) => $webAuth->showLogin($r));
@@ -334,6 +345,9 @@ $router->get ('/share/{token}',                          fn($r) => $webShare->sh
 // ---- Settings Web-UI (M3 Phase 0) ----
 $router->get ('/settings/handle',                        fn($r) => $webSetting->showHandle($r));
 $router->post('/settings/handle',                        fn($r) => $webSetting->doHandle($r), [$csrf]);
+$router->get ('/settings/avatar',                        fn($r) => $webSetting->showAvatar($r));
+$router->post('/settings/avatar',                        fn($r) => $webSetting->doAvatar($r), [$csrf]);
+$router->post('/settings/avatar/delete',                 fn($r) => $webSetting->doAvatarDelete($r), [$csrf]);
 
 // ---- Discovery / Profile / Feed Web-UI (M3 Phase 6) ----
 // Anonym OK auf /discover/* und /u/{handle}*. /feed verlangt Login.
@@ -344,6 +358,9 @@ $router->get ('/u/{handle}',                             fn($r) => $webDiscover-
 $router->get ('/u/{handle}/r/{id}',                      fn($r) => $webDiscover->profileRoute($r));
 $router->get ('/feed',                                   fn($r) => $webDiscover->feed($r));
 $router->get ('/notifications',                          fn($r) => $webDiscover->notifications($r));
+
+// Avatar-Serving (public, eigene Bytes/Placeholder). M4d.
+$router->get ('/u/{handle}/avatar',                      fn($r) => $apiAvatar->serve($r));
 $router->post('/u/{handle}/follow',                      fn($r) => $webSocial->follow($r),    [$csrf]);
 $router->post('/u/{handle}/unfollow',                    fn($r) => $webSocial->unfollow($r),  [$csrf]);
 $router->post('/u/{handle}/block',                       fn($r) => $webSocial->block($r),     [$csrf]);

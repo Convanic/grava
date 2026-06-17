@@ -9,6 +9,8 @@ use App\Auth\WebSession;
 use App\Http\Middleware\Csrf;
 use App\Http\Request;
 use App\Http\Response;
+use App\Media\AvatarException;
+use App\Media\AvatarService;
 use App\Support\Validator;
 
 /**
@@ -25,6 +27,7 @@ final class SettingsPagesController
         private readonly WebSession $webSession,
         private readonly AuthService $auth,
         string $viewsPath,
+        private readonly ?AvatarService $avatars = null,
     ) {
         $this->view = new WebView($viewsPath);
     }
@@ -83,6 +86,57 @@ final class SettingsPagesController
 
         $this->setFlash('Dein Profil-Handle ist jetzt @' . $handle . '. Profil-URL: /u/' . $handle);
         Response::redirect('/dashboard');
+    }
+
+    // ---------------------------------------------------------------------
+    // GET /settings/avatar
+    // ---------------------------------------------------------------------
+    public function showAvatar(Request $req): void
+    {
+        [$user] = $this->resolveOrRefresh('/settings/avatar');
+        $this->render('settings/avatar', $user, [
+            '_title'   => 'Profilbild · GravelExplorer',
+            'flash'    => $this->popFlash(),
+            'verified' => (bool)$user['email_verified'],
+            'hasAvatar' => !empty($user['public_handle']),
+        ]);
+    }
+
+    // ---------------------------------------------------------------------
+    // POST /settings/avatar
+    // ---------------------------------------------------------------------
+    public function doAvatar(Request $req): void
+    {
+        [$user] = $this->resolveOrRefresh('/settings/avatar');
+        if (!$user['email_verified']) {
+            $this->setFlash('Bitte bestätige zuerst deine E-Mail-Adresse.');
+            Response::redirect('/settings/avatar');
+        }
+
+        $upload = $req->file('avatar');
+        if ($upload === null || $this->avatars === null) {
+            $this->setFlash('Fehler: Keine gültige Bilddatei empfangen.');
+            Response::redirect('/settings/avatar');
+        }
+
+        try {
+            $this->avatars->store((int)$user['internal_id'], $upload);
+            $this->setFlash('Profilbild aktualisiert.');
+        } catch (AvatarException $e) {
+            $this->setFlash('Fehler: ' . $e->getMessage());
+        }
+        Response::redirect('/settings/avatar');
+    }
+
+    // ---------------------------------------------------------------------
+    // POST /settings/avatar/delete
+    // ---------------------------------------------------------------------
+    public function doAvatarDelete(Request $req): void
+    {
+        [$user] = $this->resolveOrRefresh('/settings/avatar');
+        $this->avatars?->delete((int)$user['internal_id']);
+        $this->setFlash('Profilbild entfernt.');
+        Response::redirect('/settings/avatar');
     }
 
     // ---------------------------------------------------------------------

@@ -463,3 +463,19 @@ form textarea { resize: vertical; }
 .notif-sub { margin-top: 2px; font-size: 14px; }
 .notif-date { font-size: 12px; margin-top: 4px; }
 
+.profile-avatar {
+    width: 96px;
+    height: 96px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 2px solid var(--border);
+    background: #eee;
+}
+.avatar-preview img {
+    border-radius: 50%;
+    object-fit: cover;
+    border: 2px solid var(--border);
+    background: #eee;
+}
+.avatar-preview { margin: 12px 0; }
+
