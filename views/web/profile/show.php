@@ -12,6 +12,7 @@ $handle = (string)$profile['handle'];
 ?>
 
 <header class="page-header profile-header">
+    <img class="profile-avatar" src="/u/<?= $h($handle) ?>/avatar" alt="Profilbild von @<?= $h($handle) ?>" width="96" height="96">
     <h1>@<?= $h($handle) ?></h1>
     <?php if (!empty($profile['display_name'])): ?>
         <p class="profile-display-name"><?= $h($profile['display_name']) ?></p>

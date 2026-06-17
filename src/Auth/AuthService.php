@@ -342,9 +342,31 @@ final class AuthService
         $pdo->beginTransaction();
         try {
             $pdo->prepare(
-                'UPDATE users SET status = "deleted", deleted_at = ?, email = ?, display_name = NULL, updated_at = ?
+                'UPDATE users SET status = "deleted", deleted_at = ?, email = ?, display_name = NULL,
+                        avatar_path = NULL, updated_at = ?
                  WHERE id = ?'
             )->execute([$now, $scrubbedEmail, $now, $userId]);
+
+            // M4d: Avatar-Dateien des Users physisch entfernen (Privacy).
+            // Best effort — Pfad analog AvatarService. Fehler dürfen das
+            // Löschen nicht blockieren.
+            try {
+                $avatarBase = (string)$this->config->get('STORAGE_AVATARS_DIR', '');
+                if ($avatarBase === '') {
+                    $avatarBase = dirname(__DIR__, 2) . '/storage/avatars';
+                }
+                $avatarDir = rtrim($avatarBase, '/') . '/' . $userId;
+                if (is_dir($avatarDir)) {
+                    foreach ((array)@scandir($avatarDir) as $entry) {
+                        if ($entry === '.' || $entry === '..') { continue; }
+                        $sub = $avatarDir . '/' . $entry;
+                        if (is_file($sub)) { @unlink($sub); }
+                    }
+                    @rmdir($avatarDir);
+                }
+            } catch (\Throwable $e) {
+                error_log('AuthService::deleteAccount: Avatar-Cleanup fehlgeschlagen: ' . $e->getMessage());
+            }
 
             // M2 Phase 1: Auch die Routen des Users soft-löschen, damit
             // sie nicht mehr in der Bibliothek auftauchen und der

@@ -236,7 +236,7 @@ POST   /api/v1/notifications/read        Bearer; markiert alle (oder {ids:[]})
 POST   /api/v1/notifications/{nid}/read  Bearer; einen
 
 # M4d Avatars
-PUT    /api/v1/users/me/avatar           Bearer+Verified; multipart; 200
+POST   /api/v1/users/me/avatar           Bearer+Verified; multipart; 200 (POST, weil PHP $_FILES nur bei POST parst)
 DELETE /api/v1/users/me/avatar           Bearer; 204
 GET    /u/{handle}/avatar                public; image/* (oder Placeholder)
 
