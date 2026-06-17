@@ -28,6 +28,8 @@ use App\Controllers\Api\SharedRouteController;
 use App\Controllers\Api\UserController;
 use App\Controllers\Web\AuthPagesController;
 use App\Controllers\Web\DashboardController;
+use App\Controllers\Web\PublicSharePageController;
+use App\Controllers\Web\RoutePagesController;
 use App\Controllers\Web\WebRefreshController;
 use App\Http\Middleware\Csrf;
 use App\Http\Middleware\RequireBearer;
@@ -164,6 +166,8 @@ $apiShared  = new SharedRouteController($shareTokens);
 $webAuth    = new AuthPagesController($auth, $cookieAuth, $webSession, $rate, $basePath . '/views');
 $webHome    = new DashboardController($webSession, $auth, $basePath . '/views');
 $webRefresh = new WebRefreshController($cookieAuth, $webSession);
+$webRoutes  = new RoutePagesController($webSession, $auth, $routeService, $shareTokens, $config, $basePath . '/views');
+$webShare   = new PublicSharePageController($shareTokens, $basePath . '/views');
 
 // ---- JSON API ----
 $router->post("{$apiBase}/auth/register",                fn($r) => $apiAuth->register($r));
@@ -216,6 +220,21 @@ $router->post('/logout',           fn($r) => $webAuth->doLogout($r),          [$
 // H5: Einziger Punkt, an dem ein Refresh-Token-Cookie konsumiert wird.
 // Pfad-Scoped Cookie sorgt dafür, dass es nur hier eintrifft.
 $router->get('/auth/web-refresh',  fn($r) => $webRefresh->handle($r));
+
+// ---- Routes Web-UI (M2 Phase 6) ----
+$router->get ('/routes',                                 fn($r) => $webRoutes->index($r));
+$router->get ('/routes/new',                             fn($r) => $webRoutes->showUpload($r));
+$router->post('/routes',                                 fn($r) => $webRoutes->doUpload($r),       [$csrf]);
+$router->get ('/routes/{id}',                            fn($r) => $webRoutes->show($r));
+$router->get ('/routes/{id}/edit',                       fn($r) => $webRoutes->showEdit($r));
+$router->post('/routes/{id}/update',                     fn($r) => $webRoutes->doUpdate($r),       [$csrf]);
+$router->post('/routes/{id}/delete',                     fn($r) => $webRoutes->doDelete($r),       [$csrf]);
+$router->get ('/routes/{id}/download',                   fn($r) => $webRoutes->download($r));
+$router->post('/routes/{id}/shares',                     fn($r) => $webRoutes->doCreateShare($r),  [$csrf]);
+$router->post('/routes/{id}/shares/{shareId}/revoke',    fn($r) => $webRoutes->doRevokeShare($r),  [$csrf]);
+
+// Public Share-Page — kein Login, kein CSRF (read-only GET).
+$router->get ('/share/{token}',                          fn($r) => $webShare->show($r));
 
 // Healthcheck
 $router->get('/healthz', function ($r): void {

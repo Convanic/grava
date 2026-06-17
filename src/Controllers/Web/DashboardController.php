@@ -43,9 +43,10 @@ final class DashboardController
         }
 
         $this->view->render('dashboard', [
-            '_title' => 'Dashboard · GravelExplorer',
-            'user'   => $user,
-            'flash'  => $flash,
+            '_title'      => 'Dashboard · GravelExplorer',
+            '_authedUser' => $user,
+            'user'        => $user,
+            'flash'       => $flash,
         ]);
     }
 }

@@ -170,3 +170,172 @@ code {
     padding: 1px 6px;
     border-radius: 4px;
 }
+
+/* =====================================================================
+   M2 Phase 6: Routes web UI
+   ===================================================================== */
+
+.container--wide { max-width: 920px; }
+
+.site-header nav {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+.site-header nav a { margin-left: 0; }
+.site-header .nav-form {
+    margin: 0;
+    display: inline-flex;
+    align-items: center;
+}
+.site-header .nav-button {
+    background: transparent;
+    color: var(--muted);
+    border: 0;
+    padding: 0;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+}
+.site-header .nav-button:hover { color: var(--primary); text-decoration: underline; }
+
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+    gap: 12px;
+}
+.page-header h1 { margin: 0; }
+.header-actions { display: flex; gap: 8px; }
+
+.btn-primary {
+    display: inline-block;
+    background: var(--primary);
+    color: #fff;
+    padding: 8px 14px;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 14px;
+}
+.btn-primary:hover { background: var(--primary-hover); text-decoration: none; }
+.btn-secondary {
+    display: inline-block;
+    background: #fff;
+    color: var(--text);
+    border: 1px solid var(--border);
+    padding: 8px 14px;
+    border-radius: 8px;
+    font-weight: 500;
+    font-size: 14px;
+}
+.btn-secondary:hover { background: #f5f6f2; text-decoration: none; }
+.btn-link {
+    background: transparent;
+    color: var(--primary);
+    border: 0;
+    padding: 0;
+    font-size: 14px;
+    cursor: pointer;
+    font-weight: 500;
+}
+.btn-link:hover { text-decoration: underline; }
+.btn-danger {
+    background: #fff;
+    color: var(--error-text);
+    border: 1px solid #f3c0c0;
+    padding: 8px 14px;
+    border-radius: 8px;
+    font-weight: 500;
+    font-size: 14px;
+}
+.btn-danger:hover { background: var(--error-bg); }
+
+.form-actions { display: flex; gap: 12px; align-items: center; margin-top: 16px; }
+.inline-form  { display: inline-block; margin: 0; }
+
+form textarea, form select, form input[type="file"] {
+    display: block;
+    width: 100%;
+    margin-top: 6px;
+    padding: 10px 12px;
+    font-size: 15px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: #fff;
+    color: var(--text);
+    font-family: inherit;
+}
+form textarea { resize: vertical; }
+
+.alert-warn {
+    background: var(--warn-bg);
+    color: var(--warn-text);
+    padding: 12px 14px;
+    border-radius: 8px;
+    margin-bottom: 16px;
+}
+.alert-warn p { margin: 0 0 8px 0; }
+.alert-warn p:last-child { margin-bottom: 0; }
+
+.table-wrap { overflow-x: auto; }
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+}
+.data-table th, .data-table td {
+    text-align: left;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+}
+.data-table th {
+    color: var(--muted);
+    font-weight: 500;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.data-table tr:last-child td { border-bottom: 0; }
+.row-actions { white-space: nowrap; text-align: right; }
+
+.tag-list { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.tag {
+    display: inline-block;
+    background: #eef2e8;
+    color: var(--primary-hover);
+    border-radius: 12px;
+    padding: 2px 10px;
+    font-size: 12px;
+}
+
+.badge-private  { background: #ebeef0; color: #555c6e; }
+.badge-unlisted { background: #fff3cd; color: var(--warn-text); }
+.badge-public   { background: var(--success-bg); color: var(--success-text); }
+.badge-active   { background: var(--success-bg); color: var(--success-text); }
+.badge-revoked  { background: var(--error-bg); color: var(--error-text); }
+.badge-expired  { background: #ebeef0; color: #555c6e; }
+
+.profile--wide { grid-template-columns: 180px 1fr; }
+.share-url {
+    display: block;
+    padding: 8px 12px;
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    word-break: break-all;
+    font-size: 13px;
+}
+.route-description {
+    background: #f9faf6;
+    padding: 12px 14px;
+    border-radius: 8px;
+    margin: 16px 0;
+}
+.shared-flag {
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 11px;
+    margin-bottom: 4px;
+}
