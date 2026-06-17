@@ -7,6 +7,7 @@ use App\Auth\AuthException;
 use App\Auth\AuthService;
 use App\Auth\CookieAuth;
 use App\Auth\RateLimiter;
+use App\Auth\WebSession;
 use App\Config\Config;
 use App\Http\Middleware\Csrf;
 use App\Http\Request;
@@ -20,6 +21,7 @@ final class AuthPagesController
     public function __construct(
         private readonly AuthService $auth,
         private readonly CookieAuth $cookieAuth,
+        private readonly WebSession $webSession,
         private readonly RateLimiter $rate,
         string $viewsPath,
     ) {
@@ -64,6 +66,13 @@ final class AuthPagesController
         // rotieren — bevor wir das Auth-Cookie setzen.
         Csrf::rotateForAuthState();
         $this->cookieAuth->setFromTokens($result['tokens']);
+        // H5: WebSession server-side persistieren. Damit ist der reguläre
+        // Page-Load auf der Web-UI nicht mehr auf das Refresh-Cookie
+        // angewiesen — siehe WebSession-Klasse.
+        $this->webSession->establish(
+            (int)$result['tokens']['user_id'],
+            (int)$result['tokens']['session_id'],
+        );
         Response::redirect('/dashboard');
     }
 
@@ -207,10 +216,15 @@ final class AuthPagesController
 
     public function doLogout(Request $req): void
     {
-        $ctx = $this->cookieAuth->resolve($req);
+        // H5: DB-Session aus der WebSession ziehen (statt aus dem
+        // Cookie/Access-Token-Lookup wie früher). Das ist robuster:
+        // ein expired Access-Token im Cookie macht Logout nicht mehr
+        // zum stillen No-Op.
+        $ctx = $this->webSession->resolve();
         if ($ctx !== null) {
-            $this->auth->logout((int)$ctx['session_id']);
+            $this->auth->logout($ctx['session_id']);
         }
+        $this->webSession->destroy();
         $this->cookieAuth->clear();
         // C1/C4: Beim Logout frische Session-ID + CSRF-Token erzwingen.
         Csrf::rotateForAuthState();

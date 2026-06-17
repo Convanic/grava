@@ -10,16 +10,22 @@ use App\Http\Request;
  * Cookie helper used by the server-rendered web surface.
  *
  * Sets two cookies:
- *  - ge_access (path=/, lifetime = ACCESS_TOKEN_TTL)
- *  - ge_refresh (path=/, lifetime = REFRESH_TOKEN_TTL)
+ *  - `ge_access`  path=/ lifetime=ACCESS_TOKEN_TTL — für JS-fetch-Calls
+ *    aus dem Browser, optionaler Bearer-Ersatz.
+ *  - `ge_refresh` path=/auth/web-refresh lifetime=REFRESH_TOKEN_TTL —
+ *    geht nur noch zum dedizierten Refresh-Endpoint (H5).
  *
- * NOTE (TODO milestone 2): path-scope the refresh cookie to a dedicated
- *  refresh endpoint so it is not sent on every page request.
+ * Refresh-Pfadwechsel löst zwei alte Probleme:
+ *  1. Refresh-Cookie wandert nicht mehr bei jedem Page-Load durchs Netz.
+ *  2. Rotation-Storm bei mehreren Tabs wird sehr unwahrscheinlich, weil
+ *     /auth/web-refresh nur dann angesteuert wird, wenn die WebSession
+ *     wirklich abgelaufen ist (siehe {@see WebSession}).
  */
 final class CookieAuth
 {
-    public const ACCESS  = 'ge_access';
-    public const REFRESH = 'ge_refresh';
+    public const ACCESS              = 'ge_access';
+    public const REFRESH             = 'ge_refresh';
+    public const REFRESH_COOKIE_PATH = '/auth/web-refresh';
 
     public function __construct(
         private readonly Config $config,
@@ -28,34 +34,29 @@ final class CookieAuth
 
     public function setFromTokens(array $tokens): void
     {
-        $this->set(self::ACCESS,  $tokens['access_token'],  (int)$tokens['access_expires_in']);
-        $this->set(self::REFRESH, $tokens['refresh_token'], (int)$tokens['refresh_expires_in']);
+        $this->set(self::ACCESS,  $tokens['access_token'],  (int)$tokens['access_expires_in'],  '/');
+        $this->set(self::REFRESH, $tokens['refresh_token'], (int)$tokens['refresh_expires_in'], self::REFRESH_COOKIE_PATH);
     }
 
     public function clear(): void
     {
-        $this->set(self::ACCESS,  '', -3600);
-        $this->set(self::REFRESH, '', -3600);
+        // Wir müssen explizit denselben path mitgeben, sonst löscht der
+        // Browser das Cookie nicht (Cookie-Identität ist Tuple aus
+        // Name+Domain+Path).
+        $this->set(self::ACCESS,  '', -3600, '/');
+        $this->set(self::REFRESH, '', -3600, self::REFRESH_COOKIE_PATH);
     }
 
     /**
-     * Resolve the current web user from cookies. Returns the standard
-     * access context (user + session_id + access_token_id) or null.
-     * Attempts a silent refresh if the access cookie is expired but the
-     * refresh cookie is still valid.
+     * Tauscht den vom Browser mitgeschickten Refresh-Token gegen ein
+     * frisches Token-Paar ein. Wird ausschließlich vom
+     * {@see \App\Controllers\Web\WebRefreshController} aufgerufen — der
+     * Pfad-Scope sorgt dafür, dass die Methode anderswo keinen Effekt hat.
      *
-     * @return array{user:array<string,mixed>,session_id:int,access_token_id:int}|null
+     * @return array{access_token:string,refresh_token:string,session_id:int,user_id:int,access_token_id:int,access_expires_in:int,refresh_expires_in:int}|null
      */
-    public function resolve(Request $req): ?array
+    public function rotateFromRequest(Request $req): ?array
     {
-        $access = $req->cookie(self::ACCESS);
-        if ($access !== null && $access !== '') {
-            $ctx = $this->tokens->resolveAccess($access);
-            if ($ctx !== null) {
-                return $ctx;
-            }
-        }
-
         $refresh = $req->cookie(self::REFRESH);
         if ($refresh === null || $refresh === '') {
             return null;
@@ -65,11 +66,10 @@ final class CookieAuth
             return null;
         }
         $this->setFromTokens($rotated);
-        $ctx = $this->tokens->resolveAccess($rotated['access_token']);
-        return $ctx;
+        return $rotated;
     }
 
-    private function set(string $name, string $value, int $maxAgeSeconds): void
+    private function set(string $name, string $value, int $maxAgeSeconds, string $path): void
     {
         $secure  = $this->config->bool('COOKIE_SECURE', false) || self::requestIsHttps();
         $domain  = (string)$this->config->get('COOKIE_DOMAIN', '');
@@ -77,7 +77,7 @@ final class CookieAuth
 
         setcookie($name, $value, [
             'expires'  => $expires,
-            'path'     => '/',
+            'path'     => $path,
             'domain'   => $domain,
             'secure'   => $secure,
             'httponly' => true,

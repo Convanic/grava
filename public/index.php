@@ -19,12 +19,14 @@ use App\Auth\CookieAuth;
 use App\Auth\PasswordService;
 use App\Auth\RateLimiter;
 use App\Auth\TokenService;
+use App\Auth\WebSession;
 use App\Cli\Commands;
 use App\Config\Config;
 use App\Controllers\Api\AuthController;
 use App\Controllers\Api\UserController;
 use App\Controllers\Web\AuthPagesController;
 use App\Controllers\Web\DashboardController;
+use App\Controllers\Web\WebRefreshController;
 use App\Http\Middleware\Csrf;
 use App\Http\Middleware\RequireBearer;
 use App\Http\Request;
@@ -99,6 +101,7 @@ $rate       = new RateLimiter($config);
 $mailer     = new MailService($config, $basePath, $basePath . '/views/email');
 $auth       = new AuthService($config, $passwords, $tokens, $mailer);
 $cookieAuth = new CookieAuth($config, $tokens);
+$webSession = new WebSession($config);
 
 // ---------------------------------------------------------------------------
 // CLI dispatch
@@ -138,10 +141,11 @@ $apiBase = rtrim((string)$config->get('API_BASE_PATH', '/api/v1'), '/');
 $requireBearer = new RequireBearer($tokens);
 $csrf = new Csrf();
 
-$apiAuth  = new AuthController($auth, $rate);
-$apiUsers = new UserController($auth);
-$webAuth  = new AuthPagesController($auth, $cookieAuth, $rate, $basePath . '/views');
-$webHome  = new DashboardController($cookieAuth, $basePath . '/views');
+$apiAuth    = new AuthController($auth, $rate);
+$apiUsers   = new UserController($auth);
+$webAuth    = new AuthPagesController($auth, $cookieAuth, $webSession, $rate, $basePath . '/views');
+$webHome    = new DashboardController($webSession, $auth, $basePath . '/views');
+$webRefresh = new WebRefreshController($cookieAuth, $webSession);
 
 // ---- JSON API ----
 $router->post("{$apiBase}/auth/register",                fn($r) => $apiAuth->register($r));
@@ -172,6 +176,9 @@ $router->post('/reset-password',   fn($r) => $webAuth->doReset($r),           [$
 $router->get('/verify-email',      fn($r) => $webAuth->showVerify($r));
 $router->get('/dashboard',         fn($r) => $webHome->show($r));
 $router->post('/logout',           fn($r) => $webAuth->doLogout($r),          [$csrf]);
+// H5: Einziger Punkt, an dem ein Refresh-Token-Cookie konsumiert wird.
+// Pfad-Scoped Cookie sorgt dafür, dass es nur hier eintrifft.
+$router->get('/auth/web-refresh',  fn($r) => $webRefresh->handle($r));
 
 // Healthcheck
 $router->get('/healthz', function ($r): void {
