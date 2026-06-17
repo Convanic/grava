@@ -15,6 +15,8 @@ final class Request
     public array $query = [];
     /** @var array<string,string> */
     public array $cookies;
+    /** @var array<string,array<string,mixed>>  Form-name → $_FILES-entry */
+    public array $files = [];
     public ?object $user = null;
     public ?int $sessionId = null;
     public ?int $accessTokenId = null;
@@ -31,11 +33,13 @@ final class Request
         ?array $cookies = null,
         ?array $query = null,
         ?array $post = null,
+        ?array $files = null,
     ) {
         $this->headers = $headers ?? [];
         $this->cookies = $cookies ?? [];
         $this->query = $query ?? [];
         $this->post = $post ?? [];
+        $this->files = $files ?? [];
 
         if ($this->rawBody !== '' && stripos($this->header('Content-Type', ''), 'application/json') !== false) {
             $decoded = json_decode($this->rawBody, true);
@@ -62,10 +66,20 @@ final class Request
         $uri = $_SERVER['REQUEST_URI'] ?? '/';
         $path = parse_url($uri, PHP_URL_PATH) ?: '/';
 
-        // M12: harter Body-Cap (Default 1 MiB). Verhindert DoS durch riesige
-        // Payloads, die PHPs post_max_size-Default ggf. zulassen würde, und
-        // schützt JSON-Decoder vor Pathological-Input.
-        $maxBytes = \App\Config\Config::instance()->int('REQUEST_MAX_BODY_BYTES', 1_048_576);
+        // M12 + M2-Phase 4: Body-Cap mit Pfad-bewusstem Override für
+        // Routen-Uploads. /api/v1/routes nimmt GPX/GeoJSON-Files entgegen
+        // — die sind typischerweise 100 KB bis 5 MB, einzelne Tagestouren
+        // können auch mal 15 MB werden. Default-Cap (1 MiB) bleibt für
+        // alle anderen Endpoints aktiv, damit eine JSON-DoS-Welle gegen
+        // /auth/login keinen 25-MB-Heap pro Request füllen kann.
+        $cfg          = \App\Config\Config::instance();
+        $apiBase      = rtrim((string)$cfg->get('API_BASE_PATH', '/api/v1'), '/');
+        $routesPrefix = $apiBase . '/routes';
+        $isUploadPath = $method === 'POST'
+            && (str_starts_with($path, $routesPrefix . '/') || $path === $routesPrefix);
+        $maxBytes = $isUploadPath
+            ? $cfg->int('REQUEST_MAX_UPLOAD_BYTES', 26_214_400)  // 25 MB
+            : $cfg->int('REQUEST_MAX_BODY_BYTES',   1_048_576);  // 1 MiB
         $declared = (int)($_SERVER['CONTENT_LENGTH'] ?? 0);
         if ($declared > $maxBytes) {
             http_response_code(413);
@@ -98,7 +112,37 @@ final class Request
             cookies: array_map('strval', $_COOKIE),
             query: $_GET,
             post: $_POST,
+            files: $_FILES,
         );
+    }
+
+    /**
+     * Liefert den $_FILES-Eintrag für ein Form-Feld, oder null wenn
+     * der Upload fehlt oder fehlgeschlagen ist.
+     *
+     * @return array{name:string,type:string,tmp_name:string,error:int,size:int}|null
+     */
+    public function file(string $name): ?array
+    {
+        $f = $this->files[$name] ?? null;
+        if (!is_array($f) || ($f['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+            return null;
+        }
+        if (!isset($f['tmp_name']) || !is_string($f['tmp_name']) || !is_uploaded_file($f['tmp_name'])) {
+            return null;
+        }
+        return [
+            'name'     => (string)($f['name']     ?? ''),
+            'type'     => (string)($f['type']     ?? ''),
+            'tmp_name' => (string)$f['tmp_name'],
+            'error'    => (int)($f['error']    ?? 0),
+            'size'     => (int)($f['size']     ?? 0),
+        ];
+    }
+
+    public function isMultipart(): bool
+    {
+        return stripos($this->header('Content-Type'), 'multipart/form-data') !== false;
     }
 
     public function header(string $name, string $default = ''): string

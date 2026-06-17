@@ -162,6 +162,152 @@ final class Validator
         return $value;
     }
 
+    /**
+     * Optionaler String mit Längen-Cap. Liefert null, wenn nichts
+     * angegeben — sonst getrimmten Wert.
+     */
+    public function optionalString(string $field, mixed $value, int $maxLen = 8000): ?string
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+        if (!is_string($value)) {
+            $this->add($field, 'Wert muss ein String sein.');
+            return null;
+        }
+        $v = trim($value);
+        if ($v === '') {
+            return null;
+        }
+        if (mb_strlen($v) > $maxLen) {
+            $this->add($field, 'Wert ist zu lang.');
+            return null;
+        }
+        return $v;
+    }
+
+    /**
+     * Routen-Titel: 1..140 Zeichen, ohne Steuerzeichen.
+     */
+    public function routeTitle(string $field, mixed $value): ?string
+    {
+        if (!is_string($value) || trim($value) === '') {
+            $this->add($field, 'Titel ist erforderlich.');
+            return null;
+        }
+        $v = trim($value);
+        if (mb_strlen($v) > 140) {
+            $this->add($field, 'Titel ist zu lang (max. 140 Zeichen).');
+            return null;
+        }
+        if (preg_match('/[\x00-\x1F\x7F]/u', $v) === 1) {
+            $this->add($field, 'Titel enthält ungültige Steuerzeichen.');
+            return null;
+        }
+        return $v;
+    }
+
+    /**
+     * Sichtbarkeit: 'private' | 'unlisted' | 'public'. Default 'private'.
+     */
+    public function visibility(string $field, mixed $value, string $default = 'private'): string
+    {
+        if ($value === null || $value === '') {
+            return $default;
+        }
+        if (!is_string($value)) {
+            $this->add($field, 'Sichtbarkeit ist ungültig.');
+            return $default;
+        }
+        $v = strtolower(trim($value));
+        if (!in_array($v, ['private', 'unlisted', 'public'], true)) {
+            $this->add($field, 'Sichtbarkeit muss private, unlisted oder public sein.');
+            return $default;
+        }
+        return $v;
+    }
+
+    /**
+     * Quelle: 'app' | 'import' | 'strava' | 'manual'. Default 'app'.
+     */
+    public function routeSource(string $field, mixed $value, string $default = 'app'): string
+    {
+        if ($value === null || $value === '') {
+            return $default;
+        }
+        if (!is_string($value)) {
+            $this->add($field, 'Quelle ist ungültig.');
+            return $default;
+        }
+        $v = strtolower(trim($value));
+        if (!in_array($v, ['app', 'import', 'strava', 'manual'], true)) {
+            $this->add($field, 'Quelle muss app, import, strava oder manual sein.');
+            return $default;
+        }
+        return $v;
+    }
+
+    /**
+     * Optionaler UUID v4 in Standard-Schreibweise (lowercase).
+     */
+    public function uuidOptional(string $field, mixed $value): ?string
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+        if (!is_string($value)) {
+            $this->add($field, 'UUID ist ungültig.');
+            return null;
+        }
+        $v = strtolower(trim($value));
+        if (!preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/', $v)) {
+            $this->add($field, 'UUID muss im Format xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx vorliegen.');
+            return null;
+        }
+        return $v;
+    }
+
+    /**
+     * Tag-Liste: nimmt Array oder Komma-separierten String entgegen.
+     * Lowercased, getrimmt, max 40 Zeichen pro Tag, max 32 Tags. Leere
+     * Werte werden ignoriert. Reservierte Steuerzeichen werden geprüft.
+     *
+     * @return list<string>
+     */
+    public function tags(string $field, mixed $value): array
+    {
+        if ($value === null || $value === '') {
+            return [];
+        }
+        if (is_string($value)) {
+            $value = array_map('trim', explode(',', $value));
+        }
+        if (!is_array($value)) {
+            $this->add($field, 'Tags müssen eine Liste sein.');
+            return [];
+        }
+        $out = [];
+        foreach ($value as $tag) {
+            if (!is_string($tag)) { continue; }
+            $clean = strtolower(trim($tag));
+            if ($clean === '') { continue; }
+            if (mb_strlen($clean) > 40) {
+                $this->add($field, 'Tags dürfen maximal 40 Zeichen lang sein.');
+                continue;
+            }
+            if (preg_match('/[\x00-\x1F\x7F]/u', $clean) === 1) {
+                $this->add($field, 'Tag enthält ungültige Steuerzeichen.');
+                continue;
+            }
+            $out[$clean] = true;
+            if (count($out) >= 32) {
+                $this->add($field, 'Maximal 32 Tags pro Route.');
+                break;
+            }
+        }
+        return array_keys($out);
+    }
+
     public function add(string $field, string $message): void
     {
         $this->errors[$field][] = $message;
