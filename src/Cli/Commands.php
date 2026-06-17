@@ -6,6 +6,7 @@ namespace App\Cli;
 use App\Auth\TokenService;
 use App\Config\Config;
 use App\Database\Migrator;
+use App\Engagement\NotificationService;
 use App\Routes\RouteService;
 
 final class Commands
@@ -15,6 +16,7 @@ final class Commands
         private readonly TokenService $tokens,
         private readonly RouteService $routes,
         private readonly Config $config,
+        private readonly ?NotificationService $notifications = null,
     ) {}
 
     public function run(array $argv): int
@@ -61,6 +63,10 @@ final class Commands
         $graceDays  = $this->config->int('ROUTES_SOFT_DELETE_GRACE_DAYS', 30);
         $routesRes  = $this->routes->purgeSoftDeleted($graceDays);
 
+        // 3) M4c: gelesene Notifications nach Karenz entfernen (Default 90 Tage).
+        $notifDays  = $this->config->int('NOTIFICATIONS_READ_GRACE_DAYS', 90);
+        $notifPurged = $this->notifications?->purgeOldRead($notifDays) ?? 0;
+
         $merged = [];
         foreach ($tokenRes as $k => $v) {
             $merged[$k] = $v;
@@ -68,6 +74,7 @@ final class Commands
         foreach ($routesRes as $k => $v) {
             $merged['routes_' . $k] = $v;
         }
+        $merged['notifications_purged'] = $notifPurged;
 
         echo "Cleanup abgeschlossen:\n";
         foreach ($merged as $k => $v) {

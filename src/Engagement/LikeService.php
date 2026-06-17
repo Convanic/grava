@@ -18,6 +18,10 @@ use PDO;
  */
 final class LikeService
 {
+    public function __construct(
+        private readonly ?NotificationService $notifications = null,
+    ) {}
+
     /**
      * @return bool true = neu angelegt, false = war schon geliked
      */
@@ -29,6 +33,9 @@ final class LikeService
             Db::pdo()->prepare(
                 'INSERT INTO route_likes (user_id, route_id) VALUES (?, ?)'
             )->execute([$viewerUserId, $route['route_id']]);
+            // M4c: Notification an den Routen-Owner (best effort,
+            // notify() filtert Self-Like + Block selbst weg).
+            $this->notifications?->notify($route['owner_id'], $viewerUserId, 'like', 'route', $route['route_id']);
             return true;
         } catch (\PDOException $e) {
             if ((int)($e->errorInfo[1] ?? 0) === 1062) {

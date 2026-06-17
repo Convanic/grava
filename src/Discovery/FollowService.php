@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace App\Discovery;
 
 use App\Database\Db;
+use App\Engagement\NotificationService;
 use PDO;
 
 /**
@@ -19,6 +20,10 @@ use PDO;
  */
 final class FollowService
 {
+    public function __construct(
+        private readonly ?NotificationService $notifications = null,
+    ) {}
+
     public function follow(int $viewerUserId, int $targetUserId): bool
     {
         if ($viewerUserId === $targetUserId) {
@@ -35,6 +40,8 @@ final class FollowService
             $pdo->prepare(
                 'INSERT INTO follows (follower_id, followee_id) VALUES (?, ?)'
             )->execute([$viewerUserId, $targetUserId]);
+            // M4c: Notification an den Gefolgten (best effort).
+            $this->notifications?->notify($targetUserId, $viewerUserId, 'follow', 'user', $viewerUserId);
             return true; // neu
         } catch (\PDOException $e) {
             // 1062 = Duplicate (PK-Verstoß) → bereits gefolgt

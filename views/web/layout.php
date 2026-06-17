@@ -22,6 +22,8 @@ $mainClass    = 'container' . ($_layoutWide ? ' container--wide' : '');
             <a href="/routes">Routen</a>
             <a href="/discover">Entdecken</a>
             <a href="/feed">Feed</a>
+            <?php $_notifUnread = $_notifUnread ?? 0; ?>
+            <a href="/notifications">Mitteilungen<?php if ((int)$_notifUnread > 0): ?> <span class="notif-badge"><?= (int)$_notifUnread ?></span><?php endif; ?></a>
             <?php if (!empty($_authedUser['public_handle'])): ?>
                 <a href="/u/<?= htmlspecialchars((string)$_authedUser['public_handle'], ENT_QUOTES, 'UTF-8') ?>">@<?= htmlspecialchars((string)$_authedUser['public_handle'], ENT_QUOTES, 'UTF-8') ?></a>
             <?php endif; ?>

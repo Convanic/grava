@@ -35,6 +35,7 @@ final class DiscoveryPagesController
         string $viewsPath,
         private readonly ?\App\Engagement\LikeService $likes = null,
         private readonly ?\App\Engagement\CommentService $comments = null,
+        private readonly ?\App\Engagement\NotificationService $notifications = null,
     ) {
         $this->view = new WebView($viewsPath);
     }
@@ -255,6 +256,32 @@ final class DiscoveryPagesController
     }
 
     // -----------------------------------------------------------------
+    // GET /notifications (auth)
+    // -----------------------------------------------------------------
+    public function notifications(Request $req): void
+    {
+        [$user] = $this->resolveOrRefresh('/notifications');
+        $viewerId = (int)$user['internal_id'];
+
+        $limit  = $this->intParam($req, 'limit',  30, 1, 50);
+        $offset = max(0, $this->intParam($req, 'offset', 0));
+
+        $res = $this->notifications !== null
+            ? $this->notifications->list($viewerId, $limit, $offset)
+            : ['notifications' => [], 'pagination' => ['total' => 0, 'has_more' => false, 'limit' => $limit, 'offset' => $offset]];
+
+        // Inbox-Besuch markiert alles als gelesen (read-Flags der View
+        // stammen noch aus dem Zustand VOR dem Markieren).
+        $this->notifications?->markAllRead($viewerId);
+
+        $this->renderPage('notifications', $user, [
+            '_title'     => 'Mitteilungen · GravelExplorer',
+            'items'      => $res['notifications'],
+            'pagination' => $res['pagination'],
+        ]);
+    }
+
+    // -----------------------------------------------------------------
     // helpers
     // -----------------------------------------------------------------
 
@@ -299,6 +326,17 @@ final class DiscoveryPagesController
         $vars['_authedUser'] = $authedUser;
         if (!array_key_exists('flash', $vars)) {
             $vars['flash'] = $this->popFlash();
+        }
+        // M4c: Unread-Badge in der Navigation für eingeloggte User.
+        if (!array_key_exists('_notifUnread', $vars)) {
+            $vars['_notifUnread'] = 0;
+            if ($authedUser !== null && $this->notifications !== null && isset($authedUser['internal_id'])) {
+                try {
+                    $vars['_notifUnread'] = $this->notifications->unreadCount((int)$authedUser['internal_id']);
+                } catch (\Throwable) {
+                    // Badge ist nice-to-have; Fehler dürfen Seite nicht brechen.
+                }
+            }
         }
         $this->view->render($view, $vars, $status);
     }

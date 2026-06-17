@@ -20,6 +20,10 @@ final class CommentService
 {
     public const MAX_LEN = 2000;
 
+    public function __construct(
+        private readonly ?NotificationService $notifications = null,
+    ) {}
+
     /**
      * @return array<string,mixed> die angelegte Kommentar-Form (inkl. id)
      */
@@ -42,6 +46,9 @@ final class CommentService
             'INSERT INTO route_comments (route_id, user_id, body) VALUES (?, ?, ?)'
         )->execute([$route['route_id'], $viewerUserId, $body]);
         $id = (int)$pdo->lastInsertId();
+
+        // M4c: Notification an den Routen-Owner (best effort).
+        $this->notifications?->notify($route['owner_id'], $viewerUserId, 'comment', 'route', $route['route_id']);
 
         return $this->loadOne($id);
     }

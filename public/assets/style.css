@@ -438,3 +438,28 @@ form textarea { resize: vertical; }
 .comment-body { margin-top: 4px; white-space: pre-wrap; }
 .comment-delete { font-size: 13px; color: var(--error-text); }
 
+.notif-badge {
+    display: inline-block;
+    min-width: 18px;
+    padding: 1px 6px;
+    margin-left: 2px;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 16px;
+    text-align: center;
+    color: #fff;
+    background: #d33;
+    border-radius: 999px;
+}
+.notif-list { list-style: none; padding: 0; margin: 16px 0 0; }
+.notif-item {
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 8px;
+    background: #fff;
+}
+.notif-item.notif-unread { border-left: 3px solid #d33; background: #fffaf8; }
+.notif-sub { margin-top: 2px; font-size: 14px; }
+.notif-date { font-size: 12px; margin-top: 4px; }
+
