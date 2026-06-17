@@ -23,6 +23,8 @@ use App\Auth\WebSession;
 use App\Cli\Commands;
 use App\Config\Config;
 use App\Controllers\Api\AuthController;
+use App\Controllers\Api\RouteController;
+use App\Controllers\Api\SharedRouteController;
 use App\Controllers\Api\UserController;
 use App\Controllers\Web\AuthPagesController;
 use App\Controllers\Web\DashboardController;
@@ -33,6 +35,12 @@ use App\Http\Request;
 use App\Http\Response;
 use App\Http\Router;
 use App\Mail\MailService;
+use App\Routes\GeometryParser;
+use App\Routes\GeometryStats;
+use App\Routes\RouteRepository;
+use App\Routes\RouteService;
+use App\Routes\RouteStorage;
+use App\Routes\ShareTokenService;
 
 $basePath = dirname(__DIR__);
 
@@ -103,6 +111,12 @@ $auth       = new AuthService($config, $passwords, $tokens, $mailer);
 $cookieAuth = new CookieAuth($config, $tokens);
 $webSession = new WebSession($config);
 
+// M2: Routes-Stack
+$routeStorage = new RouteStorage($config);
+$routeRepo    = new RouteRepository();
+$routeService = new RouteService($routeRepo, $routeStorage, new GeometryParser(), new GeometryStats());
+$shareTokens  = new ShareTokenService($routeRepo);
+
 // ---------------------------------------------------------------------------
 // CLI dispatch
 // ---------------------------------------------------------------------------
@@ -143,6 +157,8 @@ $csrf = new Csrf();
 
 $apiAuth    = new AuthController($auth, $rate);
 $apiUsers   = new UserController($auth);
+$apiRoutes  = new RouteController($routeService, $shareTokens, $config);
+$apiShared  = new SharedRouteController($shareTokens);
 $webAuth    = new AuthPagesController($auth, $cookieAuth, $webSession, $rate, $basePath . '/views');
 $webHome    = new DashboardController($webSession, $auth, $basePath . '/views');
 $webRefresh = new WebRefreshController($cookieAuth, $webSession);
@@ -162,6 +178,22 @@ $router->post("{$apiBase}/auth/email/verify/resend",     fn($r) => $apiAuth->res
 $router->get("{$apiBase}/users/me",                       fn($r) => $apiUsers->me($r),     [$requireBearer]);
 $router->patch("{$apiBase}/users/me",                     fn($r) => $apiUsers->updateMe($r), [$requireBearer]);
 $router->delete("{$apiBase}/users/me",                    fn($r) => $apiUsers->deleteMe($r), [$requireBearer]);
+
+// ---- Routes API (M2 Phase 4) ----
+// POST /routes ist sowohl Create als auch "Add Version" — Idempotenz
+// über client_route_uuid (siehe RouteService).
+$router->post("{$apiBase}/routes",                                fn($r) => $apiRoutes->upload($r),         [$requireBearer]);
+$router->get("{$apiBase}/routes",                                 fn($r) => $apiRoutes->listForUser($r),    [$requireBearer]);
+$router->get("{$apiBase}/routes/{id}",                            fn($r) => $apiRoutes->show($r),           [$requireBearer]);
+$router->patch("{$apiBase}/routes/{id}",                          fn($r) => $apiRoutes->patch($r),          [$requireBearer]);
+$router->delete("{$apiBase}/routes/{id}",                         fn($r) => $apiRoutes->softDelete($r),     [$requireBearer]);
+$router->get("{$apiBase}/routes/{id}/payload",                    fn($r) => $apiRoutes->downloadPayload($r), [$requireBearer]);
+$router->post("{$apiBase}/routes/{id}/shares",                    fn($r) => $apiRoutes->createShare($r),    [$requireBearer]);
+$router->get("{$apiBase}/routes/{id}/shares",                     fn($r) => $apiRoutes->listShares($r),     [$requireBearer]);
+$router->delete("{$apiBase}/routes/{id}/shares/{shareId}",        fn($r) => $apiRoutes->revokeShare($r),    [$requireBearer]);
+
+// Public Share-Endpoint — kein Bearer, kein CSRF (read-only GET).
+$router->get("{$apiBase}/share/{token}",                          fn($r) => $apiShared->show($r));
 
 // ---- Web pages ----
 $router->get('/',                  fn($r) => Response::redirect('/dashboard'));
