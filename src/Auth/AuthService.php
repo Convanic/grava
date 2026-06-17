@@ -182,6 +182,15 @@ final class AuthService
         $row = $stmt->fetch();
 
         if (!$row || $row['status'] !== 'active') {
+            // M3: Timing-Side-Channel mindern — der "echte" Pfad führt einen
+            // Argon2id-Hash plus DB-Insert plus Mailversand aus, was deutlich
+            // länger dauert als ein simples SELECT-no-row. Wir gleichen die
+            // Latenz an, indem wir hier ebenfalls einen Argon2id-Hash auf
+            // einem Dummy-Wert berechnen. Das ist nicht perfekt (kein
+            // DB-Insert/Mail-Roundtrip), reduziert aber das Signal um
+            // Größenordnungen — und ist deutlich billiger als asynchroner
+            // Mailversand für jetzt.
+            $this->passwords->hash(TokenService::randomToken());
             return;
         }
 
@@ -228,14 +237,19 @@ final class AuthService
         $stmt->execute([$tokenHash]);
         $row = $stmt->fetch();
         if (!$row) {
-            // Kann praktisch nicht passieren, weil das UPDATE oben gerade
-            // erst die Zeile getroffen hat — als Defense-in-Depth trotzdem.
             throw new AuthException('invalid_token', 'Reset-Token ist ungültig oder abgelaufen.', 410);
         }
 
         $hash = $this->passwords->hash($newPassword);
         $pdo->prepare('UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?')
             ->execute([$hash, $now, (int)$row['user_id']]);
+
+        // M11: Token-Hash nicht bis zum Cleanup-Cron aufbewahren — direkt
+        // löschen. Reduziert das Zeitfenster, in dem aus einer evtl.
+        // kompromittierten DB-Kopie verbrauchte Hashes mit Klartext-Tokens
+        // korreliert werden könnten.
+        $pdo->prepare('DELETE FROM password_resets WHERE id = ?')
+            ->execute([(int)$row['id']]);
 
         $this->tokens->revokeAllForUser((int)$row['user_id']);
     }
@@ -266,7 +280,7 @@ final class AuthService
         }
 
         $stmt = $pdo->prepare(
-            'SELECT user_id FROM email_verifications WHERE token_hash = ? LIMIT 1'
+            'SELECT id, user_id FROM email_verifications WHERE token_hash = ? LIMIT 1'
         );
         $stmt->execute([$tokenHash]);
         $row = $stmt->fetch();
@@ -276,6 +290,10 @@ final class AuthService
 
         $pdo->prepare('UPDATE users SET email_verified_at = ?, updated_at = ? WHERE id = ?')
             ->execute([$now, $now, (int)$row['user_id']]);
+
+        // M11: konsumierten Token sofort entfernen (siehe resetPassword).
+        $pdo->prepare('DELETE FROM email_verifications WHERE id = ?')
+            ->execute([(int)$row['id']]);
 
         return $this->loadUserPublic((int)$row['user_id']);
     }

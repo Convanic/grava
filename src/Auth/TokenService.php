@@ -143,8 +143,14 @@ final class TokenService
                 (int)$session['id'],
             ]);
 
-            $del = $pdo->prepare('DELETE FROM access_tokens WHERE session_id = ?');
-            $del->execute([(int)$session['id']]);
+            // M4: Nur abgelaufene Access-Tokens dieser Session löschen.
+            // Frühere Variante killte ALLE Tokens der Session bei jedem
+            // Rotate — das löste mit mehreren offenen Tabs einen Rotation-
+            // Storm aus, weil Tab B den noch gültigen Token von Tab A
+            // verlor. Jetzt kann eine Session mehrere parallele gültige
+            // Access-Tokens haben (eine pro Tab/Refresh).
+            $del = $pdo->prepare('DELETE FROM access_tokens WHERE session_id = ? AND expires_at <= ?');
+            $del->execute([(int)$session['id'], $now]);
 
             $atStmt = $pdo->prepare(
                 'INSERT INTO access_tokens (session_id, user_id, token_hash, created_at, expires_at)

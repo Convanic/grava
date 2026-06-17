@@ -74,6 +74,9 @@ final class AuthController
 
     public function refresh(Request $req): void
     {
+        // M2: Limit gegen Refresh-Token-Brute-Force / Replay-Storm.
+        $this->rateLimit('refresh', $req->ip, $this->maxFor('refresh'));
+
         $refresh = (string)$req->input('refresh_token', '');
         if ($refresh === '') {
             Response::error('invalid_token', 'Refresh-Token fehlt.', 401);
@@ -100,6 +103,12 @@ final class AuthController
 
     public function changePassword(Request $req): void
     {
+        // M2: Limit gegen Brute-Force des aktuellen Passworts via geklautem
+        // Access-Token. Per-User-Identifier, damit ein anderer User nicht
+        // betroffen ist, wenn jemand viel probiert.
+        $userId = (int)($req->user->internal_id ?? 0);
+        $this->rateLimit('change-password', (string)$userId, $this->maxFor('change_password'));
+
         $v = new Validator();
         $current = is_string($req->input('current_password')) ? (string)$req->input('current_password') : '';
         $email = $req->user->email ?? null;
@@ -144,6 +153,9 @@ final class AuthController
 
     public function resetPassword(Request $req): void
     {
+        // M2: Limit gegen Bulk-Brute-Force von Reset-Tokens.
+        $this->rateLimit('password-reset', $req->ip, $this->maxFor('password_reset'));
+
         $v = new Validator();
         $token = $v->nonEmptyString('token', $req->input('token'), 512);
         $newPw = $v->password('new_password', $req->input('new_password'));
@@ -160,6 +172,9 @@ final class AuthController
 
     public function verifyEmail(Request $req): void
     {
+        // M2: Limit gegen Bulk-Brute-Force von Verify-Tokens.
+        $this->rateLimit('email-verify', $req->ip, $this->maxFor('email_verify'));
+
         $token = (string)$req->input('token', '');
         if ($token === '') {
             Response::error('validation_error', 'Token fehlt.', 422, ['token' => ['Required.']]);
@@ -221,11 +236,18 @@ final class AuthController
 
     private function maxFor(string $name): int
     {
+        // L4 / H6: über Config statt direktem $_ENV-Zugriff —
+        // konsistent zum Rest des Codes und Test-Override-fähig.
+        $cfg = \App\Config\Config::instance();
         $map = [
-            'login'         => (int)($_ENV['RATE_LOGIN_MAX']         ?? 10),
-            'register'      => (int)($_ENV['RATE_REGISTER_MAX']      ?? 10),
-            'forgot'        => (int)($_ENV['RATE_FORGOT_MAX']        ?? 5),
-            'verify_resend' => (int)($_ENV['RATE_VERIFY_RESEND_MAX'] ?? 5),
+            'login'          => $cfg->int('RATE_LOGIN_MAX',          10),
+            'register'       => $cfg->int('RATE_REGISTER_MAX',       10),
+            'forgot'         => $cfg->int('RATE_FORGOT_MAX',          5),
+            'verify_resend'  => $cfg->int('RATE_VERIFY_RESEND_MAX',   5),
+            'refresh'        => $cfg->int('RATE_REFRESH_MAX',        60),
+            'change_password'=> $cfg->int('RATE_CHANGE_PW_MAX',       5),
+            'password_reset' => $cfg->int('RATE_PW_RESET_MAX',       10),
+            'email_verify'   => $cfg->int('RATE_EMAIL_VERIFY_MAX',   10),
         ];
         return $map[$name] ?? 10;
     }

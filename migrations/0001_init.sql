@@ -83,10 +83,7 @@ CREATE TABLE IF NOT EXISTS rate_limits (
   UNIQUE KEY uq_rl (action, identifier, window_start)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE IF NOT EXISTS migrations (
-  id         INT UNSIGNED   NOT NULL AUTO_INCREMENT,
-  name       VARCHAR(191)   NOT NULL,
-  ran_at     DATETIME       NOT NULL,
-  PRIMARY KEY (id),
-  UNIQUE KEY uq_migrations_name (name)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+-- M13: Die `migrations`-Tabelle wird zentral vom Migrator
+-- (App\Database\Migrator::ensureMigrationsTable) angelegt, damit es
+-- nur eine Quelle für deren Schema gibt. Der frühere CREATE TABLE
+-- IF NOT EXISTS migrations(...)-Block hier war redundant.

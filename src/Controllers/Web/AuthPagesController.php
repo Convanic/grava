@@ -7,6 +7,7 @@ use App\Auth\AuthException;
 use App\Auth\AuthService;
 use App\Auth\CookieAuth;
 use App\Auth\RateLimiter;
+use App\Config\Config;
 use App\Http\Middleware\Csrf;
 use App\Http\Request;
 use App\Http\Response;
@@ -37,9 +38,10 @@ final class AuthPagesController
         $email = (string)($req->post['email'] ?? '');
         $pw    = (string)($req->post['password'] ?? '');
 
-        $this->limit('login', $req->ip, (int)($_ENV['RATE_LOGIN_MAX'] ?? 10));
+        $loginMax = Config::instance()->int('RATE_LOGIN_MAX', 10);
+        $this->limit('login', $req->ip, $loginMax);
         if ($email !== '') {
-            $this->limit('login', strtolower(trim($email)), (int)($_ENV['RATE_LOGIN_MAX'] ?? 10));
+            $this->limit('login', strtolower(trim($email)), $loginMax);
         }
 
         $v = new Validator();
@@ -75,7 +77,7 @@ final class AuthPagesController
     public function doRegister(Request $req): void
     {
         Csrf::ensureStarted();
-        $this->limit('register', $req->ip, (int)($_ENV['RATE_REGISTER_MAX'] ?? 10));
+        $this->limit('register', $req->ip, Config::instance()->int('RATE_REGISTER_MAX', 10));
 
         $emailRaw = (string)($req->post['email'] ?? '');
         $displayName = (string)($req->post['display_name'] ?? '');
@@ -127,9 +129,10 @@ final class AuthPagesController
     {
         Csrf::ensureStarted();
         $emailRaw = (string)($req->post['email'] ?? '');
-        $this->limit('forgot-password', $req->ip, (int)($_ENV['RATE_FORGOT_MAX'] ?? 5));
+        $forgotMax = Config::instance()->int('RATE_FORGOT_MAX', 5);
+        $this->limit('forgot-password', $req->ip, $forgotMax);
         if ($emailRaw !== '') {
-            $this->limit('forgot-password', strtolower(trim($emailRaw)), (int)($_ENV['RATE_FORGOT_MAX'] ?? 5));
+            $this->limit('forgot-password', strtolower(trim($emailRaw)), $forgotMax);
         }
 
         $v = new Validator();
