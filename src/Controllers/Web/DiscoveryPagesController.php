@@ -34,6 +34,7 @@ final class DiscoveryPagesController
         private readonly FeedService $feed,
         string $viewsPath,
         private readonly ?\App\Engagement\LikeService $likes = null,
+        private readonly ?\App\Engagement\CommentService $comments = null,
     ) {
         $this->view = new WebView($viewsPath);
     }
@@ -213,11 +214,23 @@ final class DiscoveryPagesController
             }
         }
 
+        // M4b: Kommentar-Liste (erste Seite) für die Detail-Seite.
+        $comments = ['comments' => [], 'pagination' => ['total' => 0, 'has_more' => false, 'limit' => 20, 'offset' => 0]];
+        if ($this->comments !== null) {
+            try {
+                $comments = $this->comments->list((string)$route['id'], $viewerId, 20, 0);
+            } catch (\Throwable) {
+                // Sichtbarkeit oben bereits sichergestellt.
+            }
+        }
+
         $this->renderPage('profile/route', $authedUser, [
-            '_title'  => $route['title'] . ' · @' . $profile['handle'],
-            'route'   => $route,
-            'profile' => $profile,
-            'likes'   => $likes,
+            '_title'   => $route['title'] . ' · @' . $profile['handle'],
+            'route'    => $route,
+            'profile'  => $profile,
+            'likes'    => $likes,
+            'comments' => $comments['comments'],
+            'commentsPagination' => $comments['pagination'],
         ]);
     }
 

@@ -413,3 +413,28 @@ form textarea { resize: vertical; }
 }
 .like-count strong { color: var(--text); }
 
+.comments { margin-top: 32px; }
+.comment-form textarea {
+    display: block;
+    width: 100%;
+    margin-top: 6px;
+    padding: 10px 12px;
+    font-size: 15px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: #fff;
+    color: var(--text);
+    font-family: inherit;
+    resize: vertical;
+}
+.comment-list { list-style: none; padding: 0; margin: 16px 0 0; }
+.comment {
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border);
+}
+.comment:last-child { border-bottom: 0; }
+.comment-head { display: flex; gap: 10px; align-items: baseline; }
+.comment-date { font-size: 13px; }
+.comment-body { margin-top: 4px; white-space: pre-wrap; }
+.comment-delete { font-size: 13px; color: var(--error-text); }
+

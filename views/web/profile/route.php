@@ -3,6 +3,8 @@
 /** @var array<string,mixed> $profile */
 /** @var array<string,mixed>|null $_authedUser */
 /** @var array{count:int,liked_by_viewer:bool,recent:list<string>} $likes */
+/** @var list<array<string,mixed>> $comments */
+/** @var array<string,mixed> $commentsPagination */
 /** @var string $_csrf */
 
 $h = static fn(string|int|null $v): string => htmlspecialchars((string)($v ?? ''), ENT_QUOTES, 'UTF-8');
@@ -12,6 +14,9 @@ $bbox  = $stats['bbox'] ?? null;
 $cent  = $stats['centroid'] ?? null;
 $handle = (string)$profile['handle'];
 $likes = $likes ?? ['count' => 0, 'liked_by_viewer' => false, 'recent' => []];
+$comments = $comments ?? [];
+$commentsPagination = $commentsPagination ?? ['total' => 0];
+$pid = (string)$route['id'];
 ?>
 
 <header class="page-header">
@@ -80,6 +85,52 @@ $likes = $likes ?? ['count' => 0, 'liked_by_viewer' => false, 'recent' => []];
         </p>
     </section>
 <?php endif; ?>
+
+<section class="comments">
+    <h2>Kommentare (<?= $h((int)($commentsPagination['total'] ?? 0)) ?>)</h2>
+
+    <?php if ($_authedUser !== null): ?>
+        <form method="post" action="/u/<?= $h($handle) ?>/r/<?= $h($pid) ?>/comment" class="comment-form">
+            <input type="hidden" name="_csrf" value="<?= $h($_csrf) ?>">
+            <label>
+                Kommentar schreiben
+                <textarea name="body" rows="3" maxlength="2000" required placeholder="Schöne Tour!"></textarea>
+            </label>
+            <div class="form-actions">
+                <button type="submit">Kommentieren</button>
+            </div>
+        </form>
+    <?php else: ?>
+        <p class="muted"><a href="/login">Melde dich an</a>, um zu kommentieren.</p>
+    <?php endif; ?>
+
+    <?php if (empty($comments)): ?>
+        <div class="empty-state"><p>Noch keine Kommentare.</p></div>
+    <?php else: ?>
+        <ul class="comment-list">
+            <?php foreach ($comments as $c):
+                $ah = $c['author']['handle'] ?? null; ?>
+                <li class="comment">
+                    <div class="comment-head">
+                        <?php if ($ah): ?>
+                            <a href="/u/<?= $h($ah) ?>">@<?= $h($ah) ?></a>
+                        <?php else: ?>
+                            <span class="muted"><?= $h($c['author']['display_name'] ?? 'Unbekannt') ?></span>
+                        <?php endif; ?>
+                        <span class="muted comment-date"><?= $h(substr((string)$c['created_at'], 0, 10)) ?></span>
+                    </div>
+                    <div class="comment-body"><?= nl2br($h($c['body'])) ?></div>
+                    <?php if (!empty($c['can_delete'])): ?>
+                        <form method="post" action="/u/<?= $h($handle) ?>/r/<?= $h($pid) ?>/comments/<?= $h($c['id']) ?>/delete" class="inline-form" onsubmit="return confirm('Kommentar löschen?');">
+                            <input type="hidden" name="_csrf" value="<?= $h($_csrf) ?>">
+                            <button type="submit" class="btn-link comment-delete">löschen</button>
+                        </form>
+                    <?php endif; ?>
+                </li>
+            <?php endforeach; ?>
+        </ul>
+    <?php endif; ?>
+</section>
 
 <p>
     <a href="/u/<?= $h($handle) ?>" class="btn-link">← Zurück zu @<?= $h($handle) ?>'s Profil</a>
