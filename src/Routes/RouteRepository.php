@@ -304,6 +304,10 @@ final class RouteRepository
             $params[] = (float)$bb['min_lon'];
         }
 
+        if (!empty($filters['owner_user_id'])) {
+            $where[]  = 'r.user_id = ?';
+            $params[] = (int)$filters['owner_user_id'];
+        }
         if (!empty($filters['min_distance_m'])) {
             $where[]  = 'r.distance_m >= ?';
             $params[] = (int)$filters['min_distance_m'];
