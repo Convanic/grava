@@ -27,6 +27,7 @@ use App\Controllers\Api\RouteController;
 use App\Controllers\Api\SharedRouteController;
 use App\Controllers\Api\UserController;
 use App\Controllers\Api\DiscoverController;
+use App\Controllers\Api\FeedController;
 use App\Controllers\Api\ProfileController;
 use App\Controllers\Api\SocialController;
 use App\Controllers\Web\AuthPagesController;
@@ -38,6 +39,7 @@ use App\Controllers\Web\WebRefreshController;
 use App\Http\Middleware\Csrf;
 use App\Discovery\BlockService;
 use App\Discovery\DiscoveryService;
+use App\Discovery\FeedService;
 use App\Discovery\FollowService;
 use App\Discovery\ProfileService;
 use App\Http\Middleware\OptionalBearer;
@@ -173,6 +175,7 @@ $discovery     = new DiscoveryService($routeRepo);
 $profileServ   = new ProfileService($discovery, $routeRepo);
 $followServ    = new FollowService();
 $blockServ     = new BlockService();
+$feedServ      = new FeedService($routeRepo, $discovery);
 
 $apiAuth    = new AuthController($auth, $rate);
 $apiUsers   = new UserController($auth);
@@ -181,6 +184,7 @@ $apiShared  = new SharedRouteController($shareTokens);
 $apiDiscover = new DiscoverController($discovery);
 $apiProfile  = new ProfileController($profileServ);
 $apiSocial   = new SocialController($followServ, $blockServ);
+$apiFeed     = new FeedController($feedServ);
 $webAuth    = new AuthPagesController($auth, $cookieAuth, $webSession, $rate, $basePath . '/views');
 $webHome    = new DashboardController($webSession, $auth, $basePath . '/views');
 $webRefresh = new WebRefreshController($cookieAuth, $webSession);
@@ -251,6 +255,10 @@ $router->delete("{$apiBase}/users/by-handle/{handle}/block",      fn($r) => $api
 $router->get("{$apiBase}/users/me/follows",                       fn($r) => $apiSocial->meFollows($r),   [$requireBearer]);
 $router->get("{$apiBase}/users/me/followers",                     fn($r) => $apiSocial->meFollowers($r), [$requireBearer]);
 $router->get("{$apiBase}/users/me/blocks",                        fn($r) => $apiSocial->meBlocks($r),    [$requireBearer]);
+
+// ---- Feed (M3 Phase 5) ----
+// Auth-required. Public Routen aller gefolgten User, neueste zuerst.
+$router->get("{$apiBase}/feed",                                   fn($r) => $apiFeed->show($r),       [$requireBearer]);
 
 // ---- Web pages ----
 $router->get('/',                  fn($r) => Response::redirect('/dashboard'));
