@@ -1,7 +1,9 @@
 # Milestone 2 — Routen-Upload, Bibliothek & Sharing
 
-> Stand: Entwurf, offen für Diskussion. Implementation startet erst, wenn die
-> offenen Fragen unten geklärt sind.
+> Stand 2026-06-17: Offene Fragen aus §11 entschieden, Implementation
+> kann starten. Aus dem M1-Code-Review wandern **H5** (Web-Session-
+> Architektur) und **M5** (Email-Verify-Enforcement für Upload) in den
+> M2-Scope, weil Web-UI ebenfalls vollen Upload + Sharing bekommt.
 
 ## 1. Ziel
 
@@ -259,43 +261,102 @@ Sobald implementiert, gegen den Built-in-Server smoken:
 9. Versuche, GPX-Upload mit 11 MB → 413
 10. Upload mit Lat=99 → 422 mit klarem Validation-Error
 
-## 11. Offene Fragen
+## 11. Entscheidungen (vorher offene Fragen)
 
-1. **Versionierung im API:** Soll der Client beim erneuten Upload selbst die
-   Version inkrementieren oder schickt er einfach POST und der Server merkt
-   anhand `client_route_uuid`, dass es ein Update ist? *Empfehlung: Server-side.*
-2. **Multipart vs. Base64-JSON:** Multipart ist effizienter, JSON-only ist
-   einfacher für die App-Code-Basis. Falls die App Background-Uploads via
-   `URLSession` macht, ist Multipart üblich. *Empfehlung: beides
-   akzeptieren — Multipart wenn `Content-Type: multipart/form-data`,
-   sonst JSON mit base64.*
-3. **MySQL Spatial:** MAMP-MySQL 8.0 kann Spatial — produktiv aber prüfen.
-   Falls Provider kein Spatial bietet, fallen wir auf BBox-Filter zurück.
-4. **GPX-Library:** Eigenen Parser schreiben (klein, kontrolliert) oder
-   `php-gpx` einbinden? *Vorschlag: eigener kleiner Parser, weil GPX-Felder,
-   die wir brauchen, klein sind und externe Abhängigkeiten klein bleiben sollen.*
-5. **Sichtbarkeit "public" vs Crowd:** "public" listet die Route in der
-   späteren öffentlichen Suche/Heatmap. Solange Crowd-Aggregation nicht da
-   ist, behandeln wir "public" und "unlisted" identisch (nur über Share-Link
-   abrufbar). Schema-mäßig aber jetzt schon trennen, damit M3 nichts ändern
-   muss.
-6. **Route-Replacement vs. Versioning:** Soll `PATCH /routes/{id}` mit
-   geändertem Track erlaubt sein, oder ausschließlich
-   `POST /routes/{id}/versions`? *Empfehlung: PATCH nur Metadaten,
-   Geometrie ist immutable je Version.*
+1. **Versionierung im API → Server-side via `client_route_uuid`.**
+   Client schickt immer `POST /routes` mit dem gleichen `client_route_uuid`;
+   Server merkt anhand des Unique-Keys, dass es ein Update ist, legt eine
+   neue `route_versions`-Zeile an und schiebt `head_version_id`. Ein
+   expliziter `POST /routes/{id}/versions` bleibt als alternative Form
+   erlaubt, ist aber nicht der Default-Pfad.
+2. **Upload-Format → beides, Content-Type-getrieben.**
+   `Content-Type: multipart/form-data` → File-Part `payload` lesen.
+   Sonst JSON mit `payload` als Base64-String. Wechsel pro Request
+   möglich.
+3. **MySQL Spatial → aktivieren.**
+   Migration legt `SPATIAL INDEX(centroid)` an, MAMP-MySQL 8 unterstützt
+   das. Sollte ein Production-Provider kein Spatial bieten, ist eine
+   Folge-Migration „Drop Spatial Index, BBox-Only" trivial.
+4. **GPX-Library → `sibyx/phpgpx:^2.0.0-beta.1`.**
+   PHP-8.1+-Rewrite, GeoJSON-Serialisierung eingebaut (RFC 7946 via
+   `JsonSerializable`), `Engine::default()` rechnet Distanz/Höhenmeter/
+   Bounds in einem Pass. Beta, aber März 2026 released, MIT, aktiv
+   gewartet. Wir versionspinnen genau, damit ein 2.0.0-stable-Release
+   nicht versehentlich Breaking Changes einschleppt.
+5. **`visibility=public` → bis Crowd kommt identisch zu `unlisted`.**
+   Schema trennt die Werte, Anzeige-/Listing-Logik behandelt beide gleich
+   (nur über Share-Link abrufbar). M3 ändert nur den Filter in der
+   öffentlichen Suche, kein Migrations-Aufwand.
+6. **PATCH ändert nur Metadaten.**
+   Title, Description, Visibility, Tags. Geometrie ist immutable je
+   Version; Geometrie-Update läuft ausschließlich über
+   `POST /routes` (idempotent) oder explizit `POST /routes/{id}/versions`.
+
+## 11a. Zusätzliche Entscheidungen aus dem M1-Code-Review
+
+7. **M5 — Email-Verify-Pflicht.**
+   `POST /routes` (Upload) ist gesperrt, bis `email_verified_at IS NOT NULL`.
+   Listing, PATCH, Sharing bleiben offen — wenn der User schon Routen
+   hat (z. B. weil Verify-Pflicht erst nachträglich eingeführt wurde),
+   kann er die weiter verwalten. UI/Web zeigt ein Banner „Bitte
+   verifiziere zuerst deine E-Mail-Adresse" mit Resend-Button.
+8. **H5 — Web-Session-Architektur.**
+   Web-UI bekommt vollen Upload + Sharing. Damit wandert die saubere
+   Web-Auth in M2-Scope. Konkrete Festlegung:
+
+   - **Primär-Auth für Web:** Server-side `$_SESSION['user_id']` +
+     `$_SESSION['expires_at']` (30 Minuten Sliding — jede authentifizierte
+     Aktion erneuert die TTL).
+   - **`ge_refresh` Cookie** wird auf `path=/auth/web-refresh` (Web) bzw.
+     `path=/api/v1/auth/refresh` (API) gescoped, geht nicht mehr bei
+     jedem Page-Load mit.
+   - **`ge_access` Cookie** bleibt für JS-fetch-Calls aus dem Browser
+     verfügbar (path=/), kurze TTL, wird beim Web-Refresh mit-rotiert.
+   - **Silent Refresh über `/auth/web-refresh`:** Wenn die PHP-Session
+     abgelaufen aber `ge_refresh` noch gültig, redirecten wir
+     einmalig auf `/auth/web-refresh?next=<original>`, das rotiert das
+     Refresh-Token, baut die Session neu und leitet zurück. Keine
+     Refresh-Token-Rotation mehr bei jedem Page-Load.
+   - **`CookieAuth::resolve()`** liest primär aus `$_SESSION`,
+     `$_SESSION` zerstören wir bei Logout und bei
+     `Csrf::rotateForAuthState()` (das war's vorher schon).
 
 ## 12. Aufwandsschätzung
 
 | Block                              | Aufwand |
 |------------------------------------|---------|
+| Phase 0 — H5 Web-Session-Architektur | 0.5 PT |
 | Migration + Schema                 | 0.5 PT  |
-| GPX-/GeoJSON-Parser + Stats        | 1.0 PT  |
+| Parser (`sibyx/phpgpx` integriert) + Stats | 0.8 PT |
 | RouteService + Repository          | 1.0 PT  |
-| Controller (Routes + Shares)       | 1.0 PT  |
+| API-Controller (Routes + Shares)   | 1.0 PT  |
 | Public Shared-Route-Controller     | 0.5 PT  |
+| M5 — `RequireVerified`-Middleware  | 0.1 PT  |
+| Web-UI für Upload + Listing + Sharing | 1.5 PT |
 | Storage-Layer + Cleanup-Erweiterung| 0.5 PT  |
 | Tests / Smoke + Doku               | 0.5 PT  |
-| **Gesamt**                         | **5.0 PT** |
+| **Gesamt**                         | **~7 PT** |
 
-Annahmen: keine größeren Schemafragen offen, MySQL Spatial verfügbar,
-keine OAuth-Komplexität.
+Annahmen: MySQL Spatial verfügbar (MAMP-MySQL 8 bestätigt), keine
+OAuth-Komplexität, Web-Multipart-Upload ohne Drag-&-Drop-UI (klassisches
+`<input type=file>` reicht). Ausgangspunkt ist `main` nach Code-Review-
+Fixes (Critical + High + Medium + Polish + Quick-Wins) — keine
+Vor-Refactor-Schulden mehr.
+
+## 13. Ausführungs-Reihenfolge
+
+| Phase | Schritt | Abhängigkeiten |
+|---|---|---|
+| 0 | H5-Web-Session-Refactor | keine — kommt **zuerst**, weil Routen-Web-UI darauf aufbaut |
+| 1 | Migration `0003_routes.sql` + `AuthService::deleteAccount`-Erweiterung | Phase 0 |
+| 2 | `composer require sibyx/phpgpx` + `GeometryParser`/`Stats` | Phase 1 |
+| 3 | `RouteRepository`, `RouteService`, `ShareTokenService` | Phase 2 |
+| 4 | `RouteController` + `SharedRouteController` + Routen-Mapping in `public/index.php` | Phase 3 |
+| 5 | `RequireVerified`-Middleware + Binding an `POST /routes` (M5) | Phase 4 |
+| 6 | Web-Controller `RoutePagesController` + Views (Upload-Form, Listing, Detail, Share-Verwaltung) | Phase 0 + 4 |
+| 7 | `Commands::cleanup()` für Routen-FS-Cleanup | Phase 1, 4 |
+| 8 | Smoke-Plan §10 vollständig durchspielen | alle |
+
+Jede Phase landet auf einem eigenen Feature-Branch und wird per
+`--no-ff` in `main` gemerged — analog zur Tranche-Struktur aus dem
+Code-Review-Cleanup.

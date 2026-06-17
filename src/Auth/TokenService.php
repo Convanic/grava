@@ -22,7 +22,7 @@ final class TokenService
     /**
      * Issue a brand-new session (refresh) + access token pair.
      *
-     * @return array{access_token:string,refresh_token:string,session_id:int,access_token_id:int,access_expires_in:int,refresh_expires_in:int}
+     * @return array{access_token:string,refresh_token:string,session_id:int,user_id:int,access_token_id:int,access_expires_in:int,refresh_expires_in:int}
      */
     public function issueSession(int $userId, string $client, ?string $userAgent, ?string $ipBinary): array
     {
@@ -72,6 +72,7 @@ final class TokenService
             'access_token'       => $access,
             'refresh_token'      => $refresh,
             'session_id'         => $sessionId,
+            'user_id'            => $userId,
             'access_token_id'    => $accessId,
             'access_expires_in'  => $accessTtl,
             'refresh_expires_in' => $refreshTtl,
