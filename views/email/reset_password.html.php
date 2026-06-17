@@ -3,7 +3,9 @@
 /** @var string $reset_url */
 /** @var int $minutes_valid */
 /** @var string $app_name */
-$name = $display_name ?: 'Hallo';
+$greeting = ($display_name !== null && $display_name !== '')
+    ? 'Hallo ' . $display_name
+    : 'Hallo';
 ?>
 <!doctype html>
 <html lang="de">
@@ -17,7 +19,7 @@ $name = $display_name ?: 'Hallo';
                 <p style="margin:0 0 16px;color:#6b7268;">Passwort zurücksetzen</p>
             </td></tr>
             <tr><td style="padding:0 24px 16px;">
-                <p>Hallo <?= htmlspecialchars((string)$name, ENT_QUOTES, 'UTF-8') ?>,</p>
+                <p><?= htmlspecialchars($greeting, ENT_QUOTES, 'UTF-8') ?>,</p>
                 <p>du (oder jemand mit Zugriff auf dein Konto) hat ein neues Passwort angefordert. Klicke auf den folgenden Button, um ein neues Passwort festzulegen:</p>
                 <p style="text-align:center;margin:24px 0;">
                     <a href="<?= htmlspecialchars($reset_url, ENT_QUOTES, 'UTF-8') ?>"

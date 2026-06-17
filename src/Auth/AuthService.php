@@ -354,7 +354,12 @@ final class AuthService
         $this->tokens->revokeAllForUser($userId);
     }
 
-    /** @return array<string,mixed> public user representation */
+    /**
+     * L2: wirft, statt ein leeres Array zu liefern. Aufrufer können sich
+     * darauf verlassen, dass der Rückgabewert die public-User-Form hat.
+     *
+     * @return array<string,mixed> public user representation
+     */
     public function loadUserPublic(int $userId): array
     {
         $pdo = Db::pdo();
@@ -365,7 +370,7 @@ final class AuthService
         $stmt->execute([$userId]);
         $row = $stmt->fetch();
         if (!$row) {
-            return [];
+            throw new \RuntimeException("User #{$userId} nicht gefunden — Datenintegritätsverletzung.");
         }
         return [
             'id'             => $row['public_id'],

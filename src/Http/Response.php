@@ -22,6 +22,19 @@ final class Response
         if ($fields !== null) {
             $body['error']['fields'] = $fields;
         }
+        // L13: Server-Fehler (5xx) und Auth/Sec-relevante Antworten ins
+        // Errorlog spiegeln — hilft beim Forensik nach einem Vorfall und
+        // beim Erkennen von Brute-Force-Wellen über das normale Logfile.
+        if ($status >= 500 || in_array($status, [401, 403, 419, 429], true)) {
+            error_log(sprintf(
+                'Response::error status=%d code=%s message=%s path=%s ip=%s',
+                $status,
+                $code,
+                $message,
+                (string)($_SERVER['REQUEST_URI'] ?? '-'),
+                (string)($_SERVER['REMOTE_ADDR'] ?? '-'),
+            ));
+        }
         self::json($body, $status);
     }
 

@@ -15,12 +15,16 @@ use App\Support\Validator;
 
 final class AuthPagesController
 {
+    private readonly WebView $view;
+
     public function __construct(
         private readonly AuthService $auth,
         private readonly CookieAuth $cookieAuth,
         private readonly RateLimiter $rate,
-        private readonly string $viewsPath,
-    ) {}
+        string $viewsPath,
+    ) {
+        $this->view = new WebView($viewsPath);
+    }
 
     public function showLogin(Request $req): void
     {
@@ -221,24 +225,10 @@ final class AuthPagesController
         }
     }
 
+    /** @param array<string,mixed> $vars */
     private function render(string $view, array $vars = [], int $status = 200): never
     {
-        Csrf::ensureStarted();
-        http_response_code($status);
-        header('Content-Type: text/html; charset=utf-8');
-        $vars['_csrf'] = Csrf::token();
-        $vars['_title'] = $vars['_title'] ?? ucfirst($view) . ' · GravelExplorer';
-        $vars['_view'] = $view;
-        extract($vars, EXTR_SKIP);
-        $layout = $this->viewsPath . '/web/layout.php';
-        $partial = $this->viewsPath . '/web/' . $view . '.php';
-
-        ob_start();
-        include $partial;
-        $content = (string)ob_get_clean();
-
-        include $layout;
-        exit;
+        $this->view->render($view, $vars, $status);
     }
 
     private function setFlash(string $msg): void

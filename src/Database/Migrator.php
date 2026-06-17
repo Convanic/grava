@@ -22,7 +22,11 @@ final class Migrator
         $this->ensureMigrationsTable($pdo);
 
         $files = glob(rtrim($this->migrationsDir, '/').'/*.sql') ?: [];
-        sort($files, SORT_STRING);
+        // L11: natürliche Sortierung — sobald Migrationsnummern ohne führende
+        // Nullen vorkommen (z.B. 0009 vs. 10), würde lexikalisches sort
+        // 10 vor 9 setzen. natsort vermeidet das ohne führende-Null-Convention.
+        natsort($files);
+        $files = array_values($files);
 
         $applied = [];
         foreach ($files as $file) {

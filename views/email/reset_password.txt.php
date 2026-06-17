@@ -3,8 +3,10 @@
 /** @var string $reset_url */
 /** @var int $minutes_valid */
 /** @var string $app_name */
-$name = $display_name ?: 'Hallo';
-?>Hallo <?= $name ?>,
+$greeting = ($display_name !== null && $display_name !== '')
+    ? 'Hallo ' . $display_name
+    : 'Hallo';
+?><?= $greeting ?>,
 
 du (oder jemand mit Zugriff auf dein <?= $app_name ?>-Konto) hat ein neues
 Passwort angefordert. Öffne den folgenden Link, um ein neues Passwort

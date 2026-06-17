@@ -3,6 +3,45 @@
 /** @var string $_csrf */
 $name = $user['display_name'] ?? null;
 $greeting = $name !== null && $name !== '' ? $name : ($user['email'] ?? 'Fahrer*in');
+
+// L7: ISO-8601 lesbar formatieren. Wenn die intl-Extension geladen
+// ist, nutzen wir sie für Locale-korrekte Ausgabe — sonst eine
+// einfache, deutsche Standardform.
+$createdAt = (string)($user['created_at'] ?? '');
+$createdAtDisplay = $createdAt;
+if ($createdAt !== '') {
+    try {
+        $dt = new DateTimeImmutable($createdAt);
+        if (class_exists('IntlDateFormatter')) {
+            $fmt = new IntlDateFormatter(
+                'de-DE',
+                IntlDateFormatter::LONG,
+                IntlDateFormatter::SHORT,
+                $dt->getTimezone(),
+            );
+            $formatted = $fmt->format($dt);
+            if (is_string($formatted) && $formatted !== '') {
+                $createdAtDisplay = $formatted;
+            }
+        } else {
+            $months = [
+                1=>'Januar', 2=>'Februar', 3=>'März',     4=>'April',
+                5=>'Mai',    6=>'Juni',    7=>'Juli',     8=>'August',
+                9=>'September', 10=>'Oktober', 11=>'November', 12=>'Dezember',
+            ];
+            $createdAtDisplay = sprintf(
+                '%d. %s %d, %s Uhr',
+                (int)$dt->format('j'),
+                $months[(int)$dt->format('n')] ?? $dt->format('M'),
+                (int)$dt->format('Y'),
+                $dt->format('H:i'),
+            );
+        }
+    } catch (Throwable) {
+        // Fällt zurück auf den Rohstring, damit ein kaputter Datumswert
+        // die Seite nicht killt.
+    }
+}
 ?>
 <section class="card">
     <h1>Hallo, <?= htmlspecialchars((string)$greeting, ENT_QUOTES, 'UTF-8') ?>!</h1>
@@ -18,7 +57,7 @@ $greeting = $name !== null && $name !== '' ? $name : ($user['email'] ?? 'Fahrer*
             <?php endif; ?>
         </dd>
         <dt>Konto seit</dt>
-        <dd><?= htmlspecialchars((string)($user['created_at'] ?? ''), ENT_QUOTES, 'UTF-8') ?></dd>
+        <dd><?= htmlspecialchars($createdAtDisplay, ENT_QUOTES, 'UTF-8') ?></dd>
         <dt>User-ID</dt>
         <dd><code><?= htmlspecialchars((string)($user['id'] ?? ''), ENT_QUOTES, 'UTF-8') ?></code></dd>
     </dl>
