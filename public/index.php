@@ -61,6 +61,15 @@ ini_set('error_log', $basePath . '/storage/logs/php.log');
 error_reporting($isProd ? (E_ALL & ~E_DEPRECATED & ~E_NOTICE) : E_ALL);
 
 set_exception_handler(function (\Throwable $e) use ($isProd, $basePath): void {
+    // H7: erst über PHP-Standard-Logger (folgt der oben gesetzten
+    // error_log-Konfiguration und greift auch wenn die Datei nicht
+    // schreibbar ist — landet dann zumindest in stderr/syslog).
+    error_log(sprintf("Uncaught: %s in %s:%d\n%s",
+        $e->getMessage(), $e->getFile(), $e->getLine(), $e->getTraceAsString()
+    ));
+    // Notnagel: ein letzter direkter Schreibversuch ins File. Hier darf
+    // das @ bleiben, weil wir bereits in einem Exception-Handler stehen
+    // und einen weiteren Crash hier nicht mehr aufkommen wollen.
     @file_put_contents(
         $basePath . '/storage/logs/php.log',
         sprintf("[%s] %s in %s:%d\n%s\n", gmdate('Y-m-d H:i:s'), $e->getMessage(), $e->getFile(), $e->getLine(), $e->getTraceAsString()),
@@ -102,6 +111,26 @@ if (PHP_SAPI === 'cli') {
 // ---------------------------------------------------------------------------
 // HTTP dispatch
 // ---------------------------------------------------------------------------
+
+// H3: Sicherheitsheader hosting-portabel im PHP-Layer setzen, nicht nur via
+// .htaccess — manche Reverse-Proxies / Shared-Hostings filtern oder
+// überschreiben Apache-Header. So sind sie immer aktiv.
+header('X-Content-Type-Options: nosniff');
+header('X-Frame-Options: DENY');
+header('Referrer-Policy: strict-origin-when-cross-origin');
+header('Permissions-Policy: geolocation=(), microphone=(), camera=()');
+$requestIsHttps = (($_SERVER['HTTPS'] ?? '') === 'on')
+    || strtolower((string)($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '')) === 'https';
+if ($requestIsHttps) {
+    // HSTS nur über TLS senden — RFC 6797 verbietet das Setzen über plain HTTP.
+    header('Strict-Transport-Security: max-age=31536000; includeSubDomains');
+}
+header(
+    "Content-Security-Policy: default-src 'self'; script-src 'self'; "
+  . "style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; "
+  . "form-action 'self'; frame-ancestors 'none'; base-uri 'self'; object-src 'none'"
+);
+
 $request = Request::fromGlobals();
 $router  = new Router();
 

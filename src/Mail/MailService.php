@@ -102,7 +102,12 @@ final class MailService
     private function writeToDisk(string $toEmail, ?string $toName, string $subject, string $html, string $text): bool
     {
         $dir = $this->basePath . '/storage/mail';
-        if (!is_dir($dir)) @mkdir($dir, 0775, true);
+        // H7: kein @ — wenn das Verzeichnis nicht angelegt werden kann, soll
+        // das geloggt und im Aufruf als Fehler bekannt werden.
+        if (!is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) {
+            error_log("MailService: konnte Mail-Verzeichnis nicht erzeugen: {$dir}");
+            return false;
+        }
         $stamp = date('Ymd_His');
         $rand  = bin2hex(random_bytes(3));
         $safeTo = preg_replace('/[^a-zA-Z0-9._-]+/', '_', $toEmail) ?: 'unknown';
@@ -112,8 +117,15 @@ final class MailService
         $fromName = (string)$this->config->get('MAIL_FROM_NAME', 'GravelExplorer');
         $boundary = 'b_' . bin2hex(random_bytes(8));
 
-        $headers = "From: {$fromName} <{$from}>\r\n"
-                 . 'To: ' . ($toName ? "{$toName} <{$toEmail}>" : $toEmail) . "\r\n"
+        // H2: Defense-in-Depth — auch hier, nicht nur im Validator, alle
+        // Steuerzeichen aus den Header-Komponenten entfernen, damit ein
+        // versehentlicher CRLF-Eintrag (z.B. aus einer alten DB-Zeile)
+        // keine Header-Injection erlaubt.
+        $cleanFromName = self::stripControlChars($fromName);
+        $cleanToName   = $toName !== null ? self::stripControlChars($toName) : null;
+
+        $headers = "From: {$cleanFromName} <{$from}>\r\n"
+                 . 'To: ' . ($cleanToName ? "{$cleanToName} <{$toEmail}>" : $toEmail) . "\r\n"
                  . 'Subject: =?UTF-8?B?' . base64_encode($subject) . "?=\r\n"
                  . "MIME-Version: 1.0\r\n"
                  . "Content-Type: multipart/alternative; boundary=\"{$boundary}\"\r\n"
@@ -127,13 +139,30 @@ final class MailService
                . $html . "\r\n\r\n"
                . "--{$boundary}--\r\n";
 
-        return (bool)@file_put_contents($path, $headers . $body);
+        $bytes = file_put_contents($path, $headers . $body);
+        if ($bytes === false) {
+            error_log("MailService: konnte EML nicht schreiben: {$path}");
+            return false;
+        }
+        return true;
     }
 
     private function logFailure(string $to, string $subject, string $err): void
     {
+        $logDir = $this->basePath . '/storage/logs';
+        if (!is_dir($logDir) && !mkdir($logDir, 0775, true) && !is_dir($logDir)) {
+            error_log("MailService: konnte Log-Verzeichnis nicht erzeugen: {$logDir} | original-err: {$err}");
+            return;
+        }
         $line = sprintf("[%s] mail-fail to=%s subject=%s err=%s\n",
             gmdate('Y-m-d H:i:s'), $to, $subject, $err);
-        @file_put_contents($this->basePath . '/storage/logs/mail.log', $line, FILE_APPEND);
+        if (file_put_contents($logDir . '/mail.log', $line, FILE_APPEND) === false) {
+            error_log("MailService: konnte mail.log nicht beschreiben | original-err: {$err}");
+        }
+    }
+
+    private static function stripControlChars(string $value): string
+    {
+        return (string)preg_replace('/[\x00-\x1F\x7F]/u', '', $value);
     }
 }

@@ -153,7 +153,7 @@ final class AuthService
     /**
      * @throws AuthException
      */
-    public function changePassword(int $userId, int $currentSessionId, string $currentPassword, string $newPassword): void
+    public function changePassword(int $userId, string $currentPassword, string $newPassword): void
     {
         $pdo = Db::pdo();
         $stmt = $pdo->prepare('SELECT password_hash, email FROM users WHERE id = ? LIMIT 1');
@@ -168,7 +168,10 @@ final class AuthService
         $pdo->prepare('UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?')
             ->execute([$hash, Clock::nowUtcString(), $userId]);
 
-        $this->tokens->revokeAllForUser($userId, $currentSessionId);
+        // H1: Auch die aufrufende Session entwerten — wer ein Passwort
+        // ändert, soll den Vorgang ggf. mit frischem Login bestätigen.
+        // Schützt zusätzlich, falls Tokens vor dem Wechsel abgegriffen wurden.
+        $this->tokens->revokeAllForUser($userId);
     }
 
     public function requestPasswordReset(string $email, ?string $ipBin): void
@@ -371,23 +374,32 @@ final class AuthService
     {
         $url = rtrim((string)$this->config->get('APP_URL', ''), '/') . '/verify-email?token=' . urlencode($rawToken);
         $hours = max(1, (int)round($this->config->int('EMAIL_VERIFY_TTL', 86400) / 3600));
-        $this->mailer->send($email, $displayName, 'verify_email', [
+        $ok = $this->mailer->send($email, $displayName, 'verify_email', [
             'display_name' => $displayName,
             'verify_url'   => $url,
             'hours_valid'  => $hours,
             'app_name'     => 'GravelExplorer',
         ]);
+        // H7/L6: bei Mail-Fehlern den Operator informieren, aber den
+        // User-Flow nicht hart brechen — der Resend-Endpoint kann es
+        // wiederholen. Token wurde bereits in DB persistiert.
+        if (!$ok) {
+            error_log("AuthService: Verify-Mail an {$email} konnte nicht versendet werden.");
+        }
     }
 
     private function sendResetMail(string $email, ?string $displayName, string $rawToken): void
     {
         $url = rtrim((string)$this->config->get('APP_URL', ''), '/') . '/reset-password?token=' . urlencode($rawToken);
         $minutes = max(1, (int)round($this->config->int('PASSWORD_RESET_TTL', 3600) / 60));
-        $this->mailer->send($email, $displayName, 'reset_password', [
+        $ok = $this->mailer->send($email, $displayName, 'reset_password', [
             'display_name' => $displayName,
             'reset_url'    => $url,
             'minutes_valid'=> $minutes,
             'app_name'     => 'GravelExplorer',
         ]);
+        if (!$ok) {
+            error_log("AuthService: Reset-Mail an {$email} konnte nicht versendet werden.");
+        }
     }
 }

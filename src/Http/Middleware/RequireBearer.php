@@ -15,12 +15,21 @@ final class RequireBearer
     {
         $token = $request->bearerToken();
         if ($token === null || $token === '') {
+            // H4: WWW-Authenticate per RFC 6750, damit Clients trotz
+            // einheitlichem Error-Code nuancierte Reaktionen zeigen können.
+            header('WWW-Authenticate: Bearer realm="api"');
             Response::error('unauthorized', 'Authentifizierung erforderlich.', 401);
         }
 
         $ctx = $this->tokens->resolveAccess($token);
         if ($ctx === null) {
-            Response::error('token_expired', 'Token ist abgelaufen oder ungültig.', 401);
+            // H4: gleicher generischer Error-Code wie bei "kein Token", damit
+            // ein Angreifer nicht "kein Header geschickt" von "Token ungültig"
+            // unterscheiden kann. Der WWW-Authenticate-Header informiert
+            // legitime Clients darüber, dass der präsentierte Token ungültig
+            // ist und ein Refresh nötig sein kann.
+            header('WWW-Authenticate: Bearer realm="api", error="invalid_token"');
+            Response::error('unauthorized', 'Authentifizierung erforderlich.', 401);
         }
 
         $request->user = (object)$ctx['user'];

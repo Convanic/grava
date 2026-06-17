@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace App\Http\Middleware;
 
+use App\Config\Config;
 use App\Http\Request;
 use App\Http\Response;
 
@@ -21,7 +22,13 @@ final class Csrf
                 'samesite' => 'Lax',
             ]);
             session_name('ge_session');
-            @session_start();
+            // H7: kein @ — wenn session_start() fehlschlägt, ist das ein
+            // ernster Fehler (Permissions, Disk voll, …). Wir loggen und
+            // antworten mit 500 statt mit einer halb-funktionalen Session.
+            if (!session_start()) {
+                error_log('Csrf::ensureStarted: session_start() returned false.');
+                Response::html('<!doctype html><meta charset="utf-8"><title>500</title><h1>Sitzung kann nicht gestartet werden.</h1>', 500);
+            }
         }
     }
 
@@ -73,9 +80,21 @@ final class Csrf
              . '<p>Bitte gehe zurück und versuche es erneut.</p>';
     }
 
+    /**
+     * H6: konsistent über `Config::instance()` (statt direkt `$_ENV`),
+     * damit Test-Overrides oder ein zukünftiges Re-Boot greifen.
+     * H3: zusätzlich Reverse-Proxy-HTTPS via X-Forwarded-Proto.
+     */
     private static function cookieSecure(): bool
     {
-        return ($_SERVER['HTTPS'] ?? '') === 'on'
-            || strtolower((string)($_ENV['COOKIE_SECURE'] ?? 'false')) === 'true';
+        if (($_SERVER['HTTPS'] ?? '') === 'on') {
+            return true;
+        }
+        $proto = strtolower((string)($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? ''));
+        $first = trim(explode(',', $proto)[0] ?? '');
+        if ($first === 'https') {
+            return true;
+        }
+        return Config::instance()->bool('COOKIE_SECURE', false);
     }
 }
