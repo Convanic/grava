@@ -56,6 +56,15 @@ if ($createdAt !== '') {
                 <span class="badge badge-ok">bestätigt</span>
             <?php endif; ?>
         </dd>
+        <dt>Profil-Handle</dt>
+        <dd>
+            <?php $handle = (string)($user['public_handle'] ?? ''); if ($handle !== ''): ?>
+                <a href="/u/<?= htmlspecialchars($handle, ENT_QUOTES, 'UTF-8') ?>">@<?= htmlspecialchars($handle, ENT_QUOTES, 'UTF-8') ?></a>
+            <?php else: ?>
+                <span class="muted">noch nicht gesetzt</span> ·
+                <a href="/settings/handle">jetzt festlegen</a>
+            <?php endif; ?>
+        </dd>
         <dt>Konto seit</dt>
         <dd><?= htmlspecialchars($createdAtDisplay, ENT_QUOTES, 'UTF-8') ?></dd>
         <dt>User-ID</dt>
