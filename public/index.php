@@ -30,6 +30,7 @@ use App\Controllers\Api\CommentController;
 use App\Controllers\Api\DiscoverController;
 use App\Controllers\Api\FeedController;
 use App\Controllers\Api\LikeController;
+use App\Controllers\Api\NotificationController;
 use App\Controllers\Api\ProfileController;
 use App\Controllers\Api\SocialController;
 use App\Controllers\Web\AuthPagesController;
@@ -49,6 +50,7 @@ use App\Discovery\FollowService;
 use App\Discovery\ProfileService;
 use App\Engagement\CommentService;
 use App\Engagement\LikeService;
+use App\Engagement\NotificationService;
 use App\Http\Middleware\OptionalBearer;
 use App\Http\Middleware\RequireBearer;
 use App\Http\Middleware\RequireVerified;
@@ -142,7 +144,7 @@ $shareTokens  = new ShareTokenService($routeRepo);
 // CLI dispatch
 // ---------------------------------------------------------------------------
 if (PHP_SAPI === 'cli') {
-    $cli = new Commands($basePath, $tokens, $routeService, $config);
+    $cli = new Commands($basePath, $tokens, $routeService, $config, new NotificationService());
     exit($cli->run($_SERVER['argv'] ?? []));
 }
 
@@ -180,11 +182,12 @@ $csrf            = new Csrf();
 
 $discovery     = new DiscoveryService($routeRepo);
 $profileServ   = new ProfileService($discovery, $routeRepo);
-$followServ    = new FollowService();
+$notifServ     = new NotificationService();
+$followServ    = new FollowService($notifServ);
 $blockServ     = new BlockService();
 $feedServ      = new FeedService($routeRepo, $discovery);
-$likeServ      = new LikeService();
-$commentServ   = new CommentService();
+$likeServ      = new LikeService($notifServ);
+$commentServ   = new CommentService($notifServ);
 
 $apiAuth    = new AuthController($auth, $rate);
 $apiUsers   = new UserController($auth);
@@ -196,13 +199,14 @@ $apiSocial   = new SocialController($followServ, $blockServ);
 $apiFeed     = new FeedController($feedServ);
 $apiLike     = new LikeController($likeServ);
 $apiComment  = new CommentController($commentServ, $rate);
+$apiNotif    = new NotificationController($notifServ);
 $webAuth    = new AuthPagesController($auth, $cookieAuth, $webSession, $rate, $basePath . '/views');
 $webHome    = new DashboardController($webSession, $auth, $basePath . '/views');
 $webRefresh = new WebRefreshController($cookieAuth, $webSession);
 $webRoutes  = new RoutePagesController($webSession, $auth, $routeService, $shareTokens, $config, $basePath . '/views');
 $webShare   = new PublicSharePageController($shareTokens, $basePath . '/views');
 $webSetting = new SettingsPagesController($webSession, $auth, $basePath . '/views');
-$webDiscover = new DiscoveryPagesController($webSession, $auth, $discovery, $profileServ, $feedServ, $basePath . '/views', $likeServ, $commentServ);
+$webDiscover = new DiscoveryPagesController($webSession, $auth, $discovery, $profileServ, $feedServ, $basePath . '/views', $likeServ, $commentServ, $notifServ);
 $webSocial   = new SocialPagesController($webSession, $auth, $followServ, $blockServ);
 $webEngage   = new EngagementPagesController($webSession, $likeServ, $commentServ);
 
@@ -288,6 +292,13 @@ $router->get("{$apiBase}/routes/{id}/comments",                   fn($r) => $api
 $router->post("{$apiBase}/routes/{id}/comments",                  fn($r) => $apiComment->create($r), [$requireBearer, $requireVerified]);
 $router->delete("{$apiBase}/routes/{id}/comments/{cid}",          fn($r) => $apiComment->delete($r), [$requireBearer]);
 
+// ---- Notifications (M4c) ----
+// Alle auth-required. Pull-Modell: Client pollt Liste + unread-count.
+$router->get("{$apiBase}/notifications",                          fn($r) => $apiNotif->list($r),        [$requireBearer]);
+$router->get("{$apiBase}/notifications/unread-count",             fn($r) => $apiNotif->unreadCount($r), [$requireBearer]);
+$router->post("{$apiBase}/notifications/read",                    fn($r) => $apiNotif->markAll($r),     [$requireBearer]);
+$router->post("{$apiBase}/notifications/{nid}/read",              fn($r) => $apiNotif->markOne($r),     [$requireBearer]);
+
 // ---- Web pages ----
 $router->get('/',                  fn($r) => Response::redirect('/dashboard'));
 $router->get('/login',             fn($r) => $webAuth->showLogin($r));
@@ -332,6 +343,7 @@ $router->get ('/discover/users',                         fn($r) => $webDiscover-
 $router->get ('/u/{handle}',                             fn($r) => $webDiscover->profile($r));
 $router->get ('/u/{handle}/r/{id}',                      fn($r) => $webDiscover->profileRoute($r));
 $router->get ('/feed',                                   fn($r) => $webDiscover->feed($r));
+$router->get ('/notifications',                          fn($r) => $webDiscover->notifications($r));
 $router->post('/u/{handle}/follow',                      fn($r) => $webSocial->follow($r),    [$csrf]);
 $router->post('/u/{handle}/unfollow',                    fn($r) => $webSocial->unfollow($r),  [$csrf]);
 $router->post('/u/{handle}/block',                       fn($r) => $webSocial->block($r),     [$csrf]);
