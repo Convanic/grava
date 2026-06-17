@@ -386,6 +386,20 @@ final class AuthService
                 }
             }
 
+            // M4a: Likes des Users hart entfernen. Wie bei follows/blocks
+            // greift kein CASCADE, weil der User nur soft-deleted wird.
+            // Single-Placeholder-WHERE, daher eigener Block statt des
+            // Zwei-Parameter-Loops oben.
+            try {
+                $pdo->prepare('DELETE FROM route_likes WHERE user_id = ?')
+                    ->execute([$userId]);
+            } catch (\PDOException $e) {
+                if (!str_contains($e->getMessage(), '1146')) {
+                    throw $e;
+                }
+                error_log('AuthService::deleteAccount: route_likes-Tabelle existiert nicht, überspringe.');
+            }
+
             $pdo->commit();
         } catch (\Throwable $e) {
             $pdo->rollBack();

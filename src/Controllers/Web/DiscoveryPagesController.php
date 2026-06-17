@@ -33,6 +33,7 @@ final class DiscoveryPagesController
         private readonly ProfileService $profile,
         private readonly FeedService $feed,
         string $viewsPath,
+        private readonly ?\App\Engagement\LikeService $likes = null,
     ) {
         $this->view = new WebView($viewsPath);
     }
@@ -201,10 +202,22 @@ final class DiscoveryPagesController
             ], 404);
         }
 
+        // M4a: Like-Summary für die Detail-Seite (Count + Viewer-Flag).
+        $likes = ['count' => 0, 'liked_by_viewer' => false, 'recent' => []];
+        if ($this->likes !== null) {
+            try {
+                $likes = $this->likes->summary((string)$route['id'], $viewerId);
+            } catch (\Throwable) {
+                // Sichtbarkeit wurde oben bereits via getProfileRoutes
+                // sichergestellt; ein Fehler hier ist nicht fatal für die View.
+            }
+        }
+
         $this->renderPage('profile/route', $authedUser, [
             '_title'  => $route['title'] . ' · @' . $profile['handle'],
             'route'   => $route,
             'profile' => $profile,
+            'likes'   => $likes,
         ]);
     }
 
