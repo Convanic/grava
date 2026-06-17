@@ -32,9 +32,11 @@ use App\Controllers\Api\ProfileController;
 use App\Controllers\Api\SocialController;
 use App\Controllers\Web\AuthPagesController;
 use App\Controllers\Web\DashboardController;
+use App\Controllers\Web\DiscoveryPagesController;
 use App\Controllers\Web\PublicSharePageController;
 use App\Controllers\Web\RoutePagesController;
 use App\Controllers\Web\SettingsPagesController;
+use App\Controllers\Web\SocialPagesController;
 use App\Controllers\Web\WebRefreshController;
 use App\Http\Middleware\Csrf;
 use App\Discovery\BlockService;
@@ -191,6 +193,8 @@ $webRefresh = new WebRefreshController($cookieAuth, $webSession);
 $webRoutes  = new RoutePagesController($webSession, $auth, $routeService, $shareTokens, $config, $basePath . '/views');
 $webShare   = new PublicSharePageController($shareTokens, $basePath . '/views');
 $webSetting = new SettingsPagesController($webSession, $auth, $basePath . '/views');
+$webDiscover = new DiscoveryPagesController($webSession, $auth, $discovery, $profileServ, $feedServ, $basePath . '/views');
+$webSocial   = new SocialPagesController($webSession, $auth, $followServ, $blockServ);
 
 // ---- JSON API ----
 $router->post("{$apiBase}/auth/register",                fn($r) => $apiAuth->register($r));
@@ -295,6 +299,19 @@ $router->get ('/share/{token}',                          fn($r) => $webShare->sh
 // ---- Settings Web-UI (M3 Phase 0) ----
 $router->get ('/settings/handle',                        fn($r) => $webSetting->showHandle($r));
 $router->post('/settings/handle',                        fn($r) => $webSetting->doHandle($r), [$csrf]);
+
+// ---- Discovery / Profile / Feed Web-UI (M3 Phase 6) ----
+// Anonym OK auf /discover/* und /u/{handle}*. /feed verlangt Login.
+// Social-Aktionen (Follow/Unfollow/Block/Unblock) sind POST + CSRF + Login.
+$router->get ('/discover',                               fn($r) => $webDiscover->discoverRoutes($r));
+$router->get ('/discover/users',                         fn($r) => $webDiscover->discoverUsers($r));
+$router->get ('/u/{handle}',                             fn($r) => $webDiscover->profile($r));
+$router->get ('/u/{handle}/r/{id}',                      fn($r) => $webDiscover->profileRoute($r));
+$router->get ('/feed',                                   fn($r) => $webDiscover->feed($r));
+$router->post('/u/{handle}/follow',                      fn($r) => $webSocial->follow($r),    [$csrf]);
+$router->post('/u/{handle}/unfollow',                    fn($r) => $webSocial->unfollow($r),  [$csrf]);
+$router->post('/u/{handle}/block',                       fn($r) => $webSocial->block($r),     [$csrf]);
+$router->post('/u/{handle}/unblock',                     fn($r) => $webSocial->unblock($r),   [$csrf]);
 
 // Healthcheck
 $router->get('/healthz', function ($r): void {

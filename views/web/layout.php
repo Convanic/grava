@@ -20,11 +20,17 @@ $mainClass    = 'container' . ($_layoutWide ? ' container--wide' : '');
         <?php if ($_authedUser !== null): ?>
             <a href="/dashboard">Dashboard</a>
             <a href="/routes">Routen</a>
+            <a href="/discover">Entdecken</a>
+            <a href="/feed">Feed</a>
+            <?php if (!empty($_authedUser['public_handle'])): ?>
+                <a href="/u/<?= htmlspecialchars((string)$_authedUser['public_handle'], ENT_QUOTES, 'UTF-8') ?>">@<?= htmlspecialchars((string)$_authedUser['public_handle'], ENT_QUOTES, 'UTF-8') ?></a>
+            <?php endif; ?>
             <form method="post" action="/logout" class="nav-form">
                 <input type="hidden" name="_csrf" value="<?= htmlspecialchars($_csrf, ENT_QUOTES, 'UTF-8') ?>">
                 <button type="submit" class="nav-button">Abmelden</button>
             </form>
         <?php else: ?>
+            <a href="/discover">Entdecken</a>
             <a href="/login">Login</a>
             <a href="/register">Registrieren</a>
         <?php endif; ?>
