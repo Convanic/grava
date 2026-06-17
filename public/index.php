@@ -30,6 +30,7 @@ use App\Controllers\Web\AuthPagesController;
 use App\Controllers\Web\DashboardController;
 use App\Controllers\Web\PublicSharePageController;
 use App\Controllers\Web\RoutePagesController;
+use App\Controllers\Web\SettingsPagesController;
 use App\Controllers\Web\WebRefreshController;
 use App\Http\Middleware\Csrf;
 use App\Http\Middleware\RequireBearer;
@@ -168,6 +169,7 @@ $webHome    = new DashboardController($webSession, $auth, $basePath . '/views');
 $webRefresh = new WebRefreshController($cookieAuth, $webSession);
 $webRoutes  = new RoutePagesController($webSession, $auth, $routeService, $shareTokens, $config, $basePath . '/views');
 $webShare   = new PublicSharePageController($shareTokens, $basePath . '/views');
+$webSetting = new SettingsPagesController($webSession, $auth, $basePath . '/views');
 
 // ---- JSON API ----
 $router->post("{$apiBase}/auth/register",                fn($r) => $apiAuth->register($r));
@@ -181,9 +183,13 @@ $router->post("{$apiBase}/auth/password/reset",          fn($r) => $apiAuth->res
 $router->post("{$apiBase}/auth/email/verify",            fn($r) => $apiAuth->verifyEmail($r));
 $router->post("{$apiBase}/auth/email/verify/resend",     fn($r) => $apiAuth->resendVerification($r));
 
-$router->get("{$apiBase}/users/me",                       fn($r) => $apiUsers->me($r),     [$requireBearer]);
+$router->get("{$apiBase}/users/me",                       fn($r) => $apiUsers->me($r),       [$requireBearer]);
 $router->patch("{$apiBase}/users/me",                     fn($r) => $apiUsers->updateMe($r), [$requireBearer]);
 $router->delete("{$apiBase}/users/me",                    fn($r) => $apiUsers->deleteMe($r), [$requireBearer]);
+// M3 Phase 0: One-time-Setting des public_handle. Eigener Endpoint
+// statt PATCH /users/me, weil die Operation nicht idempotent ist
+// (One-Time-Lock) und einen klaren Konflikt-Code (409) braucht.
+$router->patch("{$apiBase}/users/me/handle",              fn($r) => $apiUsers->setHandle($r), [$requireBearer, $requireVerified]);
 
 // ---- Routes API (M2 Phase 4) ----
 // POST /routes ist sowohl Create als auch "Add Version" — Idempotenz
@@ -235,6 +241,10 @@ $router->post('/routes/{id}/shares/{shareId}/revoke',    fn($r) => $webRoutes->d
 
 // Public Share-Page — kein Login, kein CSRF (read-only GET).
 $router->get ('/share/{token}',                          fn($r) => $webShare->show($r));
+
+// ---- Settings Web-UI (M3 Phase 0) ----
+$router->get ('/settings/handle',                        fn($r) => $webSetting->showHandle($r));
+$router->post('/settings/handle',                        fn($r) => $webSetting->doHandle($r), [$csrf]);
 
 // Healthcheck
 $router->get('/healthz', function ($r): void {

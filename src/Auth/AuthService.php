@@ -386,7 +386,7 @@ final class AuthService
     {
         $pdo = Db::pdo();
         $stmt = $pdo->prepare(
-            'SELECT public_id, email, display_name, email_verified_at, created_at
+            'SELECT public_id, email, display_name, public_handle, email_verified_at, created_at
              FROM users WHERE id = ? LIMIT 1'
         );
         $stmt->execute([$userId]);
@@ -398,9 +398,56 @@ final class AuthService
             'id'             => $row['public_id'],
             'email'          => $row['email'],
             'display_name'   => $row['display_name'],
+            'public_handle'  => $row['public_handle'],
             'email_verified' => $row['email_verified_at'] !== null,
             'created_at'     => Clock::toIso8601($row['created_at']),
         ];
+    }
+
+    /**
+     * M3 Phase 0: setzt einen public_handle einmalig. One-time-Set-
+     * Garantie wird hier erzwungen (DB-Spalte ist NULL bis zum
+     * ersten Set; wir prüfen NULL → INSERT, sonst werfen wir 409).
+     *
+     * Liefert die aktualisierte Public-User-Form. Konflikt mit
+     * einem anderen User wirft AuthException(409, 'handle_taken').
+     */
+    public function setPublicHandle(int $userId, string $handle): array
+    {
+        $pdo = Db::pdo();
+        $existing = $pdo->prepare('SELECT public_handle FROM users WHERE id = ? LIMIT 1');
+        $existing->execute([$userId]);
+        $current = $existing->fetchColumn();
+        if ($current !== false && $current !== null && $current !== '') {
+            // One-time-Garantie: bestehender Handle bleibt. Wenn der
+            // User seinen alten erneut setzt, ist das idempotent OK,
+            // sonst 409.
+            if ((string)$current === $handle) {
+                return $this->loadUserPublic($userId);
+            }
+            throw new AuthException(
+                'handle_locked',
+                'Du hast bereits einen Handle gesetzt. Wende dich an den Support, falls du ihn ändern willst.',
+                409,
+            );
+        }
+        $stmt = $pdo->prepare('UPDATE users SET public_handle = ? WHERE id = ?');
+        try {
+            $stmt->execute([$handle, $userId]);
+        } catch (\PDOException $e) {
+            // 1062 = duplicate entry on UNIQUE constraint
+            if ($e->errorInfo[1] ?? 0) {
+                if ((int)($e->errorInfo[1]) === 1062) {
+                    throw new AuthException(
+                        'handle_taken',
+                        'Dieser Handle ist bereits vergeben.',
+                        409,
+                    );
+                }
+            }
+            throw $e;
+        }
+        return $this->loadUserPublic($userId);
     }
 
     private function createAndSendVerification(int $userId, string $email, ?string $displayName): void

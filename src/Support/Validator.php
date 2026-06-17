@@ -308,6 +308,68 @@ final class Validator
         return array_keys($out);
     }
 
+    /**
+     * M3 Phase 0: validiert einen public_handle für /u/{handle}-URLs.
+     *
+     * Regeln:
+     *  - regex `^[a-z0-9_]{3,30}$` (lowercase, alphanumeric + underscore)
+     *  - keine reservierten Wörter (URL-Konflikte mit /admin, /api, …)
+     *  - kein Start mit `_` (visuell verwirrend, oft als Platzhalter
+     *    interpretiert)
+     *  - keine Doppel-Underscores (`foo__bar` → reject), weil das oft
+     *    Bot-/Throwaway-Accounts signalisiert
+     *
+     * Liefert den geprüften (bereits lowercase-getrimmten) Handle oder
+     * `null`, wenn die Validierung scheitert.
+     */
+    public function publicHandle(string $field, mixed $value): ?string
+    {
+        if ($value === null) {
+            $this->add($field, 'Handle ist erforderlich.');
+            return null;
+        }
+        if (!is_string($value)) {
+            $this->add($field, 'Handle ist ungültig.');
+            return null;
+        }
+        $h = trim($value);
+        if ($h === '') {
+            $this->add($field, 'Handle ist erforderlich.');
+            return null;
+        }
+        // Strikt: Eingabe muss bereits dem gespeicherten Format entsprechen.
+        // Uppercase silently nach lowercase zu mappen wäre user-freundlich,
+        // verschleiert aber, was nachher tatsächlich als Profil-URL
+        // entsteht — wir wollen keine `Foo123 → /u/foo123`-Überraschung.
+        if (preg_match('/^[a-z0-9_]{3,30}$/', $h) !== 1) {
+            $this->add($field, 'Handle muss 3–30 Zeichen lang sein und nur a–z (klein), 0–9 und _ enthalten.');
+            return null;
+        }
+        if (str_starts_with($h, '_')) {
+            $this->add($field, 'Handle darf nicht mit _ beginnen.');
+            return null;
+        }
+        if (str_contains($h, '__')) {
+            $this->add($field, 'Handle darf keine doppelten Unterstriche enthalten.');
+            return null;
+        }
+        // Reservierte Wörter — schützen vor URL-Kollision und
+        // Squatting auf System-Handles. Der Set ist bewusst klein und
+        // konkret, nicht „alle deutschen/englischen Schimpfwörter".
+        $reserved = [
+            'admin', 'administrator', 'api', 'auth', 'dashboard',
+            'discover', 'explore', 'feed', 'help', 'home',
+            'login', 'logout', 'me', 'register', 'root',
+            'routes', 'settings', 'share', 'static', 'support',
+            'system', 'u', 'user', 'users',
+        ];
+        if (in_array($h, $reserved, true)) {
+            $this->add($field, 'Dieser Handle ist reserviert. Bitte wähle einen anderen.');
+            return null;
+        }
+        return $h;
+    }
+
     public function add(string $field, string $message): void
     {
         $this->errors[$field][] = $message;
