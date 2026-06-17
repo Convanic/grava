@@ -6,6 +6,14 @@
 $h = static fn(string|int|float|null $v): string => htmlspecialchars((string)($v ?? ''), ENT_QUOTES, 'UTF-8');
 $num = static fn(float $v): string => rtrim(rtrim(number_format($v, 6, '.', ''), '0'), '.');
 $maxW = max(1, (int)($meta['max_weight'] ?? 1));
+
+$_pageStyles  = ['/assets/vendor/leaflet/leaflet.css'];
+$_pageScripts = [
+    '/assets/vendor/leaflet/leaflet.js',
+    '/assets/vendor/leaflet/leaflet-heat.js',
+    '/assets/js/map-core.js',
+    '/assets/js/map-heatmap.js',
+];
 ?>
 
 <header class="page-header">
@@ -17,6 +25,8 @@ $maxW = max(1, (int)($meta['max_weight'] ?? 1));
         Anonym &amp; vorberechnet.
     </p>
 </header>
+
+<div id="map" class="map map--full" data-heatmap-url="/api/v1/heatmap"></div>
 
 <?php if (empty($cells)): ?>
     <div class="empty-state">

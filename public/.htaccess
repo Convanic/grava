@@ -32,7 +32,11 @@ DirectoryIndex index.php
     # eigener Origin. Inline-Styles bleiben erlaubt, weil layout.php
     # einen kleinen <style>-Block nutzt; sobald der ausgelagert ist,
     # kann 'unsafe-inline' bei style-src entfallen.
-    Header always set Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'self'; object-src 'none'"
+    #
+    # img-src erlaubt zusätzlich OSM-Raster-Tiles für die Leaflet-Karten
+    # (Map-Tiles sind <img>-Elemente von einem fremden Host). Wechselt der
+    # Tile-Provider, muss hier der neue Host eingetragen werden.
+    Header always set Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://*.tile.openstreetmap.org; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'self'; object-src 'none'"
 </IfModule>
 
 # Versteckte Dateien verbieten

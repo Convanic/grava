@@ -17,6 +17,13 @@ $likes = $likes ?? ['count' => 0, 'liked_by_viewer' => false, 'recent' => []];
 $comments = $comments ?? [];
 $commentsPagination = $commentsPagination ?? ['total' => 0];
 $pid = (string)$route['id'];
+
+$_pageStyles  = ['/assets/vendor/leaflet/leaflet.css'];
+$_pageScripts = [
+    '/assets/vendor/leaflet/leaflet.js',
+    '/assets/js/map-core.js',
+    '/assets/js/map-route.js',
+];
 ?>
 
 <header class="page-header">
@@ -49,6 +56,10 @@ $pid = (string)$route['id'];
         <?php endif; ?>
     </div>
 </header>
+
+<div id="map" class="map map--detail"
+     data-geojson-url="/u/<?= $h(rawurlencode($handle)) ?>/r/<?= $h(rawurlencode($pid)) ?>/geojson"></div>
+<div id="map-legend" class="map-legend" hidden></div>
 
 <?php if (!empty($route['description'])): ?>
     <section class="route-description">

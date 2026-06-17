@@ -6,10 +6,12 @@ namespace App\Controllers\Web;
 use App\Auth\AuthService;
 use App\Auth\WebSession;
 use App\Config\Config;
+use App\Http\GeoJsonResponse;
 use App\Http\Middleware\Csrf;
 use App\Http\Request;
 use App\Http\Response;
 use App\Routes\GeometryParseException;
+use App\Routes\RouteGeoJson;
 use App\Routes\RouteNotFoundException;
 use App\Routes\RouteService;
 use App\Routes\ShareTokenService;
@@ -45,6 +47,7 @@ final class RoutePagesController
         private readonly RouteService $routes,
         private readonly ShareTokenService $shares,
         private readonly Config $config,
+        private readonly RouteGeoJson $geo,
         string $viewsPath,
     ) {
         $this->view = new WebView($viewsPath);
@@ -331,6 +334,29 @@ final class RoutePagesController
         header('Content-Disposition: attachment; filename="' . $filename . '"');
         echo $loaded['payload'];
         exit;
+    }
+
+    // ---------------------------------------------------------------------
+    // GET /routes/{id}/geojson — Geometrie als GeoJSON (für die Karte)
+    // ---------------------------------------------------------------------
+    public function geojson(Request $req): void
+    {
+        $publicId = (string)($req->routeParams['id'] ?? '');
+        // Same-origin-Fetch von der Detail-Seite — kein Redirect auf
+        // web-refresh (das wäre HTML), sondern sauberes 401 als JSON.
+        $ctx = $this->webSession->resolve();
+        if ($ctx === null) {
+            GeoJsonResponse::error(401);
+        }
+        try {
+            $loaded = $this->routes->loadPayload((int)$ctx['user_id'], $publicId, null);
+            $fc = $this->geo->toFeatureCollection($loaded['payload']);
+        } catch (RouteNotFoundException) {
+            GeoJsonResponse::error(404);
+        } catch (GeometryParseException) {
+            GeoJsonResponse::error(422);
+        }
+        GeoJsonResponse::emit($fc);
     }
 
     // ---------------------------------------------------------------------

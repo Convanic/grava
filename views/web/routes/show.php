@@ -20,6 +20,14 @@ $fmtDate = static function (?string $iso): string {
 };
 $bbox = $route['bbox'] ?? null;
 $centroid = $route['centroid'] ?? null;
+
+// Leaflet-Assets nur auf dieser Seite laden (Per-Page-Hooks im Layout).
+$_pageStyles  = ['/assets/vendor/leaflet/leaflet.css'];
+$_pageScripts = [
+    '/assets/vendor/leaflet/leaflet.js',
+    '/assets/js/map-core.js',
+    '/assets/js/map-route.js',
+];
 ?>
 <section class="card">
     <header class="page-header">
@@ -33,6 +41,10 @@ $centroid = $route['centroid'] ?? null;
     <?php if (!empty($route['description'])): ?>
         <p class="route-description"><?= nl2br(htmlspecialchars((string)$route['description'], ENT_QUOTES, 'UTF-8')) ?></p>
     <?php endif; ?>
+
+    <div id="map" class="map map--detail"
+         data-geojson-url="/routes/<?= htmlspecialchars(rawurlencode($id), ENT_QUOTES, 'UTF-8') ?>/geojson"></div>
+    <div id="map-legend" class="map-legend" hidden></div>
 
     <dl class="profile profile--wide">
         <dt>Distanz</dt>           <dd><?= $fmtKm($route['distance_meters'] ?? null) ?></dd>

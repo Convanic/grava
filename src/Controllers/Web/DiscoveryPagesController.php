@@ -8,9 +8,12 @@ use App\Auth\WebSession;
 use App\Discovery\DiscoveryService;
 use App\Discovery\FeedService;
 use App\Discovery\ProfileService;
+use App\Http\GeoJsonResponse;
 use App\Http\Middleware\Csrf;
 use App\Http\Request;
 use App\Http\Response;
+use App\Routes\RouteGeoJson;
+use App\Routes\RouteService;
 
 /**
  * M3 Phase 6: Read-only Web-Pages für Discovery + Profile + Feed.
@@ -37,6 +40,8 @@ final class DiscoveryPagesController
         private readonly ?\App\Engagement\CommentService $comments = null,
         private readonly ?\App\Engagement\NotificationService $notifications = null,
         private readonly ?\App\Heatmap\HeatmapService $heatmap = null,
+        private readonly ?RouteService $routesService = null,
+        private readonly ?RouteGeoJson $geo = null,
     ) {
         $this->view = new WebView($viewsPath);
     }
@@ -234,6 +239,41 @@ final class DiscoveryPagesController
             'comments' => $comments['comments'],
             'commentsPagination' => $comments['pagination'],
         ]);
+    }
+
+    // -----------------------------------------------------------------
+    // GET /u/{handle}/r/{id}/geojson — Geometrie der öffentlichen Route
+    // -----------------------------------------------------------------
+    public function profileRouteGeojson(Request $req): void
+    {
+        $handle   = (string)($req->routeParams['handle'] ?? '');
+        $routePid = (string)($req->routeParams['id'] ?? '');
+        [$viewerId] = $this->maybeAuthed();
+
+        // Sichtbarkeit exakt wie profileRoute(): Profil muss sichtbar
+        // sein und die Route im sichtbaren Listing des Viewers liegen.
+        $profile = $this->profile->getProfile($handle, $viewerId);
+        if ($profile === null || $this->routesService === null || $this->geo === null) {
+            GeoJsonResponse::error(404);
+        }
+        $listing = $this->profile->getProfileRoutes($handle, $viewerId, ['limit' => 50, 'offset' => 0]);
+        $visible = false;
+        foreach (($listing['routes'] ?? []) as $r) {
+            if ((string)$r['id'] === $routePid) {
+                $visible = true;
+                break;
+            }
+        }
+        if (!$visible) {
+            GeoJsonResponse::error(404);
+        }
+        try {
+            $loaded = $this->routesService->loadPayloadByPublicId($routePid);
+            $fc = $this->geo->toFeatureCollection($loaded['payload']);
+        } catch (\Throwable) {
+            GeoJsonResponse::error(404);
+        }
+        GeoJsonResponse::emit($fc);
     }
 
     // -----------------------------------------------------------------

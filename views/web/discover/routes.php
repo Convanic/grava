@@ -6,6 +6,32 @@
 
 $h = static fn(string|int|null $v): string => htmlspecialchars((string)($v ?? ''), ENT_QUOTES, 'UTF-8');
 $kmFromMeters = static fn(?int $m): string => $m === null ? '—' : number_format($m / 1000, 1, ',', '.') . ' km';
+
+// Marker-Daten für die Übersichtskarte: nur Treffer mit Centroid.
+$mapRoutes = [];
+foreach ($routes as $r) {
+    $cent = $r['stats']['centroid'] ?? null;
+    if ($cent === null || !isset($cent['lat'], $cent['lon'])) {
+        continue;
+    }
+    $oh = $r['owner']['handle'] ?? null;
+    $mapRoutes[] = [
+        'lat'   => (float)$cent['lat'],
+        'lon'   => (float)$cent['lon'],
+        'title' => (string)($r['title'] ?? 'Route'),
+        'url'   => $oh ? '/u/' . rawurlencode((string)$oh) . '/r/' . rawurlencode((string)$r['id']) : null,
+    ];
+}
+$mapRoutesJson = json_encode($mapRoutes, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+
+if ($mapRoutes !== []) {
+    $_pageStyles  = ['/assets/vendor/leaflet/leaflet.css'];
+    $_pageScripts = [
+        '/assets/vendor/leaflet/leaflet.js',
+        '/assets/js/map-core.js',
+        '/assets/js/map-discover.js',
+    ];
+}
 ?>
 
 <header class="page-header">
@@ -61,6 +87,9 @@ $kmFromMeters = static fn(?int $m): string => $m === null ? '—' : number_forma
         <p>Keine Routen passen zu deinen Filtern.</p>
     </div>
 <?php else: ?>
+    <?php if ($mapRoutes !== []): ?>
+        <div id="map" class="map" data-routes="<?= $h($mapRoutesJson) ?>"></div>
+    <?php endif; ?>
     <table class="data-table">
         <thead>
             <tr>

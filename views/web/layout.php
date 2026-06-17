@@ -5,6 +5,11 @@
 $_authedUser  = $_authedUser  ?? null;
 $_layoutWide  = $_layoutWide  ?? false;
 $mainClass    = 'container' . ($_layoutWide ? ' container--wide' : '');
+// Optionale, seiten-spezifische Assets (z. B. Leaflet-Karten). Listen aus
+// reinen same-origin-Pfaden ('self'), damit die strikte CSP greift — keine
+// Inline-Scripts. Controller/Views setzen $_pageStyles / $_pageScripts.
+$_pageStyles  = $_pageStyles  ?? [];
+$_pageScripts = $_pageScripts ?? [];
 ?><!doctype html>
 <html lang="de">
 <head>
@@ -12,6 +17,9 @@ $mainClass    = 'container' . ($_layoutWide ? ' container--wide' : '');
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title><?= htmlspecialchars($_title ?? 'GravelExplorer', ENT_QUOTES, 'UTF-8') ?></title>
     <link rel="stylesheet" href="/assets/style.css">
+    <?php foreach ($_pageStyles as $_href): ?>
+    <link rel="stylesheet" href="<?= htmlspecialchars((string)$_href, ENT_QUOTES, 'UTF-8') ?>">
+    <?php endforeach; ?>
 </head>
 <body>
     <header class="site-header">
@@ -49,5 +57,8 @@ $mainClass    = 'container' . ($_layoutWide ? ' container--wide' : '');
     <footer class="site-footer">
         <small>&copy; <?= date('Y') ?> GravelExplorer</small>
     </footer>
+    <?php foreach ($_pageScripts as $_src): ?>
+    <script src="<?= htmlspecialchars((string)$_src, ENT_QUOTES, 'UTF-8') ?>"></script>
+    <?php endforeach; ?>
 </body>
 </html>

@@ -70,10 +70,12 @@ use App\Http\Router;
 use App\Mail\MailService;
 use App\Routes\GeometryParser;
 use App\Routes\GeometryStats;
+use App\Routes\RouteGeoJson;
 use App\Routes\RouteRepository;
 use App\Routes\RouteService;
 use App\Routes\RouteStorage;
 use App\Routes\ShareTokenService;
+use App\Routes\SurfaceTrack;
 
 $basePath = dirname(__DIR__);
 
@@ -149,6 +151,9 @@ $routeStorage = new RouteStorage($config);
 $routeRepo    = new RouteRepository();
 $routeService = new RouteService($routeRepo, $routeStorage, new GeometryParser(), new GeometryStats());
 $shareTokens  = new ShareTokenService($routeRepo);
+// GeoJSON-Konverter für die Web-Karten (eigener Parser, zustandslos).
+// SurfaceTrack färbt GPX-Tracks mit <ge:surfaceScore> ein.
+$routeGeoJson = new RouteGeoJson(new GeometryParser(), new SurfaceTrack());
 
 // ---------------------------------------------------------------------------
 // CLI dispatch
@@ -177,7 +182,7 @@ if ($requestIsHttps) {
 }
 header(
     "Content-Security-Policy: default-src 'self'; script-src 'self'; "
-  . "style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; "
+  . "style-src 'self' 'unsafe-inline'; img-src 'self' data: https://*.tile.openstreetmap.org; connect-src 'self'; "
   . "form-action 'self'; frame-ancestors 'none'; base-uri 'self'; object-src 'none'"
 );
 
@@ -238,10 +243,10 @@ $apiHeatmap  = new HeatmapController($heatmapServ);
 $webAuth    = new AuthPagesController($auth, $cookieAuth, $webSession, $rate, $basePath . '/views');
 $webHome    = new DashboardController($webSession, $auth, $basePath . '/views');
 $webRefresh = new WebRefreshController($cookieAuth, $webSession);
-$webRoutes  = new RoutePagesController($webSession, $auth, $routeService, $shareTokens, $config, $basePath . '/views');
-$webShare   = new PublicSharePageController($shareTokens, $basePath . '/views');
+$webRoutes  = new RoutePagesController($webSession, $auth, $routeService, $shareTokens, $config, $routeGeoJson, $basePath . '/views');
+$webShare   = new PublicSharePageController($shareTokens, $basePath . '/views', $routeService, $routeGeoJson);
 $webSetting = new SettingsPagesController($webSession, $auth, $basePath . '/views', $avatarServ);
-$webDiscover = new DiscoveryPagesController($webSession, $auth, $discovery, $profileServ, $feedServ, $basePath . '/views', $likeServ, $commentServ, $notifServ, $heatmapServ);
+$webDiscover = new DiscoveryPagesController($webSession, $auth, $discovery, $profileServ, $feedServ, $basePath . '/views', $likeServ, $commentServ, $notifServ, $heatmapServ, $routeService, $routeGeoJson);
 $webSocial   = new SocialPagesController($webSession, $auth, $followServ, $blockServ);
 $webEngage   = new EngagementPagesController($webSession, $likeServ, $commentServ, $auth, $rate);
 $webStrava   = new StravaPagesController($webSession, $auth, $stravaServ, $basePath . '/views');
@@ -375,11 +380,14 @@ $router->get ('/routes/{id}/edit',                       fn($r) => $webRoutes->s
 $router->post('/routes/{id}/update',                     fn($r) => $webRoutes->doUpdate($r),       [$csrf]);
 $router->post('/routes/{id}/delete',                     fn($r) => $webRoutes->doDelete($r),       [$csrf]);
 $router->get ('/routes/{id}/download',                   fn($r) => $webRoutes->download($r));
+// GeoJSON für die Detail-Karte (same-origin-Fetch, Owner-geschützt).
+$router->get ('/routes/{id}/geojson',                    fn($r) => $webRoutes->geojson($r));
 $router->post('/routes/{id}/shares',                     fn($r) => $webRoutes->doCreateShare($r),  [$csrf]);
 $router->post('/routes/{id}/shares/{shareId}/revoke',    fn($r) => $webRoutes->doRevokeShare($r),  [$csrf]);
 
 // Public Share-Page — kein Login, kein CSRF (read-only GET).
 $router->get ('/share/{token}',                          fn($r) => $webShare->show($r));
+$router->get ('/share/{token}/geojson',                  fn($r) => $webShare->geojson($r));
 
 // ---- Settings Web-UI (M3 Phase 0) ----
 $router->get ('/settings/handle',                        fn($r) => $webSetting->showHandle($r));
@@ -403,6 +411,7 @@ $router->get ('/discover/users',                         fn($r) => $webDiscover-
 $router->get ('/heatmap',                                fn($r) => $webDiscover->heatmap($r));
 $router->get ('/u/{handle}',                             fn($r) => $webDiscover->profile($r));
 $router->get ('/u/{handle}/r/{id}',                      fn($r) => $webDiscover->profileRoute($r));
+$router->get ('/u/{handle}/r/{id}/geojson',              fn($r) => $webDiscover->profileRouteGeojson($r));
 $router->get ('/feed',                                   fn($r) => $webDiscover->feed($r));
 $router->get ('/notifications',                          fn($r) => $webDiscover->notifications($r));
 

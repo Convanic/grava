@@ -289,6 +289,33 @@ final class RouteService
     }
 
     /**
+     * Lädt die Payload-Datei einer Route **ohne Owner-Check**, nur über
+     * die public UUID. Gedacht für Aufrufer, die die Sichtbarkeit bereits
+     * anderweitig validiert haben (öffentliche Profil-Route, Share-Token).
+     * NIEMALS direkt an einen Owner-geschützten Endpunkt hängen —
+     * dafür gibt es {@see loadPayload()}.
+     *
+     * @return array{format:string, payload:string, version:int}
+     */
+    public function loadPayloadByPublicId(string $publicId, ?int $version = null): array
+    {
+        $route = $this->routes->findByPublicId($publicId);
+        if ($route === null) {
+            throw new RouteNotFoundException();
+        }
+        $routeId = (int)$route['_internal']['route_id'];
+        $ver = $this->routes->findVersion($routeId, $version);
+        if ($ver === null) {
+            throw new RouteNotFoundException();
+        }
+        return [
+            'format'  => $ver['format'],
+            'payload' => $this->storage->load($ver['payload_path']),
+            'version' => $ver['version'],
+        ];
+    }
+
+    /**
      * Hart-Löschen aller Routen, die seit mindestens `$graceDays` Tagen
      * soft-gelöscht sind. Dabei werden:
      *  1. Die DB-Datensätze entfernt (CASCADE räumt route_versions,

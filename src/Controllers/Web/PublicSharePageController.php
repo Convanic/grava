@@ -3,8 +3,11 @@ declare(strict_types=1);
 
 namespace App\Controllers\Web;
 
+use App\Http\GeoJsonResponse;
 use App\Http\Request;
 use App\Http\Response;
+use App\Routes\RouteGeoJson;
+use App\Routes\RouteService;
 use App\Routes\ShareTokenService;
 
 /**
@@ -24,6 +27,8 @@ final class PublicSharePageController
     public function __construct(
         private readonly ShareTokenService $shares,
         string $viewsPath,
+        private readonly ?RouteService $routes = null,
+        private readonly ?RouteGeoJson $geo = null,
     ) {
         $this->view = new WebView($viewsPath);
     }
@@ -45,7 +50,27 @@ final class PublicSharePageController
             '_title' => $route['title'] . ' · GravelExplorer',
             '_layoutWide' => true,
             'route'  => $route,
+            'shareToken' => $token,
             'flash'  => null,
         ]);
+    }
+
+    // -----------------------------------------------------------------
+    // GET /share/{token}/geojson — Geometrie der geteilten Route
+    // -----------------------------------------------------------------
+    public function geojson(Request $req): void
+    {
+        $token = (string)($req->routeParams['token'] ?? '');
+        $route = $this->shares->resolve($token);
+        if ($route === null || $this->routes === null || $this->geo === null) {
+            GeoJsonResponse::error(404);
+        }
+        try {
+            $loaded = $this->routes->loadPayloadByPublicId((string)$route['id']);
+            $fc = $this->geo->toFeatureCollection($loaded['payload']);
+        } catch (\Throwable) {
+            GeoJsonResponse::error(404);
+        }
+        GeoJsonResponse::emit($fc);
     }
 }

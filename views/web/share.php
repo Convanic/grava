@@ -1,10 +1,19 @@
 <?php
 /** @var array<string,mixed> $route */
+/** @var string $shareToken */
 
 $fmtKm   = static fn(?float $m): string => $m === null ? '—' : number_format($m / 1000, 1, ',', '.') . ' km';
 $fmtElev = static fn(?float $e): string => $e === null ? '—' : number_format($e, 0, ',', '.') . ' m';
 $bbox    = $route['bbox']     ?? null;
 $centroid = $route['centroid'] ?? null;
+$shareToken = $shareToken ?? '';
+
+$_pageStyles  = ['/assets/vendor/leaflet/leaflet.css'];
+$_pageScripts = [
+    '/assets/vendor/leaflet/leaflet.js',
+    '/assets/js/map-core.js',
+    '/assets/js/map-route.js',
+];
 ?>
 <section class="card">
     <p class="muted shared-flag">Geteilte Route — schreibgeschützt</p>
@@ -13,6 +22,10 @@ $centroid = $route['centroid'] ?? null;
     <?php if (!empty($route['description'])): ?>
         <p class="route-description"><?= nl2br(htmlspecialchars((string)$route['description'], ENT_QUOTES, 'UTF-8')) ?></p>
     <?php endif; ?>
+
+    <div id="map" class="map map--detail"
+         data-geojson-url="/share/<?= htmlspecialchars(rawurlencode($shareToken), ENT_QUOTES, 'UTF-8') ?>/geojson"></div>
+    <div id="map-legend" class="map-legend" hidden></div>
 
     <dl class="profile profile--wide">
         <dt>Distanz</dt>      <dd><?= $fmtKm($route['distance_meters'] ?? null) ?></dd>
