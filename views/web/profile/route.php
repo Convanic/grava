@@ -2,6 +2,8 @@
 /** @var array<string,mixed> $route */
 /** @var array<string,mixed> $profile */
 /** @var array<string,mixed>|null $_authedUser */
+/** @var array{count:int,liked_by_viewer:bool,recent:list<string>} $likes */
+/** @var string $_csrf */
 
 $h = static fn(string|int|null $v): string => htmlspecialchars((string)($v ?? ''), ENT_QUOTES, 'UTF-8');
 $kmFromMeters = static fn(?int $m): string => $m === null ? '—' : number_format($m / 1000, 1, ',', '.') . ' km';
@@ -9,6 +11,7 @@ $stats = $route['stats'] ?? [];
 $bbox  = $stats['bbox'] ?? null;
 $cent  = $stats['centroid'] ?? null;
 $handle = (string)$profile['handle'];
+$likes = $likes ?? ['count' => 0, 'liked_by_viewer' => false, 'recent' => []];
 ?>
 
 <header class="page-header">
@@ -18,6 +21,28 @@ $handle = (string)$profile['handle'];
         · erstellt am <?= $h(substr($route['created_at'] ?? '', 0, 10)) ?>
         <span class="badge badge-public">public</span>
     </p>
+
+    <div class="like-bar">
+        <?php if ($_authedUser !== null): ?>
+            <?php if (!empty($likes['liked_by_viewer'])): ?>
+                <form method="post" action="/u/<?= $h($handle) ?>/r/<?= $h($route['id']) ?>/unlike" class="inline-form">
+                    <input type="hidden" name="_csrf" value="<?= $h($_csrf) ?>">
+                    <button type="submit" class="btn-secondary">♥ Geliked</button>
+                </form>
+            <?php else: ?>
+                <form method="post" action="/u/<?= $h($handle) ?>/r/<?= $h($route['id']) ?>/like" class="inline-form">
+                    <input type="hidden" name="_csrf" value="<?= $h($_csrf) ?>">
+                    <button type="submit" class="btn-primary">♡ Liken</button>
+                </form>
+            <?php endif; ?>
+        <?php endif; ?>
+        <span class="like-count"><strong><?= $h((int)$likes['count']) ?></strong> Like<?= (int)$likes['count'] === 1 ? '' : 's' ?></span>
+        <?php if (!empty($likes['recent'])): ?>
+            <span class="muted">— zuletzt:
+                <?php foreach ($likes['recent'] as $i => $rh): ?><?= $i > 0 ? ', ' : '' ?><a href="/u/<?= $h($rh) ?>">@<?= $h($rh) ?></a><?php endforeach; ?>
+            </span>
+        <?php endif; ?>
+    </div>
 </header>
 
 <?php if (!empty($route['description'])): ?>

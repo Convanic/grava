@@ -28,11 +28,13 @@ use App\Controllers\Api\SharedRouteController;
 use App\Controllers\Api\UserController;
 use App\Controllers\Api\DiscoverController;
 use App\Controllers\Api\FeedController;
+use App\Controllers\Api\LikeController;
 use App\Controllers\Api\ProfileController;
 use App\Controllers\Api\SocialController;
 use App\Controllers\Web\AuthPagesController;
 use App\Controllers\Web\DashboardController;
 use App\Controllers\Web\DiscoveryPagesController;
+use App\Controllers\Web\EngagementPagesController;
 use App\Controllers\Web\PublicSharePageController;
 use App\Controllers\Web\RoutePagesController;
 use App\Controllers\Web\SettingsPagesController;
@@ -44,6 +46,7 @@ use App\Discovery\DiscoveryService;
 use App\Discovery\FeedService;
 use App\Discovery\FollowService;
 use App\Discovery\ProfileService;
+use App\Engagement\LikeService;
 use App\Http\Middleware\OptionalBearer;
 use App\Http\Middleware\RequireBearer;
 use App\Http\Middleware\RequireVerified;
@@ -178,6 +181,7 @@ $profileServ   = new ProfileService($discovery, $routeRepo);
 $followServ    = new FollowService();
 $blockServ     = new BlockService();
 $feedServ      = new FeedService($routeRepo, $discovery);
+$likeServ      = new LikeService();
 
 $apiAuth    = new AuthController($auth, $rate);
 $apiUsers   = new UserController($auth);
@@ -187,14 +191,16 @@ $apiDiscover = new DiscoverController($discovery);
 $apiProfile  = new ProfileController($profileServ);
 $apiSocial   = new SocialController($followServ, $blockServ);
 $apiFeed     = new FeedController($feedServ);
+$apiLike     = new LikeController($likeServ);
 $webAuth    = new AuthPagesController($auth, $cookieAuth, $webSession, $rate, $basePath . '/views');
 $webHome    = new DashboardController($webSession, $auth, $basePath . '/views');
 $webRefresh = new WebRefreshController($cookieAuth, $webSession);
 $webRoutes  = new RoutePagesController($webSession, $auth, $routeService, $shareTokens, $config, $basePath . '/views');
 $webShare   = new PublicSharePageController($shareTokens, $basePath . '/views');
 $webSetting = new SettingsPagesController($webSession, $auth, $basePath . '/views');
-$webDiscover = new DiscoveryPagesController($webSession, $auth, $discovery, $profileServ, $feedServ, $basePath . '/views');
+$webDiscover = new DiscoveryPagesController($webSession, $auth, $discovery, $profileServ, $feedServ, $basePath . '/views', $likeServ);
 $webSocial   = new SocialPagesController($webSession, $auth, $followServ, $blockServ);
+$webEngage   = new EngagementPagesController($webSession, $likeServ);
 
 // ---- JSON API ----
 $router->post("{$apiBase}/auth/register",                fn($r) => $apiAuth->register($r));
@@ -264,6 +270,13 @@ $router->get("{$apiBase}/users/me/blocks",                        fn($r) => $api
 // Auth-required. Public Routen aller gefolgten User, neueste zuerst.
 $router->get("{$apiBase}/feed",                                   fn($r) => $apiFeed->show($r),       [$requireBearer]);
 
+// ---- Likes (M4a) ----
+// POST/DELETE auth-required, GET /likes anonym OK (OptionalBearer für
+// das liked_by_viewer-Flag). Nicht-sichtbare Routen → 404.
+$router->post("{$apiBase}/routes/{id}/like",                      fn($r) => $apiLike->like($r),    [$requireBearer]);
+$router->delete("{$apiBase}/routes/{id}/like",                    fn($r) => $apiLike->unlike($r),  [$requireBearer]);
+$router->get("{$apiBase}/routes/{id}/likes",                      fn($r) => $apiLike->summary($r), [$optionalBearer]);
+
 // ---- Web pages ----
 $router->get('/',                  fn($r) => Response::redirect('/dashboard'));
 $router->get('/login',             fn($r) => $webAuth->showLogin($r));
@@ -312,6 +325,10 @@ $router->post('/u/{handle}/follow',                      fn($r) => $webSocial->f
 $router->post('/u/{handle}/unfollow',                    fn($r) => $webSocial->unfollow($r),  [$csrf]);
 $router->post('/u/{handle}/block',                       fn($r) => $webSocial->block($r),     [$csrf]);
 $router->post('/u/{handle}/unblock',                     fn($r) => $webSocial->unblock($r),   [$csrf]);
+
+// ---- Engagement Web-UI (M4a Likes) ----
+$router->post('/u/{handle}/r/{id}/like',                 fn($r) => $webEngage->like($r),      [$csrf]);
+$router->post('/u/{handle}/r/{id}/unlike',               fn($r) => $webEngage->unlike($r),    [$csrf]);
 
 // Healthcheck
 $router->get('/healthz', function ($r): void {

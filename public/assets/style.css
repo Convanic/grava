@@ -404,3 +404,12 @@ form textarea { resize: vertical; }
 .profile-actions { display: flex; gap: 12px; flex-wrap: wrap; }
 .profile-self-hint { font-style: italic; }
 
+.like-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 12px;
+}
+.like-count strong { color: var(--text); }
+
