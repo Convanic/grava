@@ -75,8 +75,15 @@ final class Request
         $cfg          = \App\Config\Config::instance();
         $apiBase      = rtrim((string)$cfg->get('API_BASE_PATH', '/api/v1'), '/');
         $routesPrefix = $apiBase . '/routes';
-        $isUploadPath = $method === 'POST'
+        // Phase 6: Auch der Web-Upload `POST /routes` kommt durch hier.
+        // Der Browser sendet multipart/form-data mit GPX-File — gleicher
+        // Cap wie API-Upload. Andere Web-POSTs gegen /routes/{id}/* sind
+        // kleine Form-Submits (delete, share-create, ...) und passen
+        // locker in die 1 MiB Default-Grenze.
+        $isApiUpload  = $method === 'POST'
             && (str_starts_with($path, $routesPrefix . '/') || $path === $routesPrefix);
+        $isWebUpload  = $method === 'POST' && $path === '/routes';
+        $isUploadPath = $isApiUpload || $isWebUpload;
         $maxBytes = $isUploadPath
             ? $cfg->int('REQUEST_MAX_UPLOAD_BYTES', 26_214_400)  // 25 MB
             : $cfg->int('REQUEST_MAX_BODY_BYTES',   1_048_576);  // 1 MiB
