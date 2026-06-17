@@ -289,6 +289,46 @@ final class RouteService
     }
 
     /**
+     * Hart-Löschen aller Routen, die seit mindestens `$graceDays` Tagen
+     * soft-gelöscht sind. Dabei werden:
+     *  1. Die DB-Datensätze entfernt (CASCADE räumt route_versions,
+     *     route_tags und route_shares automatisch mit weg).
+     *  2. Das gesamte FS-Verzeichnis der Route gelöscht.
+     *
+     * Aufrufer ist die `cron:cleanup`-CLI; läuft typischerweise
+     * einmal täglich. Das Löschen ist idempotent — fehlende Files
+     * werden geschluckt, fehlende DB-Datensätze werden im nächsten
+     * Lauf einfach nicht mehr gefunden.
+     *
+     * @return array{candidates:int, deleted:int, fs_dirs:int}
+     */
+    public function purgeSoftDeleted(int $graceDays): array
+    {
+        $candidates = $this->routes->findHardDeleteCandidates($graceDays);
+        $deleted = 0;
+        $dirs    = 0;
+
+        foreach ($candidates as $c) {
+            // Erst FS, dann DB. Falls FS-rmdir fehlschlägt (Permissions),
+            // bleibt der DB-Eintrag — der nächste Lauf versucht es
+            // erneut. Andersrum (DB weg, FS Junk) wäre unhilflich,
+            // weil der Cleanup keine Verbindung mehr zum verwaisten
+            // Dir hat.
+            $hadDir = is_dir($this->storage->baseDir() . '/' . $c['user_id'] . '/' . $c['public_id']);
+            $this->storage->deleteRouteDir($c['user_id'], $c['public_id']);
+            if ($hadDir) { $dirs++; }
+            $this->routes->hardDelete($c['id']);
+            $deleted++;
+        }
+
+        return [
+            'candidates' => count($candidates),
+            'deleted'    => $deleted,
+            'fs_dirs'    => $dirs,
+        ];
+    }
+
+    /**
      * @param array<string,mixed> $route
      * @return array<string,mixed>
      */

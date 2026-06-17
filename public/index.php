@@ -122,7 +122,7 @@ $shareTokens  = new ShareTokenService($routeRepo);
 // CLI dispatch
 // ---------------------------------------------------------------------------
 if (PHP_SAPI === 'cli') {
-    $cli = new Commands($basePath, $tokens);
+    $cli = new Commands($basePath, $tokens, $routeService, $config);
     exit($cli->run($_SERVER['argv'] ?? []));
 }
 
