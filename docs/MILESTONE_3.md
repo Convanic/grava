@@ -1,9 +1,11 @@
 # Milestone 3 — Discovery & Social
 
-> Stand 2026-06-17: 6 Architektur-Entscheidungen aus dem M3-Kickoff
-> sind getroffen, Implementation kann starten. Ausgangspunkt ist
-> `main` nach M2 (50/50 Smoke-Tests grün, alle 9 Phasen 0–8 auf
-> `main` gemerged).
+> **Stand 2026-06-17 — M3 abgeschlossen.**
+> Alle 8 Phasen (0–7) auf `main` gemerged, 34/34 §10-Smoke-Schritte
+> grün gegen MAMP-Vhost (Anonymous-Discovery, Profile, Follow-Cascade,
+> Bidirektionaler Block-404, Handle-One-Time-Lock, BBox-/Tag-Filter,
+> Web-UI-Login + Feed). Ausgangspunkt war `main` nach M2 (50/50
+> Smoke grün).
 
 ## 1. Ziel
 
@@ -288,12 +290,12 @@ Layout-Erweiterung: authed Nav bekommt zusätzlich `Discover` und
 | 4 | `FollowService` + `BlockService` + 6 Follow-/Block-API-Endpoints (mit Cascade-Cleanup im Block) | 1.0 PT | Phase 3 |
 | 5 | `FeedService` + `GET /feed` (mit Block-Filter) | 0.5 PT | Phase 4 |
 | 6 | Web-UI: `/discover`, `/discover/users`, `/u/{handle}`, `/u/{handle}/r/{id}`, `/feed`, `/settings/handle`, Follow-/Block-Forms | 1.5 PT | Phase 0–5 |
-| 7 | §10-Smoke (siehe unten) | 0.5 PT | alle |
+| 7 | §10-Smoke (siehe unten) — 34/34 grün ✓ | 0.5 PT | alle |
 | **Gesamt** | | **~6 PT** | |
 
 ## 8. Smoke-Plan (entspricht M2 §10)
 
-Sobald implementiert, gegen MAMP smoken:
+Status: **34/34 grün** (22 §10-Akzeptanzkriterien plus Sub-Asserts) gegen MAMP-Vhost (`https://gravelexplorer.test:8890`):
 
 1. Anonymous: `GET /discover/routes` → 200, leer (noch keine public)
 2. User A erstellt + verifiziert + setzt handle `alice`; User B ebenso `bob`; User C ohne handle (NULL bleibt)
