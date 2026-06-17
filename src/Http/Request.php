@@ -85,7 +85,7 @@ final class Request
                 exit;
             }
         }
-        $ip = self::clientIp();
+        $ip = \App\Support\Ip::clientFromGlobals();
         $ua = (string)($_SERVER['HTTP_USER_AGENT'] ?? '');
 
         return new self(
@@ -135,33 +135,6 @@ final class Request
     {
         return stripos($this->header('Content-Type'), 'application/json') !== false
             || stripos($this->header('Accept'), 'application/json') !== false;
-    }
-
-    private static function clientIp(): string
-    {
-        $remote = (string)($_SERVER['REMOTE_ADDR'] ?? '0.0.0.0');
-
-        // M9: Hinter einem vertrauenswürdigen Reverse-Proxy ist REMOTE_ADDR
-        // immer die IP des Proxys. Der echte Client steht in
-        // X-Forwarded-For (links die ursprüngliche Client-IP, dann ggf.
-        // weitere Proxies). Wir akzeptieren das NUR, wenn REMOTE_ADDR in
-        // der explizit konfigurierten TRUSTED_PROXIES-Liste steht — sonst
-        // könnte jeder Client beliebige IPs spoofen.
-        $trustedRaw = (string)(\App\Config\Config::instance()->get('TRUSTED_PROXIES', ''));
-        if ($trustedRaw === '') {
-            return $remote;
-        }
-        $trusted = array_filter(array_map('trim', explode(',', $trustedRaw)));
-        if (!in_array($remote, $trusted, true)) {
-            return $remote;
-        }
-        $forwarded = (string)($_SERVER['HTTP_X_FORWARDED_FOR'] ?? '');
-        if ($forwarded === '') {
-            return $remote;
-        }
-        $first = trim(explode(',', $forwarded)[0] ?? '');
-        // Plausi-Check, sonst lieber REMOTE_ADDR als irgendwas Kaputtes.
-        return filter_var($first, FILTER_VALIDATE_IP) !== false ? $first : $remote;
     }
 
     public function ipBinary(): ?string

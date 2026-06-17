@@ -65,6 +65,18 @@ backend/
    # oder direkt: php public/index.php cli:migrate
    ```
 
+   **Hinweis (M8):** MySQL committet DDL-Statements (`CREATE TABLE`, `ALTER TABLE`,
+   …) **implizit**. Eine umschließende Transaktion bringt deshalb für eine
+   Migration mit mehreren DDL-Statements keinen Schutz. Wenn eine Migration
+   mittendrin failt:
+   1. Prüfen, welche Statements bereits angekommen sind
+      (`SHOW CREATE TABLE`, `SHOW INDEXES …`).
+   2. Restliche Statements der Migration manuell anwenden **oder** das
+      DB-Schema von Hand auf den Stand vor der Migration zurückbringen.
+   3. Die Datei in `migrations/` ist bei einem Teilerfolg vom Migrator
+      **nicht** in `migrations` als „erledigt" eingetragen — sie wird beim
+      nächsten Lauf erneut versucht.
+
 5. **Smoke-Test (Healthcheck):**
    ```bash
    curl http://gravelexplorer.test/healthz

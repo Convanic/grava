@@ -9,11 +9,25 @@ namespace App\Support;
  */
 final class Validator
 {
-    private const COMMON_PASSWORDS = [
+    /**
+     * Notfall-Fallback, falls die externe Liste in `data/common-passwords.txt`
+     * nicht geladen werden kann (z. B. Datei gelöscht, Permission). So bleibt
+     * die Mindest-Sperrhürde auch im Defekt-Fall erhalten.
+     */
+    private const COMMON_PASSWORDS_FALLBACK = [
         'password', 'passwort', '12345678', '123456789', '1234567890',
         'qwertyui', 'qwertz12', 'iloveyou', 'admin1234', 'welcome01',
         'letmein01', 'changeme', 'password1', 'password!',
     ];
+
+    /**
+     * M7: Lazy-geladene Top-1000-Liste aus `data/common-passwords.txt`.
+     * Wird beim ersten Aufruf in einen Hash-Set (Key = lowercased Passwort,
+     * Value = true) eingelesen. Lookup dann O(1).
+     *
+     * @var array<string,true>|null
+     */
+    private static ?array $commonPasswordSet = null;
 
     /** @var array<string,string[]> */
     private array $errors = [];
@@ -65,11 +79,51 @@ final class Validator
             $this->add($field, 'Passwort darf nicht der E-Mail-Adresse entsprechen.');
             return null;
         }
-        if (in_array(strtolower($value), self::COMMON_PASSWORDS, true)) {
+        if (isset(self::commonPasswordSet()[strtolower($value)])) {
             $this->add($field, 'Dieses Passwort ist zu häufig. Bitte wähle ein anderes.');
             return null;
         }
         return $value;
+    }
+
+    /**
+     * @return array<string,true>
+     */
+    private static function commonPasswordSet(): array
+    {
+        if (self::$commonPasswordSet !== null) {
+            return self::$commonPasswordSet;
+        }
+        $path = self::commonPasswordsPath();
+        $set  = [];
+        if (is_file($path) && is_readable($path)) {
+            $fh = fopen($path, 'rb');
+            if ($fh !== false) {
+                while (($line = fgets($fh)) !== false) {
+                    $pw = strtolower(trim($line));
+                    if ($pw === '' || str_starts_with($pw, '#')) {
+                        continue;
+                    }
+                    $set[$pw] = true;
+                }
+                fclose($fh);
+            }
+        }
+        if ($set === []) {
+            error_log('Validator::commonPasswordSet: could not load common-passwords.txt, falling back to embedded list.');
+            foreach (self::COMMON_PASSWORDS_FALLBACK as $pw) {
+                $set[strtolower($pw)] = true;
+            }
+        }
+        self::$commonPasswordSet = $set;
+        return self::$commonPasswordSet;
+    }
+
+    private static function commonPasswordsPath(): string
+    {
+        // Liste lebt in <repo-root>/data/common-passwords.txt. Wir liegen
+        // unter src/Support, also zwei Ebenen hoch.
+        return dirname(__DIR__, 2) . '/data/common-passwords.txt';
     }
 
     public function displayName(string $field, mixed $value, int $max = 60): ?string

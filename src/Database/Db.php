@@ -20,12 +20,12 @@ final class Db
 
         $cfg = Config::instance();
         $socket = (string)$cfg->get('DB_SOCKET', '');
-        $dbName = $cfg->require('DB_NAME');
+        $dbName = $cfg->requireValue('DB_NAME');
 
         if ($socket !== '') {
             $dsn = "mysql:unix_socket={$socket};dbname={$dbName};charset=utf8mb4";
         } else {
-            $host = $cfg->require('DB_HOST');
+            $host = $cfg->requireValue('DB_HOST');
             $port = $cfg->int('DB_PORT', 3306);
             $dsn = "mysql:host={$host};port={$port};dbname={$dbName};charset=utf8mb4";
         }
