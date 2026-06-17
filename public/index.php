@@ -27,6 +27,7 @@ use App\Controllers\Api\RouteController;
 use App\Controllers\Api\SharedRouteController;
 use App\Controllers\Api\UserController;
 use App\Controllers\Api\DiscoverController;
+use App\Controllers\Api\ProfileController;
 use App\Controllers\Web\AuthPagesController;
 use App\Controllers\Web\DashboardController;
 use App\Controllers\Web\PublicSharePageController;
@@ -35,6 +36,7 @@ use App\Controllers\Web\SettingsPagesController;
 use App\Controllers\Web\WebRefreshController;
 use App\Http\Middleware\Csrf;
 use App\Discovery\DiscoveryService;
+use App\Discovery\ProfileService;
 use App\Http\Middleware\OptionalBearer;
 use App\Http\Middleware\RequireBearer;
 use App\Http\Middleware\RequireVerified;
@@ -164,13 +166,15 @@ $optionalBearer  = new OptionalBearer($tokens);
 $requireVerified = new RequireVerified();
 $csrf            = new Csrf();
 
-$discovery = new DiscoveryService($routeRepo);
+$discovery     = new DiscoveryService($routeRepo);
+$profileServ   = new ProfileService($discovery, $routeRepo);
 
 $apiAuth    = new AuthController($auth, $rate);
 $apiUsers   = new UserController($auth);
 $apiRoutes  = new RouteController($routeService, $shareTokens, $config);
 $apiShared  = new SharedRouteController($shareTokens);
 $apiDiscover = new DiscoverController($discovery);
+$apiProfile  = new ProfileController($profileServ);
 $webAuth    = new AuthPagesController($auth, $cookieAuth, $webSession, $rate, $basePath . '/views');
 $webHome    = new DashboardController($webSession, $auth, $basePath . '/views');
 $webRefresh = new WebRefreshController($cookieAuth, $webSession);
@@ -223,6 +227,12 @@ $router->get("{$apiBase}/share/{token}",                          fn($r) => $api
 // dem Result-Set gefiltert.
 $router->get("{$apiBase}/discover/routes",                        fn($r) => $apiDiscover->routes($r), [$optionalBearer]);
 $router->get("{$apiBase}/discover/users",                         fn($r) => $apiDiscover->users($r),  [$optionalBearer]);
+
+// ---- Profile (M3 Phase 3) ----
+// Anonym OK. 404 bei nicht existentem oder gegenseitig blockierten
+// User. Routes-Endpoint erbt die Discovery-Filter (limit/offset/sort/q).
+$router->get("{$apiBase}/users/by-handle/{handle}",               fn($r) => $apiProfile->show($r),    [$optionalBearer]);
+$router->get("{$apiBase}/users/by-handle/{handle}/routes",        fn($r) => $apiProfile->routes($r),  [$optionalBearer]);
 
 // ---- Web pages ----
 $router->get('/',                  fn($r) => Response::redirect('/dashboard'));
