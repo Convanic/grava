@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "0f41def0628c6303cf221aa0f56a2765",
+    "content-hash": "54ed6c2676d6dd2e7d40577014e103e3",
     "packages": [
         {
             "name": "brick/math",
@@ -439,6 +439,71 @@
             "time": "2025-12-14T04:43:48+00:00"
         },
         {
+            "name": "sibyx/phpgpx",
+            "version": "2.0.0-beta.1",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/Sibyx/phpGPX.git",
+                "reference": "d7c31b3c6df6fbd794bcdafce293ad130c873164"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/Sibyx/phpGPX/zipball/d7c31b3c6df6fbd794bcdafce293ad130c873164",
+                "reference": "d7c31b3c6df6fbd794bcdafce293ad130c873164",
+                "shasum": ""
+            },
+            "require": {
+                "ext-dom": "*",
+                "ext-simplexml": "*",
+                "lib-libxml": "*",
+                "php": ">=8.1"
+            },
+            "require-dev": {
+                "friendsofphp/php-cs-fixer": "^v3.43.1",
+                "phpunit/phpunit": "^10.5 || ^11.0 || ^12.0"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "phpGPX\\": "src/phpGPX"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Jakub Dubec",
+                    "email": "jakub.dubec@gmail.com",
+                    "homepage": "https://jakubdubec.me"
+                }
+            ],
+            "description": "A simple PHP library for GPX manipulation",
+            "homepage": "https://sibyx.github.io/phpGPX/",
+            "keywords": [
+                "geo",
+                "geospacial",
+                "gpx",
+                "parser"
+            ],
+            "support": {
+                "issues": "https://github.com/Sibyx/phpGPX/issues",
+                "source": "https://github.com/Sibyx/phpGPX/tree/2.0.0-beta.1"
+            },
+            "funding": [
+                {
+                    "url": "https://www.buymeacoffee.com/Sibyx",
+                    "type": "custom"
+                },
+                {
+                    "url": "https://ko-fi.com/sibyx",
+                    "type": "ko_fi"
+                }
+            ],
+            "time": "2026-03-09T10:21:05+00:00"
+        },
+        {
             "name": "symfony/polyfill-ctype",
             "version": "v1.37.0",
             "source": {
@@ -778,15 +843,17 @@
     "packages-dev": [],
     "aliases": [],
     "minimum-stability": "stable",
-    "stability-flags": {},
+    "stability-flags": {
+        "sibyx/phpgpx": 10
+    },
     "prefer-stable": false,
     "prefer-lowest": false,
     "platform": {
         "php": "^8.2",
-        "ext-pdo": "*",
-        "ext-pdo_mysql": "*",
         "ext-json": "*",
-        "ext-openssl": "*"
+        "ext-openssl": "*",
+        "ext-pdo": "*",
+        "ext-pdo_mysql": "*"
     },
     "platform-dev": {},
     "plugin-api-version": "2.6.0"

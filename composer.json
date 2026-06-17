@@ -5,13 +5,14 @@
     "license": "proprietary",
     "require": {
         "php": "^8.2",
-        "ext-pdo": "*",
-        "ext-pdo_mysql": "*",
         "ext-json": "*",
         "ext-openssl": "*",
+        "ext-pdo": "*",
+        "ext-pdo_mysql": "*",
         "phpmailer/phpmailer": "^6.9",
-        "vlucas/phpdotenv": "^5.6",
-        "ramsey/uuid": "^4.7"
+        "ramsey/uuid": "^4.7",
+        "sibyx/phpgpx": "^2.0.0-beta.1",
+        "vlucas/phpdotenv": "^5.6"
     },
     "autoload": {
         "psr-4": {
