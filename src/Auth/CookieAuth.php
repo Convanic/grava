@@ -71,7 +71,7 @@ final class CookieAuth
 
     private function set(string $name, string $value, int $maxAgeSeconds): void
     {
-        $secure  = $this->config->bool('COOKIE_SECURE', false) || (($_SERVER['HTTPS'] ?? '') === 'on');
+        $secure  = $this->config->bool('COOKIE_SECURE', false) || self::requestIsHttps();
         $domain  = (string)$this->config->get('COOKIE_DOMAIN', '');
         $expires = $maxAgeSeconds > 0 ? time() + $maxAgeSeconds : 0;
 
@@ -83,5 +83,25 @@ final class CookieAuth
             'httponly' => true,
             'samesite' => 'Lax',
         ]);
+    }
+
+    /**
+     * H3: Hinter einem TLS-terminierenden Reverse-Proxy ist `$_SERVER['HTTPS']`
+     * oft leer — der Proxy reicht das Schema typischerweise als
+     * `X-Forwarded-Proto: https` durch. Damit die Secure-Cookies nicht
+     * versehentlich als plain markiert werden, prüfen wir beide Quellen.
+     * Verlassen sich tut der Aufrufer trotzdem nicht darauf: in Production
+     * sollte `COOKIE_SECURE=true` explizit gesetzt sein und nur einer
+     * vertrauenswürdigen Proxy-Liste vertraut werden (siehe TRUSTED_PROXIES).
+     */
+    private static function requestIsHttps(): bool
+    {
+        if (($_SERVER['HTTPS'] ?? '') === 'on') {
+            return true;
+        }
+        $proto = strtolower((string)($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? ''));
+        // Bei mehreren Proxies kann der Header eine Komma-Liste sein.
+        $first = trim(explode(',', $proto)[0] ?? '');
+        return $first === 'https';
     }
 }

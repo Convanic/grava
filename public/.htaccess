@@ -22,6 +22,17 @@ DirectoryIndex index.php
     Header always set X-Frame-Options "DENY"
     Header always set Referrer-Policy "strict-origin-when-cross-origin"
     Header always set Permissions-Policy "geolocation=(), microphone=(), camera=()"
+
+    # H3: HSTS — Browser sollen den Host für ein Jahr nur über HTTPS laden.
+    # Apache liefert den Header laut `expr` nur über TLS aus, damit die
+    # Direktive auch sicher ist, wenn jemand HTTP-Direktbetrieb fährt.
+    Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains" "expr=%{HTTPS} == 'on'"
+
+    # H3: Restriktive CSP — keine inline-Scripts, kein eval, alles aus
+    # eigener Origin. Inline-Styles bleiben erlaubt, weil layout.php
+    # einen kleinen <style>-Block nutzt; sobald der ausgelagert ist,
+    # kann 'unsafe-inline' bei style-src entfallen.
+    Header always set Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'self'; object-src 'none'"
 </IfModule>
 
 # Versteckte Dateien verbieten

@@ -76,6 +76,12 @@ final class Validator
             $this->add($field, 'Anzeigename ist zu lang (max. ' . $max . ' Zeichen).');
             return null;
         }
+        // H2/L5: Steuerzeichen (insb. CR/LF) verhindern Mail-Header-Injection
+        // im EML-Fallback und Probleme im Front-End-Rendering.
+        if (preg_match('/[\x00-\x1F\x7F]/u', $v) === 1) {
+            $this->add($field, 'Anzeigename enthält ungültige Steuerzeichen.');
+            return null;
+        }
         return $v === '' ? null : $v;
     }
 

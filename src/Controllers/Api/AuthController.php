@@ -114,13 +114,15 @@ final class AuthController
         try {
             $this->auth->changePassword(
                 (int)($req->user->internal_id ?? 0),
-                (int)$req->sessionId,
                 $current,
                 $newPw,
             );
         } catch (AuthException $e) {
             Response::error($e->errorCode, $e->getMessage(), $e->httpStatus, $e->fields);
         }
+        // H1: alle Sessions inkl. der aktuellen sind jetzt revoked.
+        // Der Client erhält 204 — sein nächster authentifizierter Call
+        // wird mit 401 abprallen und der User muss sich neu einloggen.
         Response::noContent();
     }
 
