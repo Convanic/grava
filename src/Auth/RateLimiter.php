@@ -30,16 +30,30 @@ final class RateLimiter
         $windowStart = gmdate('Y-m-d H:i:s', $windowStartTs);
 
         $pdo = Db::pdo();
+        // M1: Atomares Inkrement + Read-back. Der LAST_INSERT_ID-Trick
+        // schiebt den neuen Counter-Wert ins per-connection
+        // LAST_INSERT_ID-Register, das wir mit lastInsertId() lesen —
+        // damit ist „erhöhen und neuen Wert lesen" eine Operation, ohne
+        // Race-Window zwischen INSERT und SELECT.
+        // Bei initial-INSERT (Row noch nicht da) liefert lastInsertId()
+        // automatisch die neue Auto-Increment-ID; deshalb verwenden wir
+        // beim INSERT explizit `1` und beim UPDATE den Trick.
         $stmt = $pdo->prepare(
             'INSERT INTO rate_limits (action, identifier, window_start, count)
              VALUES (?, ?, ?, 1)
-             ON DUPLICATE KEY UPDATE count = count + 1'
+             ON DUPLICATE KEY UPDATE count = LAST_INSERT_ID(count + 1)'
         );
         $stmt->execute([$action, substr($identifier, 0, 254), $windowStart]);
 
-        $sel = $pdo->prepare('SELECT count FROM rate_limits WHERE action = ? AND identifier = ? AND window_start = ?');
-        $sel->execute([$action, substr($identifier, 0, 254), $windowStart]);
-        $count = (int)$sel->fetchColumn();
+        $rowsAffected = $stmt->rowCount();
+        if ($rowsAffected === 1) {
+            // Frische Zeile angelegt → Counter steht auf 1.
+            $count = 1;
+        } else {
+            // ON DUPLICATE KEY UPDATE wurde ausgeführt → lastInsertId
+            // enthält den neuen count-Wert.
+            $count = (int)$pdo->lastInsertId();
+        }
 
         return $count > $max;
     }

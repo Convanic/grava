@@ -62,7 +62,29 @@ final class Request
         $uri = $_SERVER['REQUEST_URI'] ?? '/';
         $path = parse_url($uri, PHP_URL_PATH) ?: '/';
 
-        $raw = file_get_contents('php://input') ?: '';
+        // M12: harter Body-Cap (Default 1 MiB). Verhindert DoS durch riesige
+        // Payloads, die PHPs post_max_size-Default ggf. zulassen würde, und
+        // schützt JSON-Decoder vor Pathological-Input.
+        $maxBytes = \App\Config\Config::instance()->int('REQUEST_MAX_BODY_BYTES', 1_048_576);
+        $declared = (int)($_SERVER['CONTENT_LENGTH'] ?? 0);
+        if ($declared > $maxBytes) {
+            http_response_code(413);
+            header('Content-Type: application/json; charset=utf-8');
+            echo json_encode(['error' => ['code' => 'payload_too_large', 'message' => 'Anfrage-Body ist zu groß.']]);
+            exit;
+        }
+        $stream = fopen('php://input', 'rb');
+        $raw = '';
+        if ($stream !== false) {
+            $raw = (string)stream_get_contents($stream, $maxBytes + 1);
+            fclose($stream);
+            if (strlen($raw) > $maxBytes) {
+                http_response_code(413);
+                header('Content-Type: application/json; charset=utf-8');
+                echo json_encode(['error' => ['code' => 'payload_too_large', 'message' => 'Anfrage-Body ist zu groß.']]);
+                exit;
+            }
+        }
         $ip = self::clientIp();
         $ua = (string)($_SERVER['HTTP_USER_AGENT'] ?? '');
 
@@ -117,7 +139,29 @@ final class Request
 
     private static function clientIp(): string
     {
-        return (string)($_SERVER['REMOTE_ADDR'] ?? '0.0.0.0');
+        $remote = (string)($_SERVER['REMOTE_ADDR'] ?? '0.0.0.0');
+
+        // M9: Hinter einem vertrauenswürdigen Reverse-Proxy ist REMOTE_ADDR
+        // immer die IP des Proxys. Der echte Client steht in
+        // X-Forwarded-For (links die ursprüngliche Client-IP, dann ggf.
+        // weitere Proxies). Wir akzeptieren das NUR, wenn REMOTE_ADDR in
+        // der explizit konfigurierten TRUSTED_PROXIES-Liste steht — sonst
+        // könnte jeder Client beliebige IPs spoofen.
+        $trustedRaw = (string)(\App\Config\Config::instance()->get('TRUSTED_PROXIES', ''));
+        if ($trustedRaw === '') {
+            return $remote;
+        }
+        $trusted = array_filter(array_map('trim', explode(',', $trustedRaw)));
+        if (!in_array($remote, $trusted, true)) {
+            return $remote;
+        }
+        $forwarded = (string)($_SERVER['HTTP_X_FORWARDED_FOR'] ?? '');
+        if ($forwarded === '') {
+            return $remote;
+        }
+        $first = trim(explode(',', $forwarded)[0] ?? '');
+        // Plausi-Check, sonst lieber REMOTE_ADDR als irgendwas Kaputtes.
+        return filter_var($first, FILTER_VALIDATE_IP) !== false ? $first : $remote;
     }
 
     public function ipBinary(): ?string

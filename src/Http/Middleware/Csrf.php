@@ -67,7 +67,9 @@ final class Csrf
         }
         self::ensureStarted();
         $expected = $_SESSION[self::SESSION_KEY] ?? '';
-        $supplied = (string)($request->post['_csrf'] ?? $request->header('X-CSRF-Token', ''));
+        // M10: auch JSON-Body akzeptieren — ein zukünftiger Client kann
+        // Web-Formulare per fetch() mit application/json absenden.
+        $supplied = (string)$request->input('_csrf', $request->header('X-CSRF-Token', ''));
         if ($expected === '' || !hash_equals((string)$expected, $supplied)) {
             Response::html(self::renderError(), 419);
         }

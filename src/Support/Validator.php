@@ -42,13 +42,23 @@ final class Validator
             $this->add($field, 'Passwort ist erforderlich.');
             return null;
         }
-        $len = mb_strlen($value, '8bit');
+        // M6: Zeichen-, nicht Byte-Längen prüfen. Vorher entstand eine
+        // Lüge in der Fehlermeldung („mindestens 10 Zeichen"), wenn der
+        // Nutzer Multi-Byte-Zeichen (Umlaute, …) eingab.
+        $len = mb_strlen($value, 'UTF-8');
         if ($len < 10) {
             $this->add($field, 'Passwort muss mindestens 10 Zeichen lang sein.');
             return null;
         }
         if ($len > 200) {
             $this->add($field, 'Passwort ist zu lang (max. 200 Zeichen).');
+            return null;
+        }
+        // Argon2id verarbeitet bis 4096 Bytes problemlos, aber zur Sicherheit
+        // gegen DoS-Angriffe mit absurd langen Multi-Byte-Strings deckeln
+        // wir auch den Byte-Wert (200 Zeichen × 4 Byte/Zeichen UTF-8-max).
+        if (strlen($value) > 800) {
+            $this->add($field, 'Passwort ist zu lang.');
             return null;
         }
         if ($notEqualToEmail !== null && strcasecmp($value, $notEqualToEmail) === 0) {
