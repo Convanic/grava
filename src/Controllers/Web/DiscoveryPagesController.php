@@ -36,6 +36,7 @@ final class DiscoveryPagesController
         private readonly ?\App\Engagement\LikeService $likes = null,
         private readonly ?\App\Engagement\CommentService $comments = null,
         private readonly ?\App\Engagement\NotificationService $notifications = null,
+        private readonly ?\App\Heatmap\HeatmapService $heatmap = null,
     ) {
         $this->view = new WebView($viewsPath);
     }
@@ -278,6 +279,35 @@ final class DiscoveryPagesController
             '_title'     => 'Mitteilungen · GravelExplorer',
             'items'      => $res['notifications'],
             'pagination' => $res['pagination'],
+        ]);
+    }
+
+    // -----------------------------------------------------------------
+    // GET /heatmap (anonym OK)
+    // -----------------------------------------------------------------
+    public function heatmap(Request $req): void
+    {
+        [, $authedUser] = $this->maybeAuthed();
+
+        $fc = $this->heatmap !== null
+            ? $this->heatmap->query(null, 500)
+            : ['features' => [], 'meta' => ['grid' => \App\Heatmap\HeatmapService::GRID, 'cell_count' => 0, 'max_weight' => 0]];
+
+        // Top-Zellen für die tabellarische Sicht (kein JS-Map im MVP).
+        $cells = [];
+        foreach ($fc['features'] as $f) {
+            $cells[] = [
+                'lat'    => $f['geometry']['coordinates'][1],
+                'lon'    => $f['geometry']['coordinates'][0],
+                'weight' => $f['properties']['weight'],
+            ];
+        }
+
+        $this->renderPage('heatmap', $authedUser, [
+            '_title'      => 'Heatmap · GravelExplorer',
+            'cells'       => $cells,
+            'meta'        => $fc['meta'],
+            '_layoutWide' => true,
         ]);
     }
 
