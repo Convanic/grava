@@ -71,7 +71,7 @@ final class StravaService
      * und legt/aktualisiert die Connection (verschlüsselt). Liefert die
      * user_id für den Redirect.
      */
-    public function handleCallback(string $state, string $code): int
+    public function handleCallback(string $state, string $code, ?int $expectedUserId = null): int
     {
         if ($state === '' || $code === '') {
             throw new StravaException('oauth_invalid', 'Ungültige OAuth-Antwort.', 400);
@@ -86,6 +86,14 @@ final class StravaService
         $userId = (int)$userId;
         // Single-use: sofort konsumieren.
         $pdo->prepare('DELETE FROM oauth_states WHERE state = ?')->execute([$state]);
+
+        // Session-Binding (CSRF-Schutz): Der Callback wird im Browser des
+        // eingeloggten Users aufgerufen. Stimmt der State-Owner nicht mit
+        // der aktiven Session überein, könnte ein Angreifer seinen eigenen
+        // Strava-Account an einen fremden Account koppeln. Wir lehnen ab.
+        if ($expectedUserId !== null && $expectedUserId !== $userId) {
+            throw new StravaException('oauth_state_invalid', 'OAuth-State gehört zu einer anderen Sitzung.', 400);
+        }
 
         $tokens = $this->client->exchangeCode($code);
         $this->persistConnection($userId, $tokens);
