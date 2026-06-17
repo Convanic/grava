@@ -20,7 +20,7 @@ final class ProfileController
 
     public function show(Request $req): void
     {
-        $handle = (string)($req->route['handle'] ?? '');
+        $handle = (string)($req->routeParams['handle'] ?? '');
         $viewerId = $this->viewerId($req);
 
         $profile = $this->profile->getProfile($handle, $viewerId);
@@ -32,7 +32,7 @@ final class ProfileController
 
     public function routes(Request $req): void
     {
-        $handle = (string)($req->route['handle'] ?? '');
+        $handle = (string)($req->routeParams['handle'] ?? '');
         $viewerId = $this->viewerId($req);
 
         $filters = [

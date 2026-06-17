@@ -28,6 +28,7 @@ use App\Controllers\Api\SharedRouteController;
 use App\Controllers\Api\UserController;
 use App\Controllers\Api\DiscoverController;
 use App\Controllers\Api\ProfileController;
+use App\Controllers\Api\SocialController;
 use App\Controllers\Web\AuthPagesController;
 use App\Controllers\Web\DashboardController;
 use App\Controllers\Web\PublicSharePageController;
@@ -35,7 +36,9 @@ use App\Controllers\Web\RoutePagesController;
 use App\Controllers\Web\SettingsPagesController;
 use App\Controllers\Web\WebRefreshController;
 use App\Http\Middleware\Csrf;
+use App\Discovery\BlockService;
 use App\Discovery\DiscoveryService;
+use App\Discovery\FollowService;
 use App\Discovery\ProfileService;
 use App\Http\Middleware\OptionalBearer;
 use App\Http\Middleware\RequireBearer;
@@ -168,6 +171,8 @@ $csrf            = new Csrf();
 
 $discovery     = new DiscoveryService($routeRepo);
 $profileServ   = new ProfileService($discovery, $routeRepo);
+$followServ    = new FollowService();
+$blockServ     = new BlockService();
 
 $apiAuth    = new AuthController($auth, $rate);
 $apiUsers   = new UserController($auth);
@@ -175,6 +180,7 @@ $apiRoutes  = new RouteController($routeService, $shareTokens, $config);
 $apiShared  = new SharedRouteController($shareTokens);
 $apiDiscover = new DiscoverController($discovery);
 $apiProfile  = new ProfileController($profileServ);
+$apiSocial   = new SocialController($followServ, $blockServ);
 $webAuth    = new AuthPagesController($auth, $cookieAuth, $webSession, $rate, $basePath . '/views');
 $webHome    = new DashboardController($webSession, $auth, $basePath . '/views');
 $webRefresh = new WebRefreshController($cookieAuth, $webSession);
@@ -233,6 +239,18 @@ $router->get("{$apiBase}/discover/users",                         fn($r) => $api
 // User. Routes-Endpoint erbt die Discovery-Filter (limit/offset/sort/q).
 $router->get("{$apiBase}/users/by-handle/{handle}",               fn($r) => $apiProfile->show($r),    [$optionalBearer]);
 $router->get("{$apiBase}/users/by-handle/{handle}/routes",        fn($r) => $apiProfile->routes($r),  [$optionalBearer]);
+
+// ---- Follow + Block (M3 Phase 4) ----
+// Auth-required. POST /follow ist 201 (neu) bzw. 200 (idempotent).
+// Block hat den Cascade-Cleanup: existierende Follows in beide
+// Richtungen werden in derselben Transaktion entfernt.
+$router->post("{$apiBase}/users/by-handle/{handle}/follow",       fn($r) => $apiSocial->follow($r),   [$requireBearer]);
+$router->delete("{$apiBase}/users/by-handle/{handle}/follow",     fn($r) => $apiSocial->unfollow($r), [$requireBearer]);
+$router->post("{$apiBase}/users/by-handle/{handle}/block",        fn($r) => $apiSocial->block($r),    [$requireBearer]);
+$router->delete("{$apiBase}/users/by-handle/{handle}/block",      fn($r) => $apiSocial->unblock($r),  [$requireBearer]);
+$router->get("{$apiBase}/users/me/follows",                       fn($r) => $apiSocial->meFollows($r),   [$requireBearer]);
+$router->get("{$apiBase}/users/me/followers",                     fn($r) => $apiSocial->meFollowers($r), [$requireBearer]);
+$router->get("{$apiBase}/users/me/blocks",                        fn($r) => $apiSocial->meBlocks($r),    [$requireBearer]);
 
 // ---- Web pages ----
 $router->get('/',                  fn($r) => Response::redirect('/dashboard'));
