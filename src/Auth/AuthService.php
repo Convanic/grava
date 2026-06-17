@@ -367,6 +367,25 @@ final class AuthService
                 error_log('AuthService::deleteAccount: routes-Tabelle existiert nicht, überspringe Soft-Delete der Routen.');
             }
 
+            // M3 Phase 1: Social-Beziehungen hart entfernen. Wir behalten
+            // den User-Datensatz für Audit/Referential-Integrity (status =
+            // 'deleted'), aber sein Profil ist nicht mehr sichtbar — also
+            // sollen auch keine Geister-Follows oder -Blocks bestehen.
+            // Wenn die Tabellen noch nicht existieren (z. B. Pre-M3-DB),
+            // wird das geschluckt — analog zur routes-Logik darüber.
+            foreach (['follows' => 'follower_id = ? OR followee_id = ?',
+                      'user_blocks' => 'blocker_id = ? OR blocked_id = ?'] as $tbl => $where) {
+                try {
+                    $pdo->prepare("DELETE FROM {$tbl} WHERE {$where}")
+                        ->execute([$userId, $userId]);
+                } catch (\PDOException $e) {
+                    if (!str_contains($e->getMessage(), '1146')) {
+                        throw $e;
+                    }
+                    error_log("AuthService::deleteAccount: {$tbl}-Tabelle existiert nicht, überspringe.");
+                }
+            }
+
             $pdo->commit();
         } catch (\Throwable $e) {
             $pdo->rollBack();
