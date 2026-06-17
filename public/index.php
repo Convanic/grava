@@ -31,6 +31,7 @@ use App\Controllers\Web\DashboardController;
 use App\Controllers\Web\WebRefreshController;
 use App\Http\Middleware\Csrf;
 use App\Http\Middleware\RequireBearer;
+use App\Http\Middleware\RequireVerified;
 use App\Http\Request;
 use App\Http\Response;
 use App\Http\Router;
@@ -152,8 +153,9 @@ $request = Request::fromGlobals();
 $router  = new Router();
 
 $apiBase = rtrim((string)$config->get('API_BASE_PATH', '/api/v1'), '/');
-$requireBearer = new RequireBearer($tokens);
-$csrf = new Csrf();
+$requireBearer   = new RequireBearer($tokens);
+$requireVerified = new RequireVerified();
+$csrf            = new Csrf();
 
 $apiAuth    = new AuthController($auth, $rate);
 $apiUsers   = new UserController($auth);
@@ -182,7 +184,10 @@ $router->delete("{$apiBase}/users/me",                    fn($r) => $apiUsers->d
 // ---- Routes API (M2 Phase 4) ----
 // POST /routes ist sowohl Create als auch "Add Version" — Idempotenz
 // über client_route_uuid (siehe RouteService).
-$router->post("{$apiBase}/routes",                                fn($r) => $apiRoutes->upload($r),         [$requireBearer]);
+// M5: Upload erfordert verifizierte E-Mail. Andere Operationen
+// (Listing, Patch, Delete, Sharing) bleiben offen — wer schon Routen
+// hat, kann die weiter verwalten.
+$router->post("{$apiBase}/routes",                                fn($r) => $apiRoutes->upload($r),         [$requireBearer, $requireVerified]);
 $router->get("{$apiBase}/routes",                                 fn($r) => $apiRoutes->listForUser($r),    [$requireBearer]);
 $router->get("{$apiBase}/routes/{id}",                            fn($r) => $apiRoutes->show($r),           [$requireBearer]);
 $router->patch("{$apiBase}/routes/{id}",                          fn($r) => $apiRoutes->patch($r),          [$requireBearer]);
