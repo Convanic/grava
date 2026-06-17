@@ -4,13 +4,17 @@ declare(strict_types=1);
 namespace App\Cli;
 
 use App\Auth\TokenService;
+use App\Config\Config;
 use App\Database\Migrator;
+use App\Routes\RouteService;
 
 final class Commands
 {
     public function __construct(
         private readonly string $basePath,
         private readonly TokenService $tokens,
+        private readonly RouteService $routes,
+        private readonly Config $config,
     ) {}
 
     public function run(array $argv): int
@@ -49,9 +53,24 @@ final class Commands
 
     private function cleanup(): int
     {
-        $res = $this->tokens->cleanup();
+        // 1) Token-/Session-/Rate-Limit-Cleanup (M1).
+        $tokenRes = $this->tokens->cleanup();
+
+        // 2) M2 Phase 7: hard-delete soft-deleted routes nach Karenz.
+        //    Default 30 Tage — kann via .env überstimmt werden.
+        $graceDays  = $this->config->int('ROUTES_SOFT_DELETE_GRACE_DAYS', 30);
+        $routesRes  = $this->routes->purgeSoftDeleted($graceDays);
+
+        $merged = [];
+        foreach ($tokenRes as $k => $v) {
+            $merged[$k] = $v;
+        }
+        foreach ($routesRes as $k => $v) {
+            $merged['routes_' . $k] = $v;
+        }
+
         echo "Cleanup abgeschlossen:\n";
-        foreach ($res as $k => $v) {
+        foreach ($merged as $k => $v) {
             echo "  {$k}: {$v}\n";
         }
         // L12: Auch ins Logfile schreiben — sonst sieht ein Operator
@@ -60,8 +79,8 @@ final class Commands
         // ein Eintrag pro Cleanup-Run im PHP-Errorlog.
         $summary = implode(', ', array_map(
             static fn($k, $v) => "{$k}={$v}",
-            array_keys($res),
-            array_values($res),
+            array_keys($merged),
+            array_values($merged),
         ));
         error_log("cron:cleanup [{$summary}]");
         return 0;

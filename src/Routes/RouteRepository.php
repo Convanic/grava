@@ -261,6 +261,46 @@ final class RouteRepository
     }
 
     /**
+     * Findet hart-zu-löschende Routen: alle, die seit mindestens
+     * `$graceDays` Tagen soft-deleted sind. Liefert das Tupel,
+     * das die Storage-Schicht für FS-Cleanup braucht.
+     *
+     * @return list<array{id:int, user_id:int, public_id:string, deleted_at:string}>
+     */
+    public function findHardDeleteCandidates(int $graceDays): array
+    {
+        $graceDays = max(0, $graceDays);
+        $sql = 'SELECT id, user_id, public_id, deleted_at
+                  FROM routes
+                 WHERE deleted_at IS NOT NULL
+                   AND deleted_at <= (UTC_TIMESTAMP() - INTERVAL ? DAY)
+                 ORDER BY id ASC';
+        $stmt = Db::pdo()->prepare($sql);
+        $stmt->execute([$graceDays]);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $out = [];
+        foreach ($rows as $r) {
+            $out[] = [
+                'id'         => (int)$r['id'],
+                'user_id'    => (int)$r['user_id'],
+                'public_id'  => (string)$r['public_id'],
+                'deleted_at' => (string)$r['deleted_at'],
+            ];
+        }
+        return $out;
+    }
+
+    /**
+     * Hart-Löschen einer Route. FK-CASCADE räumt route_versions,
+     * route_tags und route_shares automatisch mit weg.
+     */
+    public function hardDelete(int $routeId): void
+    {
+        Db::pdo()->prepare('DELETE FROM routes WHERE id = ?')
+            ->execute([$routeId]);
+    }
+
+    /**
      * Liefert die nächste Versionsnummer für eine Route. Erwartet,
      * dass die Route existiert.
      */
