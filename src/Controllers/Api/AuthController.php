@@ -30,15 +30,18 @@ final class AuthController
         }
 
         try {
-            $result = $this->auth->register(
-                $email, $password, $displayName,
-                $this->client($req), $req->userAgent, $req->ipBinary(),
-            );
+            $this->auth->register($email, $password, $displayName);
         } catch (AuthException $e) {
             Response::error($e->errorCode, $e->getMessage(), $e->httpStatus, $e->fields);
         }
 
-        Response::json($this->tokenPayload($result), 201);
+        // C2: Generische 202-Antwort, identisch unabhängig davon, ob die
+        // E-Mail neu war, schon existiert oder zu einem deaktivierten Konto
+        // gehört. Verhindert Account-Enumeration. Der Client muss nach dem
+        // Bestätigen der Mail explizit /auth/login aufrufen.
+        Response::json([
+            'message' => 'Wenn dein Konto neu ist, haben wir dir eine Bestätigungs-E-Mail geschickt.',
+        ], 202);
     }
 
     public function login(Request $req): void

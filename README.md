@@ -95,7 +95,7 @@ Alle Endpunkte unter `API_BASE_PATH` (Default `/api/v1`):
 
 | Methode | Pfad                              | Auth   | Zweck |
 |---------|-----------------------------------|--------|-------|
-| POST    | `/auth/register`                  | nein   | Konto anlegen, Verify-Mail, Login |
+| POST    | `/auth/register`                  | nein   | Konto anlegen + Verify-Mail. **Antwortet immer 202** mit generischer Message — kein Auto-Login (Anti-Enumeration). Client muss nach Verify `/auth/login` aufrufen. |
 | POST    | `/auth/login`                     | nein   | Einloggen |
 | POST    | `/auth/refresh`                   | nein   | Access+Refresh rotieren |
 | POST    | `/auth/logout`                    | Bearer | Aktuelle Session beenden |
