@@ -10,12 +10,20 @@ werden.
 |---|---|---|---|
 | **H5** Refresh-Cookie auf `path=/` | High | Saubere Lösung verlangt eine separate Web-Session (z. B. PHP-`$_SESSION` mit `user_id`) statt die Refresh-Token-Rotation auf jedem Pageload. Das ist ein Architektur-Wechsel, der in den M2-Umbau gehört. | Web-Auth über Server-side Session-Cookie (kurzes Lifetime, Server entscheidet); `ge_refresh` nur an `/api/v1/auth/refresh` und an einen dedizierten `/auth/web-refresh`-Endpoint scopen. |
 | **M5** `email_verified_at` wird nicht erzwungen | Medium | Produktentscheidung: was darf ein unverified User? In M1 ist die Antwort „alles, weil sonst kann er nicht erst mal ankommen". Konkrete Sperren (z. B. „kein Routen-Upload ohne Verify") gehören zur jeweiligen Feature-Story. | In jedem geschützten Endpunkt (oder als Middleware-Variante `RequireVerified`) prüfen und 403 mit `email_verification_required` antworten. README: Politikbeschreibung. |
-| **M7** Common-Password-Liste mit 14 Einträgen | Medium | HIBP-API einbinden ist ein externer Hop pro Registrierung, statisches Top-1k pflegt sich nicht selbst. Beides ist eine Feature-Entscheidung. | (a) HIBP k-Anonymity-Endpunkt nutzen und Treffer-Schwelle setzen, oder (b) Top-10k aus rockyou.txt o. ä. einmalig embedden. |
-| **M8** Migrator ohne Transaktion bei Multi-Statement-SQL | Medium | DDL committet in MySQL implizit — eine Transaktion bringt für Multi-Statement-DDL nichts. Das ist ein bewusster Trade-off, sollte aber im README explizit gemacht werden. | README-Ergänzung: „Bei einer fehlgeschlagenen Migration manuell in der DB prüfen, welche Statements bereits angekommen sind, und ggf. den Eintrag in `migrations` von Hand ergänzen." |
 | **L3** `Response::*` mit `exit;` macht Tests schwer | Low | Ist ein größerer Refactor: Response als Objekt aus dem Front-Controller emittieren. Eher M2/M3-Scope. | PSR-7-artige Response-Klasse plus zentrale Emit-Funktion in `public/index.php`. |
-| **L9** `Config::require` Methodenname | Low | Reiner Lese-Refactor, betrifft alle Caller. Nicht dringend; lieber bei einem natürlichen Anlass mitnehmen. | Umbenennen in `requireValue()` oder `mustGet()`. |
 | **L10** `Csrf` als statisches Modul | Low | Statisches Singleton-Verhalten erschwert Tests. Echter Refactor zur Instance-API. | DI-Variante mit `CsrfMiddleware` als Service, Token-Storage über injizierten Session-Wrapper. |
-| **L14** `Request::clientIp()` als private static | Low | Refactor: in `Support/Ip` extrahieren, dann auch X-Forwarded-For-Logik dort konsolidieren. | Eigene Klasse `Support\Ip` mit `clientIp(Config $cfg)`. |
+
+## Erledigt im Quick-Wins-Branch (`polish/quick-wins`, 2026-06-17)
+
+- **M7** — Top-1000-Passwortliste aus SecLists (`Pwdb_top-1000`) in
+  `data/common-passwords.txt` eingebettet, Validator lädt lazy mit
+  Hash-Set-Cache. Fallback auf eingebettete 14er-Liste bei Dateifehlern.
+- **M8** — README ergänzt um Hinweis auf implizite DDL-Commits in MySQL
+  und Wiederherstellungs-Schritte bei fehlgeschlagener Migration.
+- **L9** — `Config::require()` umbenannt in `Config::requireValue()`
+  (zwei Caller in `Db.php` mitgezogen).
+- **L14** — `Request::clientIp()` extrahiert in `Support\Ip` mit
+  pure-function-Variante `Ip::resolve()` für Tests.
 
 ## Bekannte Architektur-Anmerkungen
 

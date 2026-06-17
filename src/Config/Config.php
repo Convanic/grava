@@ -62,7 +62,13 @@ final class Config
         return (bool)$v;
     }
 
-    public function require(string $key): string
+    /**
+     * L9: Methode hieß ursprünglich `require()`, was zwar in PHP 8 kein
+     * Hard-Reserved-Keyword ist, aber in jedem Editor-Highlighting für
+     * Verwirrung sorgt und bei Static-Analysis-Tools regelmäßig falsche
+     * Treffer auslöst. `requireValue()` ist eindeutig.
+     */
+    public function requireValue(string $key): string
     {
         $v = $this->get($key);
         if ($v === null || $v === '') {
