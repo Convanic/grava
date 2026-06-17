@@ -54,6 +54,16 @@ final class Commands
         foreach ($res as $k => $v) {
             echo "  {$k}: {$v}\n";
         }
+        // L12: Auch ins Logfile schreiben — sonst sieht ein Operator
+        // den Cron-Output nur, wenn er stdout in der crontab-Zeile
+        // explizit umlenkt (`>> /var/log/...`). So bleibt zumindest
+        // ein Eintrag pro Cleanup-Run im PHP-Errorlog.
+        $summary = implode(', ', array_map(
+            static fn($k, $v) => "{$k}={$v}",
+            array_keys($res),
+            array_values($res),
+        ));
+        error_log("cron:cleanup [{$summary}]");
         return 0;
     }
 

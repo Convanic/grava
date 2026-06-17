@@ -133,7 +133,10 @@ PHP-Session gespeichert ist.
 
 - Passwörter mit Argon2id (`password_hash`), Rehash beim Login wenn nötig.
 - Tokens (Refresh, Access, Reset, Verify) sind 32 zufällige Bytes (base64url).
-  Nur ihr SHA-256-Hash wird gespeichert; Vergleiche mit `hash_equals`.
+  Nur ihr SHA-256-Hash wird gespeichert. Der Lookup erfolgt per `WHERE token_hash = ?`
+  über einen Unique-Index — das ist auf DB-Ebene effektiv konstantzeitig, ein
+  zusätzliches `hash_equals` ist hier nicht nötig. `hash_equals` kommt nur dort
+  zum Einsatz, wo wirklich Klartext verglichen wird (CSRF-Token).
 - Refresh-Tokens werden bei jedem `/auth/refresh` rotiert; die alten Access-
   Tokens der Session werden entwertet.
 - Rate-Limiting fenster-basiert (Default 15 min) für `login`, `register`,

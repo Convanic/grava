@@ -3,8 +3,10 @@
 /** @var string $verify_url */
 /** @var int $hours_valid */
 /** @var string $app_name */
-$name = $display_name ?: 'Hallo';
-?>Hallo <?= $name ?>,
+$greeting = ($display_name !== null && $display_name !== '')
+    ? 'Hallo ' . $display_name
+    : 'Hallo';
+?><?= $greeting ?>,
 
 willkommen bei <?= $app_name ?>!
 

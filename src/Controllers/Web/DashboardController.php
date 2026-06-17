@@ -10,10 +10,14 @@ use App\Http\Response;
 
 final class DashboardController
 {
+    private readonly WebView $view;
+
     public function __construct(
         private readonly CookieAuth $cookieAuth,
-        private readonly string $viewsPath,
-    ) {}
+        string $viewsPath,
+    ) {
+        $this->view = new WebView($viewsPath);
+    }
 
     public function show(Request $req): void
     {
@@ -23,23 +27,13 @@ final class DashboardController
         }
 
         Csrf::ensureStarted();
-        $user = $ctx['user'];
-        $csrf = Csrf::token();
-
-        http_response_code(200);
-        header('Content-Type: text/html; charset=utf-8');
-
-        $_view = 'dashboard';
-        $_title = 'Dashboard · GravelExplorer';
-        $_csrf  = $csrf;
-        $flash  = $_SESSION['flash'] ?? null;
+        $flash = $_SESSION['flash'] ?? null;
         if (isset($_SESSION['flash'])) unset($_SESSION['flash']);
 
-        ob_start();
-        include $this->viewsPath . '/web/dashboard.php';
-        $content = (string)ob_get_clean();
-
-        include $this->viewsPath . '/web/layout.php';
-        exit;
+        $this->view->render('dashboard', [
+            '_title' => 'Dashboard · GravelExplorer',
+            'user'   => $ctx['user'],
+            'flash'  => $flash,
+        ]);
     }
 }
