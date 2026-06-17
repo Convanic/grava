@@ -54,6 +54,9 @@ final class AuthPagesController
             $this->render('login', ['error' => $e->getMessage(), 'email' => $email, 'flash' => null], $e->httpStatus);
         }
 
+        // C1/C4: Session-Fixation verhindern und CSRF-Token nach Auth-Wechsel
+        // rotieren — bevor wir das Auth-Cookie setzen.
+        Csrf::rotateForAuthState();
         $this->cookieAuth->setFromTokens($result['tokens']);
         Response::redirect('/dashboard');
     }
@@ -93,7 +96,7 @@ final class AuthPagesController
         }
 
         try {
-            $result = $this->auth->register($email, $password, $cleanName, 'web', $req->userAgent, $req->ipBinary());
+            $this->auth->register($email, $password, $cleanName);
         } catch (AuthException $e) {
             $this->render('register', [
                 'errors' => $e->fields ?? ['email' => [$e->getMessage()]],
@@ -103,9 +106,15 @@ final class AuthPagesController
             ], $e->httpStatus);
         }
 
-        $this->cookieAuth->setFromTokens($result['tokens']);
-        $this->setFlash('Konto erstellt! Wir haben dir eine E-Mail zur Bestätigung gesendet.');
-        Response::redirect('/dashboard');
+        // C1/C4: Auch nach Register Session-ID + CSRF-Token rotieren, damit
+        // ein evtl. parallel laufender Angreifer auf die alte Session-ID
+        // nichts mehr ausrichten kann.
+        Csrf::rotateForAuthState();
+        // C2: Kein Auto-Login mehr — die Antwort darf nicht verraten, ob
+        // gerade ein Konto angelegt wurde oder nicht. Generische Flash und
+        // Redirect zum Login.
+        $this->setFlash('Wenn dein Konto neu ist, haben wir dir eine Bestätigungs-E-Mail geschickt. Bitte melde dich anschließend an.');
+        Response::redirect('/login');
     }
 
     public function showForgot(Request $req): void
@@ -161,6 +170,8 @@ final class AuthPagesController
         } catch (AuthException $e) {
             $this->render('reset', ['token' => $token, 'errors' => $e->fields ?? ['token' => [$e->getMessage()]], 'flash' => null], $e->httpStatus);
         }
+        // C1/C4: Nach erfolgreichem Reset frische Session + CSRF-Token.
+        Csrf::rotateForAuthState();
         $this->setFlash('Passwort aktualisiert. Bitte melde dich neu an.');
         Response::redirect('/login');
     }
@@ -194,6 +205,8 @@ final class AuthPagesController
             $this->auth->logout((int)$ctx['session_id']);
         }
         $this->cookieAuth->clear();
+        // C1/C4: Beim Logout frische Session-ID + CSRF-Token erzwingen.
+        Csrf::rotateForAuthState();
         Response::redirect('/login');
     }
 

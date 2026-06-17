@@ -34,6 +34,25 @@ final class Csrf
         return (string)$_SESSION[self::SESSION_KEY];
     }
 
+    /**
+     * Nach jedem Auth-State-Wechsel (Login, Register, Logout, Passwort-Reset)
+     * aufrufen: rollt die PHP-Session-ID neu (verhindert Session-Fixation)
+     * und vergibt einen frischen CSRF-Token. Der Flash-Wert wird durchgereicht,
+     * damit Redirect-Messages nicht verloren gehen.
+     */
+    public static function rotateForAuthState(): void
+    {
+        self::ensureStarted();
+        $flash = $_SESSION['flash'] ?? null;
+        // Komplett saubern, damit kein State der vorigen Session überdauert.
+        $_SESSION = [];
+        session_regenerate_id(true);
+        $_SESSION[self::SESSION_KEY] = bin2hex(random_bytes(32));
+        if ($flash !== null) {
+            $_SESSION['flash'] = $flash;
+        }
+    }
+
     public function __invoke(Request $request): void
     {
         if (!in_array($request->method, ['POST', 'PUT', 'PATCH', 'DELETE'], true)) {

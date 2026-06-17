@@ -24,28 +24,44 @@ final class AuthService
     ) {}
 
     /**
-     * @param 'ios'|'web'|'other' $client
-     * @return array{tokens:array,user:array}
-     * @throws AuthException
+     * Registrierung. Antwortet aus Sicht des Aufrufers immer identisch
+     * (kein Tokens-Response, generischer 202-Status), damit es keine
+     * Account-Enumeration über diesen Endpoint gibt.
+     *
+     * Verhalten:
+     *  - neue E-Mail            → User anlegen + Verify-Mail senden
+     *  - bestehend, unverified  → Verify-Mail erneut senden
+     *  - bestehend, verified    → silent no-op (Mail nur, falls man sich
+     *                             später für eine "someone tried" Mail
+     *                             entscheidet — aktuell bewusst nicht,
+     *                             um keinen Mail-Spam-Vektor zu öffnen)
+     *  - deleted/disabled       → silent no-op
      */
-    public function register(string $email, string $password, ?string $displayName, string $client, ?string $ua, ?string $ipBin): array
+    public function register(string $email, string $password, ?string $displayName): void
     {
         $pdo = Db::pdo();
         $now = Clock::nowUtcString();
 
-        $stmt = $pdo->prepare('SELECT id FROM users WHERE email = ? LIMIT 1');
+        $stmt = $pdo->prepare('SELECT id, status, email_verified_at FROM users WHERE email = ? LIMIT 1');
         $stmt->execute([$email]);
-        if ($stmt->fetchColumn()) {
-            throw new AuthException(
-                'validation_error',
-                'Diese E-Mail-Adresse wird bereits verwendet.',
-                422,
-                ['email' => ['Already in use.']],
-            );
+        $existing = $stmt->fetch();
+
+        if ($existing) {
+            if ($existing['status'] === 'active' && $existing['email_verified_at'] === null) {
+                $this->createAndSendVerification(
+                    (int)$existing['id'],
+                    $email,
+                    $displayName, // nur als Mail-Anrede, ändert nichts am gespeicherten Profil
+                );
+            }
+            return;
         }
 
         $publicId = Uuid::v4();
         $hash     = $this->passwords->hash($password);
+
+        $rawVerify = TokenService::randomToken();
+        $verifyExpires = Clock::utcPlusSeconds($this->config->int('EMAIL_VERIFY_TTL', 86400));
 
         $pdo->beginTransaction();
         try {
@@ -56,8 +72,6 @@ final class AuthService
             $ins->execute([$publicId, $email, $hash, $displayName, $now, $now]);
             $userId = (int)$pdo->lastInsertId();
 
-            $rawVerify = TokenService::randomToken();
-            $verifyExpires = Clock::utcPlusSeconds($this->config->int('EMAIL_VERIFY_TTL', 86400));
             $vins = $pdo->prepare(
                 'INSERT INTO email_verifications (user_id, token_hash, expires_at, created_at)
                  VALUES (?, ?, ?, ?)'
@@ -71,12 +85,6 @@ final class AuthService
         }
 
         $this->sendVerifyMail($email, $displayName, $rawVerify);
-
-        $tokens = $this->tokens->issueSession($userId, $client, $ua, $ipBin);
-        return [
-            'tokens' => $tokens,
-            'user'   => $this->loadUserPublic($userId),
-        ];
     }
 
     /**
@@ -193,16 +201,17 @@ final class AuthService
     {
         $pdo = Db::pdo();
         $now = Clock::nowUtcString();
+        $tokenHash = TokenService::hashToken($token);
 
-        $stmt = $pdo->prepare(
-            'SELECT id, user_id FROM password_resets
-             WHERE token_hash = ? AND expires_at > ? AND consumed_at IS NULL
-             LIMIT 1'
+        // C3: Atomar konsumieren statt SELECT-then-UPDATE — verhindert Races,
+        // bei denen zwei parallele Requests denselben Token zweimal einlösen.
+        $claim = $pdo->prepare(
+            'UPDATE password_resets
+                SET consumed_at = ?
+              WHERE token_hash = ? AND expires_at > ? AND consumed_at IS NULL'
         );
-        $stmt->execute([TokenService::hashToken($token), $now]);
-        $row = $stmt->fetch();
-
-        if (!$row) {
+        $claim->execute([$now, $tokenHash, $now]);
+        if ($claim->rowCount() === 0) {
             throw new AuthException(
                 'invalid_token',
                 'Reset-Token ist ungültig oder abgelaufen.',
@@ -210,18 +219,20 @@ final class AuthService
             );
         }
 
-        $hash = $this->passwords->hash($newPassword);
-        $pdo->beginTransaction();
-        try {
-            $pdo->prepare('UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?')
-                ->execute([$hash, $now, (int)$row['user_id']]);
-            $pdo->prepare('UPDATE password_resets SET consumed_at = ? WHERE id = ?')
-                ->execute([$now, (int)$row['id']]);
-            $pdo->commit();
-        } catch (\Throwable $e) {
-            $pdo->rollBack();
-            throw $e;
+        $stmt = $pdo->prepare(
+            'SELECT id, user_id FROM password_resets WHERE token_hash = ? LIMIT 1'
+        );
+        $stmt->execute([$tokenHash]);
+        $row = $stmt->fetch();
+        if (!$row) {
+            // Kann praktisch nicht passieren, weil das UPDATE oben gerade
+            // erst die Zeile getroffen hat — als Defense-in-Depth trotzdem.
+            throw new AuthException('invalid_token', 'Reset-Token ist ungültig oder abgelaufen.', 410);
         }
+
+        $hash = $this->passwords->hash($newPassword);
+        $pdo->prepare('UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?')
+            ->execute([$hash, $now, (int)$row['user_id']]);
 
         $this->tokens->revokeAllForUser((int)$row['user_id']);
     }
@@ -234,16 +245,16 @@ final class AuthService
     {
         $pdo = Db::pdo();
         $now = Clock::nowUtcString();
+        $tokenHash = TokenService::hashToken($token);
 
-        $stmt = $pdo->prepare(
-            'SELECT id, user_id FROM email_verifications
-             WHERE token_hash = ? AND expires_at > ? AND consumed_at IS NULL
-             LIMIT 1'
+        // C3: Atomarer Token-Consume (siehe resetPassword).
+        $claim = $pdo->prepare(
+            'UPDATE email_verifications
+                SET consumed_at = ?
+              WHERE token_hash = ? AND expires_at > ? AND consumed_at IS NULL'
         );
-        $stmt->execute([TokenService::hashToken($token), $now]);
-        $row = $stmt->fetch();
-
-        if (!$row) {
+        $claim->execute([$now, $tokenHash, $now]);
+        if ($claim->rowCount() === 0) {
             throw new AuthException(
                 'invalid_token',
                 'Verifizierungstoken ist ungültig oder abgelaufen.',
@@ -251,17 +262,17 @@ final class AuthService
             );
         }
 
-        $pdo->beginTransaction();
-        try {
-            $pdo->prepare('UPDATE users SET email_verified_at = ?, updated_at = ? WHERE id = ?')
-                ->execute([$now, $now, (int)$row['user_id']]);
-            $pdo->prepare('UPDATE email_verifications SET consumed_at = ? WHERE id = ?')
-                ->execute([$now, (int)$row['id']]);
-            $pdo->commit();
-        } catch (\Throwable $e) {
-            $pdo->rollBack();
-            throw $e;
+        $stmt = $pdo->prepare(
+            'SELECT user_id FROM email_verifications WHERE token_hash = ? LIMIT 1'
+        );
+        $stmt->execute([$tokenHash]);
+        $row = $stmt->fetch();
+        if (!$row) {
+            throw new AuthException('invalid_token', 'Verifizierungstoken ist ungültig oder abgelaufen.', 410);
         }
+
+        $pdo->prepare('UPDATE users SET email_verified_at = ?, updated_at = ? WHERE id = ?')
+            ->execute([$now, $now, (int)$row['user_id']]);
 
         return $this->loadUserPublic((int)$row['user_id']);
     }

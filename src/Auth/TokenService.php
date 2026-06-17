@@ -88,15 +88,31 @@ final class TokenService
     {
         $pdo = Db::pdo();
         $now = Clock::nowUtcString();
+        $tokenHash = self::hashToken($refreshToken);
 
         $stmt = $pdo->prepare(
             'SELECT id, user_id FROM sessions
              WHERE refresh_hash = ? AND revoked_at IS NULL AND expires_at > ?
              LIMIT 1'
         );
-        $stmt->execute([self::hashToken($refreshToken), $now]);
+        $stmt->execute([$tokenHash, $now]);
         $session = $stmt->fetch();
+
         if (!$session) {
+            // C5: Wenn der Token ein bereits rotierter Refresh-Token ist und
+            // die zugehörige Session noch aktiv ist, liegt vermutlich ein
+            // gestohlener Token vor (ein Angreifer benutzt ihn parallel zum
+            // legitimen Client). Reaktion: alle Sessions des Users invalidieren.
+            $reuse = $pdo->prepare(
+                'SELECT id, user_id FROM sessions
+                 WHERE previous_refresh_hash = ? AND revoked_at IS NULL
+                 LIMIT 1'
+            );
+            $reuse->execute([$tokenHash]);
+            $reuseRow = $reuse->fetch();
+            if ($reuseRow) {
+                $this->revokeAllForUser((int)$reuseRow['user_id']);
+            }
             return null;
         }
 
@@ -110,13 +126,16 @@ final class TokenService
 
         $pdo->beginTransaction();
         try {
+            // Neuer refresh_hash aktiv, alter Wert wandert in previous_refresh_hash
+            // — dort dient er als Reuse-Sensor, bis die Session erneut rotiert.
             $upd = $pdo->prepare(
                 'UPDATE sessions
-                 SET refresh_hash = ?, last_used_at = ?, expires_at = ?, user_agent = ?, ip = ?
+                 SET refresh_hash = ?, previous_refresh_hash = ?, last_used_at = ?, expires_at = ?, user_agent = ?, ip = ?
                  WHERE id = ?'
             );
             $upd->execute([
                 self::hashToken($newRefresh),
+                $tokenHash,
                 $now,
                 $refreshExpires,
                 $userAgent !== null ? substr($userAgent, 0, 255) : null,
@@ -124,8 +143,6 @@ final class TokenService
                 (int)$session['id'],
             ]);
 
-            // Vorhandene Access-Tokens dieser Session entwerten, damit ein
-            // Wechsel der Session sofort sichtbar wird.
             $del = $pdo->prepare('DELETE FROM access_tokens WHERE session_id = ?');
             $del->execute([(int)$session['id']]);
 
