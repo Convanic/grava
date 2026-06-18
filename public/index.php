@@ -36,6 +36,7 @@ use App\Controllers\Api\IntegrationsController;
 use App\Controllers\Api\LikeController;
 use App\Controllers\Api\NotificationController;
 use App\Controllers\Api\ProfileController;
+use App\Controllers\Api\ReferralController;
 use App\Controllers\Api\SocialController;
 use App\Controllers\Web\AuthPagesController;
 use App\Controllers\Web\DashboardController;
@@ -43,6 +44,8 @@ use App\Controllers\Web\DiscoveryPagesController;
 use App\Controllers\Web\EngagementPagesController;
 use App\Controllers\Web\StravaPagesController;
 use App\Controllers\Web\PublicSharePageController;
+use App\Controllers\Web\ReferralPagesController;
+use App\Controllers\Web\AdminReferralPagesController;
 use App\Controllers\Web\RoutePagesController;
 use App\Controllers\Web\SettingsPagesController;
 use App\Controllers\Web\SocialPagesController;
@@ -71,6 +74,7 @@ use App\Http\Request;
 use App\Http\Response;
 use App\Http\Router;
 use App\Mail\MailService;
+use App\Referral\ReferralService;
 use App\Routes\GeometryParser;
 use App\Routes\GeometryStats;
 use App\Routes\RouteGeoJson;
@@ -146,7 +150,10 @@ $passwords  = new PasswordService();
 $tokens     = new TokenService($config);
 $rate       = new RateLimiter($config);
 $mailer     = new MailService($config, $basePath, $basePath . '/views/email');
-$auth       = new AuthService($config, $passwords, $tokens, $mailer);
+// M7: Referrals — vor AuthService, weil AuthService es für die
+// Werber-Verknüpfung bei Registrierung/Verifizierung benötigt.
+$referrals  = new ReferralService($config);
+$auth       = new AuthService($config, $passwords, $tokens, $mailer, $referrals);
 $cookieAuth = new CookieAuth($config, $tokens);
 $webSession = new WebSession($config);
 
@@ -249,7 +256,7 @@ $stravaServ    = new StravaService(
 
 $apiAuth    = new AuthController($auth, $rate);
 $apiUsers   = new UserController($auth);
-$apiRoutes  = new RouteController($routeService, $shareTokens, $config);
+$apiRoutes  = new RouteController($routeService, $shareTokens, $config, $referrals);
 $apiShared  = new SharedRouteController($shareTokens);
 $apiDiscover = new DiscoverController($discovery);
 $apiProfile  = new ProfileController($profileServ);
@@ -262,6 +269,7 @@ $apiAvatar   = new AvatarController($avatarServ);
 $apiIntegr   = new IntegrationsController($stravaServ);
 $apiHeatmap  = new HeatmapController($heatmapServ);
 $apiHeatmapLines = new HeatmapLinesController($heatmapLines);
+$apiReferral = new ReferralController($referrals);
 $webAuth    = new AuthPagesController($auth, $cookieAuth, $webSession, $rate, $basePath . '/views');
 $webHome    = new DashboardController($webSession, $auth, $basePath . '/views');
 $webRefresh = new WebRefreshController($cookieAuth, $webSession);
@@ -272,6 +280,8 @@ $webDiscover = new DiscoveryPagesController($webSession, $auth, $discovery, $pro
 $webSocial   = new SocialPagesController($webSession, $auth, $followServ, $blockServ);
 $webEngage   = new EngagementPagesController($webSession, $likeServ, $commentServ, $auth, $rate);
 $webStrava   = new StravaPagesController($webSession, $auth, $stravaServ, $basePath . '/views');
+$webReferral = new ReferralPagesController($config, $basePath . '/views');
+$webAdminRef = new AdminReferralPagesController($webSession, $auth, $referrals, $config, $basePath . '/views');
 
 // ---- JSON API ----
 $router->post("{$apiBase}/auth/register",                fn($r) => $apiAuth->register($r));
@@ -377,6 +387,10 @@ $router->delete("{$apiBase}/integrations/strava",                 fn($r) => $api
 $router->get("{$apiBase}/heatmap",                                fn($r) => $apiHeatmap->index($r));
 $router->get("{$apiBase}/heatmap/lines",                          fn($r) => $apiHeatmapLines->index($r));
 
+// ---- Referrals (M7) ----
+// Eigener Code/Link + Statistik. Kein öffentliches Leaderboard.
+$router->get("{$apiBase}/referrals/me",                           fn($r) => $apiReferral->me($r), [$requireBearer]);
+
 // ---- Web pages ----
 $router->get('/',                  fn($r) => Response::redirect('/dashboard'));
 $router->get('/login',             fn($r) => $webAuth->showLogin($r));
@@ -411,6 +425,15 @@ $router->post('/routes/{id}/shares/{shareId}/revoke',    fn($r) => $webRoutes->d
 // Public Share-Page — kein Login, kein CSRF (read-only GET).
 $router->get ('/share/{token}',                          fn($r) => $webShare->show($r));
 $router->get ('/share/{token}/geojson',                  fn($r) => $webShare->geojson($r));
+
+// ---- Referral-Landingpage (M7) — öffentlich, kein Login ----
+// iOS fängt /i/{code} als Universal Link ab; im Browser ist dies die
+// Fallback-Werbeseite mit sichtbarem Code + App-Store-/Register-Link.
+$router->get ('/i/{code}',                               fn($r) => $webReferral->landing($r));
+
+// ---- Admin-Auswertung Empfehlungen (M7) — ADMIN_EMAILS-Gate ----
+$router->get ('/admin/referrals',                        fn($r) => $webAdminRef->index($r));
+$router->get ('/admin/referrals.csv',                    fn($r) => $webAdminRef->csv($r));
 
 // ---- Settings Web-UI (M3 Phase 0) ----
 $router->get ('/settings/handle',                        fn($r) => $webSetting->showHandle($r));
@@ -486,35 +509,12 @@ $router->post('/internal/cron/heatmap', fn($r) => $runInternal($r, 'cron:heatmap
 $router->get('/internal/cron/heatmap-lines',  fn($r) => $runInternal($r, 'cron:heatmap-lines'));
 $router->post('/internal/cron/heatmap-lines', fn($r) => $runInternal($r, 'cron:heatmap-lines'));
 
-// Universal Links: Apple App Site Association (AASA).
-// iOS lädt /.well-known/apple-app-site-association, um grava.world-Links
-// direkt in der App zu öffnen. Muss als application/json, ohne Redirect und
-// ohne Auth ausgeliefert werden. Die App-ID(s) (Format TEAMID.BUNDLEID,
-// mehrere kommagetrennt) kommen aus der .env (IOS_APP_ID).
-$router->get('/.well-known/apple-app-site-association', function ($r) use ($config): void {
-    $appIds = array_values(array_filter(array_map(
-        'trim',
-        explode(',', (string)($config->get('IOS_APP_ID', '') ?? '')),
-    )));
-    if ($appIds === []) {
-        Response::error('not_configured', 'IOS_APP_ID nicht gesetzt.', 404);
-    }
-    // Modernes AASA-Format (appIDs + components). Es werden bewusst NUR die
-    // drei Deep-Link-Pfade abgefangen, die die App verarbeitet — alle anderen
-    // grava.world-Links bleiben im Browser. Siehe backend/UNIVERSAL_LINKS.md.
-    Response::json([
-        'applinks' => [
-            'details' => [[
-                'appIDs'     => $appIds,
-                'components' => [
-                    ['/' => '/share/*'],
-                    ['/' => '/verify-email',  '?' => ['token' => '?*']],
-                    ['/' => '/reset-password', '?' => ['token' => '?*']],
-                ],
-            ]],
-        ],
-    ]);
-});
+// Hinweis: Universal Links (Apple App Site Association) werden NICHT hier
+// als Route ausgeliefert, sondern als statische Datei unter
+// public/.well-known/apple-app-site-association (+ eigene .htaccess).
+// Grund: Shared-Hosting blockt den /.well-known/-Pfad, bevor PHP greift —
+// die Datei muss als echtes Verzeichnis erreichbar bleiben. Siehe
+// backend/UNIVERSAL_LINKS.md.
 
 // Healthcheck
 $router->get('/healthz', function ($r): void {
