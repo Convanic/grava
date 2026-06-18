@@ -26,7 +26,16 @@ $_pageScripts = [
     </p>
 </header>
 
-<div id="map" class="map map--full" data-heatmap-url="/api/v1/heatmap"></div>
+<div id="map" class="map map--full"
+     data-heatmap-url="/api/v1/heatmap"
+     data-lines-url="/api/v1/heatmap/lines"></div>
+<div id="map-legend" class="map-legend" hidden></div>
+<p class="muted map-hint">
+    Oben rechts umschaltbar: <strong>Dichte</strong> (Raster-Heatmap) und
+    <strong>Strecken</strong> — die tatsächlich gefahrenen Wege, aufs
+    Straßennetz gematcht. Linienfarbe = Ø Untergrund, Breite = Häufigkeit.
+    Die Strecken-Ebene lädt den jeweils sichtbaren Kartenausschnitt nach.
+</p>
 
 <?php if (empty($cells)): ?>
     <div class="empty-state">

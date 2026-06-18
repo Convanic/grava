@@ -31,6 +31,7 @@ use App\Controllers\Api\CommentController;
 use App\Controllers\Api\DiscoverController;
 use App\Controllers\Api\FeedController;
 use App\Controllers\Api\HeatmapController;
+use App\Controllers\Api\HeatmapLinesController;
 use App\Controllers\Api\IntegrationsController;
 use App\Controllers\Api\LikeController;
 use App\Controllers\Api\NotificationController;
@@ -56,6 +57,8 @@ use App\Engagement\CommentService;
 use App\Engagement\LikeService;
 use App\Engagement\NotificationService;
 use App\Heatmap\HeatmapService;
+use App\Heatmap\HeatmapLinesService;
+use App\Heatmap\ValhallaClient;
 use App\Integrations\Strava\FakeStravaClient;
 use App\Integrations\Strava\RealStravaClient;
 use App\Integrations\Strava\StravaService;
@@ -158,11 +161,26 @@ $routeGeoJson = new RouteGeoJson(new GeometryParser(), new SurfaceTrack());
 // Höhenprofil + Untergrund-Verteilung für die Detail-Seiten.
 $routeInsights = new RouteInsights(new GeometryParser(), new SurfaceTrack());
 
+// M6: Heatmap-Streckenlinien via Map-Matching (Valhalla). Der Valhalla-Client
+// wird nur im Precompute (CLI cron:heatmap-lines) benutzt, nie im Request-Pfad.
+$valhalla = new ValhallaClient(
+    (string)($config->get('VALHALLA_URL', 'http://localhost:8002') ?? 'http://localhost:8002'),
+    (string)($config->get('VALHALLA_COSTING', 'bicycle') ?? 'bicycle'),
+);
+$heatmapLines = new HeatmapLinesService(
+    $valhalla,
+    $routeService,
+    new GeometryParser(),
+    new SurfaceTrack(),
+    (int)($config->get('HEATMAP_LINES_MIN_ROUTES', 1) ?? 1),
+    (int)($config->get('HEATMAP_LINES_RESAMPLE_M', 20) ?? 20),
+);
+
 // ---------------------------------------------------------------------------
 // CLI dispatch
 // ---------------------------------------------------------------------------
 if (PHP_SAPI === 'cli') {
-    $cli = new Commands($basePath, $tokens, $routeService, $config, new NotificationService(), new HeatmapService());
+    $cli = new Commands($basePath, $tokens, $routeService, $config, new NotificationService(), new HeatmapService(), $heatmapLines);
     exit($cli->run($_SERVER['argv'] ?? []));
 }
 
@@ -243,6 +261,7 @@ $apiNotif    = new NotificationController($notifServ);
 $apiAvatar   = new AvatarController($avatarServ);
 $apiIntegr   = new IntegrationsController($stravaServ);
 $apiHeatmap  = new HeatmapController($heatmapServ);
+$apiHeatmapLines = new HeatmapLinesController($heatmapLines);
 $webAuth    = new AuthPagesController($auth, $cookieAuth, $webSession, $rate, $basePath . '/views');
 $webHome    = new DashboardController($webSession, $auth, $basePath . '/views');
 $webRefresh = new WebRefreshController($cookieAuth, $webSession);
@@ -356,6 +375,7 @@ $router->post("{$apiBase}/integrations/strava/import",            fn($r) => $api
 $router->delete("{$apiBase}/integrations/strava",                 fn($r) => $apiIntegr->stravaDisconnect($r), [$requireBearer]);
 
 $router->get("{$apiBase}/heatmap",                                fn($r) => $apiHeatmap->index($r));
+$router->get("{$apiBase}/heatmap/lines",                          fn($r) => $apiHeatmapLines->index($r));
 
 // ---- Web pages ----
 $router->get('/',                  fn($r) => Response::redirect('/dashboard'));
@@ -438,7 +458,7 @@ $router->post('/u/{handle}/r/{id}/comments/{cid}/delete', fn($r) => $webEngage->
 // und verhalten sich wie eine unbekannte Route (404).
 $internalToken = (string)($config->get('INTERNAL_TOKEN', '') ?? '');
 $runInternal = function (Request $r, string $command)
-    use ($internalToken, $basePath, $tokens, $routeService, $config) {
+    use ($internalToken, $basePath, $tokens, $routeService, $config, $heatmapLines) {
     if ($internalToken === '') {
         Response::error('not_found', 'Nicht gefunden.', 404);
     }
@@ -446,7 +466,7 @@ $runInternal = function (Request $r, string $command)
     if ($provided === '' || !hash_equals($internalToken, $provided)) {
         Response::error('not_found', 'Nicht gefunden.', 404);
     }
-    $cli = new Commands($basePath, $tokens, $routeService, $config, new NotificationService(), new HeatmapService());
+    $cli = new Commands($basePath, $tokens, $routeService, $config, new NotificationService(), new HeatmapService(), $heatmapLines);
     ob_start();
     $code = $cli->run(['internal', $command]);
     $output = trim((string)ob_get_clean());
@@ -463,6 +483,8 @@ $router->get('/internal/cron/cleanup',  fn($r) => $runInternal($r, 'cron:cleanup
 $router->post('/internal/cron/cleanup', fn($r) => $runInternal($r, 'cron:cleanup'));
 $router->get('/internal/cron/heatmap',  fn($r) => $runInternal($r, 'cron:heatmap'));
 $router->post('/internal/cron/heatmap', fn($r) => $runInternal($r, 'cron:heatmap'));
+$router->get('/internal/cron/heatmap-lines',  fn($r) => $runInternal($r, 'cron:heatmap-lines'));
+$router->post('/internal/cron/heatmap-lines', fn($r) => $runInternal($r, 'cron:heatmap-lines'));
 
 // Universal Links: Apple App Site Association (AASA).
 // iOS lädt /.well-known/apple-app-site-association, um grava.world-Links

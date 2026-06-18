@@ -428,6 +428,33 @@ Liefert eine **GeoJSON-FeatureCollection** (Punkt-Features mit `weight`):
 ```
 Koordinaten in GeoJSON-Reihenfolge **[lon, lat]**. Ungültige `bbox` ⇒ `422`.
 
+### 5.12b Heatmap-Streckenlinien (M6)
+
+| Methode | Pfad | Auth | Query |
+|---------|------|------|-------|
+| GET | `/heatmap/lines` | — | `bbox=minLon,minLat,maxLon,maxLat` (empfohlen) |
+
+Aufs OSM-Straßennetz **gematchte** Wegstücke aus öffentlichen Routen
+(Valhalla-Map-Matching, vorberechnet via `cron:heatmap-lines`). Pro Wegstück:
+`count` (wie viele Routen es nutzen) und `avg_score` (Ø Crowd-Surface 0..5,
+`null` wenn keine Scores). Aggregation ist **richtungsunabhängig** (Hin-/Rück
+fallen zusammen). `bbox` filtert auf den Viewport (überlappende Kanten).
+
+```json
+{
+  "type": "FeatureCollection",
+  "features": [
+    { "type": "Feature",
+      "geometry": { "type": "LineString", "coordinates": [[8.50, 49.50], [8.51, 49.51]] },
+      "properties": { "count": 3, "avg_score": 2.5, "length_m": 120, "surface": "gravel" } }
+  ],
+  "meta": { "edge_count": 1, "max_count": 3 }
+}
+```
+
+`count` eignet sich für die Linienstärke, `avg_score` (0 = glatt … 5 = grob)
+für die Farbe; `surface` ist ein OSM/Valhalla-Fallback. Ungültige `bbox` ⇒ `422`.
+
 ### 5.13 Healthcheck
 
 | Methode | Pfad | Auth | Zweck |

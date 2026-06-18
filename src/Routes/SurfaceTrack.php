@@ -73,6 +73,53 @@ final class SurfaceTrack
         return ['type' => 'FeatureCollection', 'features' => self::segmentize($parsed)];
     }
 
+    /**
+     * Liefert ALLE Trackpunkte in Reihenfolge mit optionalem Surface-Score —
+     * auch wenn kein einziger Score gesetzt ist (anders als {@see extract()},
+     * das dann null liefert). Gedacht fürs Map-Matching: Reihenfolge der Punkte
+     * korrespondiert 1:1 mit Valhallas `matched_points`.
+     *
+     * @return list<array{lat:float,lon:float,score:?int}>|null  null wenn kein GPX
+     */
+    public function points(string $gpx): ?array
+    {
+        if (GeometryParser::sniffFormat($gpx) !== 'gpx') {
+            return null;
+        }
+
+        $prev = libxml_use_internal_errors(true);
+        libxml_clear_errors();
+        try {
+            $xml = simplexml_load_string($gpx);
+        } catch (\Throwable) {
+            $xml = false;
+        } finally {
+            libxml_clear_errors();
+            libxml_use_internal_errors($prev);
+        }
+        if (!$xml instanceof SimpleXMLElement) {
+            return null;
+        }
+
+        $xml->registerXPathNamespace('g', self::NS_GPX);
+        $nodes = $xml->xpath('//g:trkpt');
+        if ($nodes === false || $nodes === null || count($nodes) < 2) {
+            return null;
+        }
+
+        $out = [];
+        foreach ($nodes as $pt) {
+            $lat = isset($pt['lat']) ? (float)$pt['lat'] : null;
+            $lon = isset($pt['lon']) ? (float)$pt['lon'] : null;
+            if ($lat === null || $lon === null) {
+                continue;
+            }
+            $out[] = ['lat' => $lat, 'lon' => $lon, 'score' => self::readScore($pt)];
+        }
+
+        return count($out) >= 2 ? $out : null;
+    }
+
     private static function readScore(SimpleXMLElement $trkpt): ?int
     {
         $ext = $trkpt->children(self::NS_GPX)->extensions ?? null;

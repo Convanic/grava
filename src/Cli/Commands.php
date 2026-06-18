@@ -8,6 +8,7 @@ use App\Config\Config;
 use App\Database\Migrator;
 use App\Engagement\NotificationService;
 use App\Heatmap\HeatmapService;
+use App\Heatmap\HeatmapLinesService;
 use App\Routes\RouteService;
 
 final class Commands
@@ -19,6 +20,7 @@ final class Commands
         private readonly Config $config,
         private readonly ?NotificationService $notifications = null,
         private readonly ?HeatmapService $heatmap = null,
+        private readonly ?HeatmapLinesService $heatmapLines = null,
     ) {}
 
     public function run(array $argv): int
@@ -37,6 +39,10 @@ final class Commands
             case 'cron:heatmap':
             case 'heatmap':
                 return $this->rebuildHeatmap();
+
+            case 'cron:heatmap-lines':
+            case 'heatmap-lines':
+                return $this->rebuildHeatmapLines();
 
             case 'help':
             default:
@@ -131,14 +137,29 @@ final class Commands
         return 0;
     }
 
+    private function rebuildHeatmapLines(): int
+    {
+        if ($this->heatmapLines === null) {
+            echo "HeatmapLinesService nicht verfügbar.\n";
+            return 1;
+        }
+        $res = $this->heatmapLines->rebuild();
+        echo "Heatmap-Linien neu gematcht:\n";
+        foreach ($res as $k => $v) {
+            echo "  {$k}: {$v}\n";
+        }
+        return 0;
+    }
+
     private function help(): void
     {
         echo "GravelExplorer Backend CLI\n";
         echo "Nutzung: php public/index.php <befehl>\n\n";
         echo "Befehle:\n";
-        echo "  cli:migrate      Wendet ausstehende Migrationen an\n";
-        echo "  cron:cleanup     Löscht abgelaufene Tokens, Sessions, Verifizierungen, Rate-Limits + Heatmap-Rebuild\n";
-        echo "  cron:heatmap     Aggregiert die Crowd-Heatmap aus public Routen neu\n";
-        echo "  help             Zeigt diese Hilfe\n";
+        echo "  cli:migrate         Wendet ausstehende Migrationen an\n";
+        echo "  cron:cleanup        Löscht abgelaufene Tokens, Sessions, Verifizierungen, Rate-Limits + Heatmap-Rebuild\n";
+        echo "  cron:heatmap        Aggregiert die Crowd-Heatmap (Centroids) aus public Routen neu\n";
+        echo "  cron:heatmap-lines  Map-Matching der public Routen -> heatmap_edges (Streckenlinien)\n";
+        echo "  help                Zeigt diese Hilfe\n";
     }
 }

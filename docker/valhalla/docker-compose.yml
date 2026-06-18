@@ -1,0 +1,44 @@
+# Valhalla für Map-Matching der Heatmap-Streckenlinien.
+#
+# NICHT Teil des PHP-Deployments — Dienst wird nur zum *Befüllen* der
+# heatmap_edges-Tabelle gebraucht (Precompute), nie im Request-Pfad.
+# Siehe docs/PLAN_HEATMAP_MAPMATCH.md (§4 Infra, §12 Cutover).
+#
+# Start:   docker compose -f docker/valhalla/docker-compose.yml up -d
+# Logs:    docker compose -f docker/valhalla/docker-compose.yml logs -f
+# Status:  curl http://localhost:8002/status
+#
+# Region wird über VALHALLA_TILE_URLS gesteuert (Default = Spike-Extrakt
+# Regierungsbezirk Karlsruhe, deckt die Kraichgau-Beispielroute ab).
+# Für volles DACH die drei Geofabrik-PBFs setzen — siehe README.md.
+
+services:
+  valhalla:
+    image: ghcr.io/gis-ops/docker-valhalla/valhalla:latest
+    container_name: ge_valhalla
+    ports:
+      - "8002:8002"
+    volumes:
+      - ./custom_files:/custom_files
+    environment:
+      # Mehrere URLs space-separiert möglich (für DACH: DE+AT+CH).
+      - tile_urls=${VALHALLA_TILE_URLS:-https://download.geofabrik.de/europe/germany/baden-wuerttemberg/karlsruhe-regbez-latest.osm.pbf}
+      - serve_tiles=True
+      # Vorhandene Tiles werden weiterverwendet; PBF nur beim Erstbau ziehen.
+      - use_tiles_ignore_pbf=True
+      - force_rebuild=False
+      - build_elevation=False
+      # build_admins MUSS aus bleiben: mit unvollständigen Admin-Polygonen
+      # (NOT-NULL-Fehler in admin_access) crasht valhalla_build_tiles mit
+      # `vector::_M_range_check … size 0` und bricht nach ~16 Tiles ab.
+      # Für Map-Matching (way_id/Geometrie/Surface) sind Admins nicht nötig.
+      - build_admins=False
+      - build_time_zones=False
+      - server_threads=4
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8002/status"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 600s

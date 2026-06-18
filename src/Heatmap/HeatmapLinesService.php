@@ -1,0 +1,407 @@
+<?php
+declare(strict_types=1);
+
+namespace App\Heatmap;
+
+use App\Database\Db;
+use App\Routes\GeometryParser;
+use App\Routes\RouteService;
+use App\Routes\SurfaceTrack;
+use App\Support\Clock;
+use PDO;
+
+/**
+ * M6: Heatmap-Streckenlinien via Map-Matching.
+ *
+ * `rebuild()` snappt alle public Routen durch Valhalla aufs OSM-Netz und
+ * aggregiert pro (ungerichteter) Kante Häufigkeit + Ø-Surface-Score in
+ * `heatmap_edges` (voller Neuaufbau, idempotent — wie {@see HeatmapService}).
+ * `query()` liest nur diese Tabelle (kein Valhalla im Request-Pfad).
+ *
+ * Die Aggregation ({@see accumulate()}/{@see finalize()}) ist bewusst pur
+ * und ohne I/O gehalten, damit sie ohne DB/Valhalla testbar ist.
+ *
+ * Privacy: nur visibility='public'; anonyme Aggregation (keine User-Zuordnung).
+ */
+final class HeatmapLinesService
+{
+    public function __construct(
+        private readonly ?ValhallaClient $valhalla = null,
+        private readonly ?RouteService $routes = null,
+        private readonly ?GeometryParser $parser = null,
+        private readonly ?SurfaceTrack $surface = null,
+        private readonly int $minRoutes = 1,
+        private readonly int $resampleM = 20,
+        private readonly int $maxPointsPerRequest = 15000,
+    ) {}
+
+    /**
+     * Voller Neuaufbau der heatmap_edges aus den public Routen.
+     *
+     * @return array{routes:int,matched:int,skipped:int,edges:int}
+     */
+    public function rebuild(): array
+    {
+        if ($this->valhalla === null || $this->routes === null || $this->parser === null || $this->surface === null) {
+            throw new \RuntimeException('HeatmapLinesService::rebuild() benötigt valhalla/routes/parser/surface.');
+        }
+        $pdo = Db::pdo();
+        $publicIds = $pdo
+            ->query("SELECT public_id FROM routes WHERE visibility='public' AND deleted_at IS NULL")
+            ->fetchAll(PDO::FETCH_COLUMN);
+
+        $acc = [];
+        $matched = 0;
+        $skipped = 0;
+
+        foreach ($publicIds as $pid) {
+            try {
+                $loaded = $this->routes->loadPayloadByPublicId((string)$pid);
+                $points = $this->extractPoints($loaded['payload']);
+                if (count($points) < 2) {
+                    $skipped++;
+                    continue;
+                }
+                $points = $this->downsample($points);
+                $match  = $this->valhalla->matchTrace(
+                    array_map(static fn($p) => ['lat' => $p['lat'], 'lon' => $p['lon']], $points)
+                );
+                if ($match === null) {
+                    $skipped++;
+                    continue;
+                }
+                $this->accumulate($acc, $points, $match);
+                $matched++;
+            } catch (\Throwable) {
+                $skipped++;
+            }
+        }
+
+        $rows = $this->finalize($acc);
+        $this->write($rows);
+
+        return [
+            'routes'  => count($publicIds),
+            'matched' => $matched,
+            'skipped' => $skipped,
+            'edges'   => count($rows),
+        ];
+    }
+
+    /**
+     * @param array{min_lat:float,min_lon:float,max_lat:float,max_lon:float}|null $bbox
+     * @return array<string,mixed> GeoJSON FeatureCollection von LineStrings
+     */
+    public function query(?array $bbox, int $limit = 20000): array
+    {
+        $limit = max(1, min(50000, $limit));
+        $pdo = Db::pdo();
+
+        $where = '';
+        $args  = [];
+        if ($bbox !== null) {
+            // BBox-Overlap (kein Spatial nötig): Kante schneidet das Viewport.
+            $where = 'WHERE min_lat <= ? AND max_lat >= ? AND min_lon <= ? AND max_lon >= ?';
+            $args  = [$bbox['max_lat'], $bbox['min_lat'], $bbox['max_lon'], $bbox['min_lon']];
+        }
+
+        $stmt = $pdo->prepare(
+            "SELECT geom_json, route_count, avg_score, length_m, osm_surface
+               FROM heatmap_edges {$where}
+              ORDER BY route_count DESC
+              LIMIT {$limit}"
+        );
+        $stmt->execute($args);
+
+        $features = [];
+        $maxCount = 0;
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $coords = json_decode((string)$row['geom_json'], true);
+            if (!is_array($coords) || count($coords) < 2) {
+                continue;
+            }
+            $count = (int)$row['route_count'];
+            if ($count > $maxCount) {
+                $maxCount = $count;
+            }
+            $features[] = [
+                'type' => 'Feature',
+                'geometry' => ['type' => 'LineString', 'coordinates' => $coords],
+                'properties' => [
+                    'count'     => $count,
+                    'avg_score' => $row['avg_score'] !== null ? (float)$row['avg_score'] : null,
+                    'length_m'  => (int)$row['length_m'],
+                    'surface'   => $row['osm_surface'],
+                ],
+            ];
+        }
+
+        return [
+            'type'     => 'FeatureCollection',
+            'features' => $features,
+            'meta'     => [
+                'edge_count' => count($features),
+                'max_count'  => $maxCount,
+            ],
+        ];
+    }
+
+    // ---- pure Aggregation (testbar ohne DB/Valhalla) -----------------------
+
+    /**
+     * Aggregiert eine gematchte Route in den Akkumulator. `accumulate` zählt
+     * pro Route+Kante genau einmal; der Ø-Score je Kante wird über die der
+     * Kante zugeordneten Eingabepunkte gebildet.
+     *
+     * @param array<string,array<string,mixed>>          $acc    Akkumulator (by-ref)
+     * @param list<array{lat:float,lon:float,score:?int}> $points gesendete Punkte (Reihenfolge wie matched_points)
+     */
+    public function accumulate(array &$acc, array $points, ?ValhallaMatch $match): void
+    {
+        if ($match === null || $match->edges === []) {
+            return;
+        }
+        $edges = $match->edges;
+
+        // Surface-Scores je Kanten-Index aus den matched_points sammeln.
+        $scoresByIdx = [];
+        foreach ($match->matchedPoints as $i => $mp) {
+            if (($mp['type'] ?? '') === 'unmatched') {
+                continue;
+            }
+            $e = (int)($mp['edgeIndex'] ?? -1);
+            if ($e < 0 || !isset($edges[$e])) {
+                continue;
+            }
+            $score = $points[$i]['score'] ?? null;
+            if ($score !== null) {
+                $scoresByIdx[$e][] = (int)$score;
+            }
+        }
+
+        // Innerhalb der Route nach edge_key gruppieren (gleiche Kante zählt 1×).
+        $routeEdges = [];
+        foreach ($edges as $idx => $edge) {
+            $key = self::edgeKey($edge->wayId, $edge->geometry);
+            if ($key === null) {
+                continue;
+            }
+            if (!isset($routeEdges[$key])) {
+                $routeEdges[$key] = ['edge' => $edge, 'scores' => []];
+            }
+            foreach (($scoresByIdx[$idx] ?? []) as $s) {
+                $routeEdges[$key]['scores'][] = $s;
+            }
+        }
+
+        foreach ($routeEdges as $key => $re) {
+            /** @var ValhallaMatchedEdge $edge */
+            $edge = $re['edge'];
+            if (!isset($acc[$key])) {
+                [$minLat, $minLon, $maxLat, $maxLon] = self::bbox($edge->geometry);
+                $acc[$key] = [
+                    'way_id'      => $edge->wayId,
+                    'geom'        => $edge->geometry,
+                    'min_lat'     => $minLat,
+                    'min_lon'     => $minLon,
+                    'max_lat'     => $maxLat,
+                    'max_lon'     => $maxLon,
+                    'length_m'    => (int)round($edge->lengthM),
+                    'route_count' => 0,
+                    'score_sum'   => 0.0,
+                    'score_n'     => 0,
+                    'osm_surface' => $edge->surface,
+                ];
+            }
+            $acc[$key]['route_count']++;
+            if ($re['scores'] !== []) {
+                $acc[$key]['score_sum'] += array_sum($re['scores']) / count($re['scores']);
+                $acc[$key]['score_n']++;
+            }
+            if ($acc[$key]['osm_surface'] === null && $edge->surface !== null) {
+                $acc[$key]['osm_surface'] = $edge->surface;
+            }
+        }
+    }
+
+    /**
+     * Schließt die Aggregation ab: minRoutes-Filter + Ø-Score.
+     *
+     * @param array<string,array<string,mixed>> $acc
+     * @return list<array<string,mixed>>
+     */
+    public function finalize(array $acc): array
+    {
+        $rows = [];
+        foreach ($acc as $key => $a) {
+            if ((int)$a['route_count'] < $this->minRoutes) {
+                continue;
+            }
+            $avg = ((int)$a['score_n'] > 0)
+                ? round((float)$a['score_sum'] / (int)$a['score_n'], 2)
+                : null;
+            $rows[] = [
+                'edge_key'    => $key,
+                'way_id'      => $a['way_id'],
+                'geom'        => $a['geom'],
+                'min_lat'     => $a['min_lat'],
+                'min_lon'     => $a['min_lon'],
+                'max_lat'     => $a['max_lat'],
+                'max_lon'     => $a['max_lon'],
+                'length_m'    => $a['length_m'],
+                'route_count' => (int)$a['route_count'],
+                'score_sum'   => ((int)$a['score_n'] > 0) ? round((float)$a['score_sum'], 2) : null,
+                'score_n'     => (int)$a['score_n'],
+                'avg_score'   => $avg,
+                'osm_surface' => $a['osm_surface'],
+            ];
+        }
+        return $rows;
+    }
+
+    // ---- Helfer ------------------------------------------------------------
+
+    /**
+     * @return list<array{lat:float,lon:float,score:?int}>
+     */
+    private function extractPoints(string $payload): array
+    {
+        $pts = $this->surface->points($payload);
+        if ($pts !== null) {
+            return $pts;
+        }
+        // Kein GPX (z. B. GeoJSON) → Geometrie ohne Scores.
+        $parsed = $this->parser->parse($payload);
+        $out = [];
+        foreach ($parsed->points as $p) {
+            $out[] = ['lat' => $p->lat, 'lon' => $p->lon, 'score' => null];
+        }
+        return $out;
+    }
+
+    /**
+     * Dünnt die Punktfolge aus: aufeinanderfolgende Punkte mindestens
+     * `resampleM` Meter auseinander; erster/letzter Punkt bleiben erhalten.
+     * Schützt vor sehr dichten Spuren und dem Valhalla-Punktelimit.
+     *
+     * @param list<array{lat:float,lon:float,score:?int}> $points
+     * @return list<array{lat:float,lon:float,score:?int}>
+     */
+    private function downsample(array $points): array
+    {
+        $n = count($points);
+        if ($n <= 2) {
+            return $points;
+        }
+        $out = [$points[0]];
+        $last = $points[0];
+        for ($i = 1; $i < $n - 1; $i++) {
+            if (self::haversine($last['lat'], $last['lon'], $points[$i]['lat'], $points[$i]['lon']) >= $this->resampleM) {
+                $out[] = $points[$i];
+                $last = $points[$i];
+            }
+        }
+        $out[] = $points[$n - 1];
+
+        // Hartes Limit: gleichmäßig weiter ausdünnen, falls noch zu viele.
+        $m = count($out);
+        if ($m > $this->maxPointsPerRequest) {
+            $step = (int)ceil($m / $this->maxPointsPerRequest);
+            $reduced = [];
+            for ($i = 0; $i < $m; $i += $step) {
+                $reduced[] = $out[$i];
+            }
+            if ($reduced[count($reduced) - 1] !== $out[$m - 1]) {
+                $reduced[] = $out[$m - 1];
+            }
+            $out = $reduced;
+        }
+        return $out;
+    }
+
+    /**
+     * Richtungsunabhängiger Schlüssel pro physischem Wegstück.
+     *
+     * @param list<array{0:float,1:float}> $geom
+     */
+    private static function edgeKey(?int $wayId, array $geom): ?string
+    {
+        $c = count($geom);
+        if ($c < 2) {
+            return null;
+        }
+        $a = $geom[0];
+        $b = $geom[$c - 1];
+        $pa = sprintf('%.5f,%.5f', $a[1], $a[0]); // lat,lon
+        $pb = sprintf('%.5f,%.5f', $b[1], $b[0]);
+        $ends = [$pa, $pb];
+        sort($ends);
+        return ($wayId ?? 0) . ':' . $ends[0] . '|' . $ends[1];
+    }
+
+    /**
+     * @param list<array{0:float,1:float}> $geom
+     * @return array{0:float,1:float,2:float,3:float} [minLat, minLon, maxLat, maxLon]
+     */
+    private static function bbox(array $geom): array
+    {
+        $minLat = 90.0; $minLon = 180.0; $maxLat = -90.0; $maxLon = -180.0;
+        foreach ($geom as [$lon, $lat]) {
+            $minLat = min($minLat, $lat); $maxLat = max($maxLat, $lat);
+            $minLon = min($minLon, $lon); $maxLon = max($maxLon, $lon);
+        }
+        return [$minLat, $minLon, $maxLat, $maxLon];
+    }
+
+    private static function haversine(float $lat1, float $lon1, float $lat2, float $lon2): float
+    {
+        $r = 6371000.0;
+        $dLat = deg2rad($lat2 - $lat1);
+        $dLon = deg2rad($lon2 - $lon1);
+        $a = sin($dLat / 2) ** 2
+            + cos(deg2rad($lat1)) * cos(deg2rad($lat2)) * sin($dLon / 2) ** 2;
+        return $r * 2 * atan2(sqrt($a), sqrt(1 - $a));
+    }
+
+    /**
+     * @param list<array<string,mixed>> $rows
+     */
+    private function write(array $rows): void
+    {
+        $pdo = Db::pdo();
+        $now = Clock::nowUtcString();
+
+        $pdo->beginTransaction();
+        try {
+            $pdo->exec('DELETE FROM heatmap_edges');
+
+            if ($rows !== []) {
+                $sql = 'INSERT INTO heatmap_edges
+                    (edge_key, way_id, geom_json, min_lat, min_lon, max_lat, max_lon,
+                     length_m, route_count, score_sum, score_n, avg_score, osm_surface, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
+                $stmt = $pdo->prepare($sql);
+                foreach ($rows as $r) {
+                    $stmt->execute([
+                        $r['edge_key'],
+                        $r['way_id'],
+                        json_encode($r['geom'], JSON_THROW_ON_ERROR),
+                        $r['min_lat'], $r['min_lon'], $r['max_lat'], $r['max_lon'],
+                        $r['length_m'],
+                        $r['route_count'],
+                        $r['score_sum'],
+                        $r['score_n'],
+                        $r['avg_score'],
+                        $r['osm_surface'],
+                        $now,
+                    ]);
+                }
+            }
+
+            $pdo->commit();
+        } catch (\Throwable $e) {
+            $pdo->rollBack();
+            throw $e;
+        }
+    }
+}

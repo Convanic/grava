@@ -47,6 +47,13 @@ paths:
                 email: { type: string, format: email }
                 password: { type: string, minLength: 10 }
                 display_name: { type: string, maxLength: 60 }
+                referral_code:
+                  type: string
+                  maxLength: 16
+                  description: >
+                    Optionaler Werber-Code (M7). Ein gültiger Code verknüpft den
+                    neuen User mit dem Werber. Unbekannte/ungültige Codes werden
+                    ignoriert und blockieren die Registrierung nicht.
       responses:
         "202": { $ref: '#/components/responses/Message' }
         "422": { $ref: '#/components/responses/ValidationError' }
@@ -909,6 +916,65 @@ paths:
               schema: { $ref: '#/components/schemas/HeatmapFeatureCollection' }
         "422": { $ref: '#/components/responses/ValidationError' }
 
+  /heatmap/lines:
+    get:
+      tags: [Heatmap]
+      summary: Gematchte Streckenlinien (M6) als GeoJSON-FeatureCollection
+      description: >
+        Vorberechnete (cron:heatmap-lines), aufs OSM-Straßennetz gematchte
+        Wegstücke aus public Routen. Pro Wegstück: `count` (wie viele Routen es
+        nutzen) und `avg_score` (Ø Crowd-Surface 0..5, null wenn keine Scores).
+        Richtungsunabhängig aggregiert. bbox empfohlen (Viewport).
+      security: []
+      parameters:
+        - name: bbox
+          in: query
+          description: "minLon,minLat,maxLon,maxLat"
+          schema: { type: string }
+      responses:
+        "200":
+          description: GeoJSON FeatureCollection von LineStrings
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HeatmapLinesFeatureCollection' }
+        "422": { $ref: '#/components/responses/ValidationError' }
+
+  /referrals/me:
+    get:
+      tags: [Referrals]
+      summary: Eigener Empfehlungs-Code/-Link + Statistik (M7)
+      description: >
+        Liefert den (ggf. erst jetzt erzeugten) eindeutigen Code des Users, den
+        Einlade-Link, kumulative Counts je erreichter Stufe sowie die Liste der
+        Geworbenen (öffentliche Handles, ohne E-Mails). Kein öffentliches
+        Leaderboard — die App zeigt nur die eigene Statistik.
+      responses:
+        "200":
+          description: Eigene Referral-Übersicht
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code: { type: string, example: "armin-7gk2" }
+                  url: { type: string, example: "https://grava.world/i/armin-7gk2" }
+                  counts:
+                    type: object
+                    description: Kumulativ — verified zählt auch activated mit.
+                    properties:
+                      registered: { type: integer }
+                      verified: { type: integer }
+                      activated: { type: integer }
+                  referred:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        handle: { type: string, nullable: true }
+                        status: { type: string, enum: [registered, verified, activated] }
+                        joined_at: { type: string, format: date-time }
+        "401": { $ref: '#/components/responses/Error' }
+
 components:
   securitySchemes:
     bearerAuth:
@@ -1179,3 +1245,37 @@ components:
             grid: { type: number }
             cell_count: { type: integer }
             max_weight: { type: integer }
+    HeatmapLinesFeatureCollection:
+      type: object
+      properties:
+        type: { type: string, enum: [FeatureCollection] }
+        features:
+          type: array
+          items:
+            type: object
+            properties:
+              type: { type: string, enum: [Feature] }
+              geometry:
+                type: object
+                properties:
+                  type: { type: string, enum: [LineString] }
+                  coordinates:
+                    type: array
+                    items:
+                      type: array
+                      items: { type: number }
+                      minItems: 2
+                      maxItems: 2
+                    description: "Liste von [lon, lat]"
+              properties:
+                type: object
+                properties:
+                  count: { type: integer, description: Anzahl Routen über dieses Wegstück }
+                  avg_score: { type: number, nullable: true, description: "Ø Surface-Score 0..5 (null wenn keine Crowd-Scores)" }
+                  length_m: { type: integer }
+                  surface: { type: string, nullable: true, description: "OSM/Valhalla-Surface als Fallback" }
+        meta:
+          type: object
+          properties:
+            edge_count: { type: integer }
+            max_count: { type: integer }
