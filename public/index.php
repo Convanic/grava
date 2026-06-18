@@ -477,12 +477,18 @@ $router->get('/.well-known/apple-app-site-association', function ($r) use ($conf
     if ($appIds === []) {
         Response::error('not_configured', 'IOS_APP_ID nicht gesetzt.', 404);
     }
+    // Modernes AASA-Format (appIDs + components). Es werden bewusst NUR die
+    // drei Deep-Link-Pfade abgefangen, die die App verarbeitet — alle anderen
+    // grava.world-Links bleiben im Browser. Siehe backend/UNIVERSAL_LINKS.md.
     Response::json([
         'applinks' => [
-            'apps'    => [],
             'details' => [[
-                'appID' => $appIds[0],
-                'paths' => ['*'],
+                'appIDs'     => $appIds,
+                'components' => [
+                    ['/' => '/share/*'],
+                    ['/' => '/verify-email',  '?' => ['token' => '?*']],
+                    ['/' => '/reset-password', '?' => ['token' => '?*']],
+                ],
             ]],
         ],
     ]);
