@@ -491,8 +491,24 @@ $runInternal = function (Request $r, string $command)
     }
     $cli = new Commands($basePath, $tokens, $routeService, $config, new NotificationService(), new HeatmapService(), $heatmapLines);
     ob_start();
-    $code = $cli->run(['internal', $command]);
-    $output = trim((string)ob_get_clean());
+    try {
+        $code = $cli->run(['internal', $command]);
+        $output = trim((string)ob_get_clean());
+    } catch (\Throwable $e) {
+        // Aufräumen des Buffers, dann den ECHTEN Fehler an den (per Token
+        // authentifizierten) Aufrufer zurückgeben. Ohne SSH ist das der
+        // einzige Weg, die sonst nur ins Logfile geschriebene Ursache zu
+        // sehen. Der Endpoint ist durch INTERNAL_TOKEN geschützt, daher ist
+        // die Detail-Ausgabe hier vertretbar.
+        $output = trim((string)ob_get_clean());
+        error_log("internal {$command} fehlgeschlagen: " . $e->getMessage());
+        Response::json([
+            'ok'      => false,
+            'command' => $command,
+            'output'  => $output,
+            'error'   => $e->getMessage(),
+        ], 500);
+    }
     Response::json([
         'ok'      => $code === 0,
         'command' => $command,
