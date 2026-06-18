@@ -39,9 +39,13 @@ jobs:
           server: ${{ secrets.FTP_SERVER }}
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
-          # FTP über TLS, wenn der Hoster es unterstützt. Falls der Connect
-          # scheitert, auf "ftp" (Klartext) wechseln.
-          protocol: ftps
+          # Protokoll-Varianten (je nach Hoster):
+          #   ftp         = unverschlüsselt, Port 21
+          #   ftps        = explizites TLS, Port 21 (AUTH TLS)
+          #   ftps-legacy = implizites TLS, Port 990
+          # Aktuell: einfaches FTP, um Zugangsdaten/Pfad zu verifizieren.
+          # Sobald das läuft, möglichst auf ftps bzw. ftps-legacy umstellen.
+          protocol: ftp
           port: 21
           # Lokal: das gesamte Projekt-Root.
           local-dir: ./
