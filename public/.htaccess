@@ -9,6 +9,15 @@ DirectoryIndex index.php
     RewriteEngine On
     RewriteBase /
 
+    # Bearer-Auth: Viele CGI/FastCGI/LiteSpeed-Setups entfernen den
+    # Authorization-Header, bevor er PHP erreicht -> $_SERVER hat dann kein
+    # HTTP_AUTHORIZATION und jeder geschützte Endpunkt antwortet mit 401.
+    # Diese Regel reicht den Header explizit als Env-Variable durch. Da das
+    # Routing weiter unten einen internen Rewrite auf index.php macht, liest
+    # die PHP-Seite zusätzlich REDIRECT_HTTP_AUTHORIZATION (s. Request.php).
+    RewriteCond %{HTTP:Authorization} .
+    RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
     # Optional HTTPS-Erzwingung in Produktion. In MAMP/lokal nicht aktiv,
     # da kein HTTPS-Zertifikat eingerichtet ist. Setze APP_ENV=production
     # und entferne die folgenden zwei Zeilen-Kommentare, um zu erzwingen.

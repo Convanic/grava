@@ -62,6 +62,30 @@ final class Request
             }
         }
 
+        // Authorization-Header zuverlässig rekonstruieren: Auf CGI/FastCGI/
+        // LiteSpeed-Hosting wird er häufig gestript, sodass $_SERVER kein
+        // HTTP_AUTHORIZATION enthält und Bearer-Auth pauschal mit 401
+        // scheitert. Die .htaccess reicht ihn via E=HTTP_AUTHORIZATION nach;
+        // nach dem internen Rewrite auf index.php landet er teils unter
+        // REDIRECT_HTTP_AUTHORIZATION. Als letzten Fallback fragen wir
+        // apache_request_headers() (liefert die Roh-Header, falls verfügbar).
+        if (!isset($headers['Authorization']) || $headers['Authorization'] === '') {
+            $auth = (string)($_SERVER['HTTP_AUTHORIZATION']
+                ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION']
+                ?? '');
+            if ($auth === '' && function_exists('apache_request_headers')) {
+                foreach (apache_request_headers() as $hk => $hv) {
+                    if (strcasecmp((string)$hk, 'Authorization') === 0) {
+                        $auth = (string)$hv;
+                        break;
+                    }
+                }
+            }
+            if ($auth !== '') {
+                $headers['Authorization'] = $auth;
+            }
+        }
+
         $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
         $uri = $_SERVER['REQUEST_URI'] ?? '/';
         $path = parse_url($uri, PHP_URL_PATH) ?: '/';
