@@ -1,7 +1,7 @@
-name: Deploy (FTP)
+name: Deploy (SFTP)
 
 # Baut die Composer-Abhängigkeiten in der CI (der Server kann kein composer)
-# und lädt das fertige Projekt per FTP auf grava.world hoch.
+# und lädt das fertige Projekt per SFTP (Port 22) auf grava.world hoch.
 #
 # Auslöser:
 #   - automatisch bei Push auf main
@@ -11,9 +11,9 @@ on:
     branches: [main]
   workflow_dispatch:
 
-# Verhindert, dass sich zwei Deploys überlappen (zweiter wartet bzw. ersetzt).
+# Verhindert, dass sich zwei Deploys überlappen.
 concurrency:
-  group: ftp-deploy
+  group: sftp-deploy
   cancel-in-progress: false
 
 jobs:
@@ -33,42 +33,40 @@ jobs:
       - name: Composer-Abhängigkeiten (ohne dev) installieren
         run: composer install --no-dev --optimize-autoloader --no-interaction --prefer-dist
 
-      - name: FTP-Deploy
-        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+      # Sauberes Deploy-Paket bauen: nur das, was auf den Server soll.
+      # Schützt die Server-.env und die Nutzerdaten in storage/, weil diese
+      # gar nicht erst im Paket landen.
+      - name: Deploy-Paket zusammenstellen
+        run: |
+          rsync -a \
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude='tests' \
+            --exclude='docker' \
+            --exclude='docs' \
+            --exclude='.DS_Store' \
+            --exclude='.phpunit.cache' \
+            --exclude='.phpunit.result.cache' \
+            --exclude='phpunit.xml.dist' \
+            --exclude='.env' \
+            --exclude='.env.example' \
+            --exclude='storage' \
+            --exclude='__deploy' \
+            ./ __deploy/
+
+      - name: SFTP-Upload
+        uses: wlixcc/SFTP-Deploy-Action@v1.2.6
         with:
           server: ${{ secrets.FTP_SERVER }}
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
-          # Protokoll-Varianten (je nach Hoster):
-          #   ftp         = unverschlüsselt, Port 21
-          #   ftps        = explizites TLS, Port 21 (AUTH TLS)
-          #   ftps-legacy = implizites TLS, Port 990
-          # Aktuell: einfaches FTP, um Zugangsdaten/Pfad zu verifizieren.
-          # Sobald das läuft, möglichst auf ftps bzw. ftps-legacy umstellen.
-          protocol: ftp
-          port: 21
-          # Lokal: das gesamte Projekt-Root.
-          local-dir: ./
-          # Remote: das Zielverzeichnis auf dem Server. Muss mit / enden.
-          # Hier landet das komplette Projekt; der DocumentRoot der Domain
-          # zeigt anschließend auf <server-dir>/public.
-          server-dir: ${{ secrets.FTP_SERVER_DIR }}
-          # Was NICHT hochgeladen wird. Schützt v. a. die Server-.env und die
-          # Nutzerdaten in storage/ vor dem differenziellen Sync.
-          exclude: |
-            **/.git*
-            **/.git*/**
-            **/.github/**
-            **/tests/**
-            **/docker/**
-            **/docs/**
-            **/.DS_Store
-            **/.phpunit.cache/**
-            .phpunit.result.cache
-            phpunit.xml.dist
-            .env
-            .env.example
-            storage/logs/**
-            storage/mail/**
-            storage/routes/**
-            storage/avatars/**
+          port: 22
+          # Inhalt des Deploy-Pakets …
+          local_path: './__deploy/*'
+          # … in das Zielverzeichnis auf dem Server (muss bereits existieren,
+          # da sftp_only es nicht automatisch anlegt). Mit / am Ende.
+          remote_path: ${{ secrets.FTP_SERVER_DIR }}
+          # Reines SFTP (kein rsync/Shell auf dem Server nötig).
+          sftp_only: true
+          # NIEMALS auf true setzen: würde Server-.env + storage/ löschen!
+          delete_remote_files: false
