@@ -6,6 +6,7 @@ namespace App\Auth;
 use App\Config\Config;
 use App\Database\Db;
 use App\Mail\MailService;
+use App\Referral\ReferralService;
 use App\Support\Clock;
 use App\Support\Uuid;
 use PDO;
@@ -21,6 +22,9 @@ final class AuthService
         private readonly PasswordService $passwords,
         private readonly TokenService $tokens,
         private readonly MailService $mailer,
+        // M7: optional, damit bestehende Aufrufer/Tests AuthService ohne
+        // Referral-Stack konstruieren können. In public/index.php verdrahtet.
+        private readonly ?ReferralService $referrals = null,
     ) {}
 
     /**
@@ -36,8 +40,12 @@ final class AuthService
      *                             entscheidet — aktuell bewusst nicht,
      *                             um keinen Mail-Spam-Vektor zu öffnen)
      *  - deleted/disabled       → silent no-op
+     *
+     * M7: Optionaler `referralCode`. Bei gültigem Code eines aktiven Werbers
+     * wird der neue User verknüpft (referred_by + referrals-Zeile). Ein
+     * unbekannter Code blockiert die Registrierung NICHT (wird ignoriert).
      */
-    public function register(string $email, string $password, ?string $displayName): void
+    public function register(string $email, string $password, ?string $displayName, ?string $referralCode = null): void
     {
         $pdo = Db::pdo();
         $now = Clock::nowUtcString();
@@ -77,6 +85,11 @@ final class AuthService
                  VALUES (?, ?, ?, ?)'
             );
             $vins->execute([$userId, TokenService::hashToken($rawVerify), $verifyExpires, $now]);
+
+            // M7: Werber-Verknüpfung innerhalb derselben Transaktion, damit
+            // User + referrals-Zeile atomar zusammen entstehen. Unbekannter
+            // oder leerer Code ist ein No-Op.
+            $this->referrals?->linkOnRegister($userId, $referralCode);
 
             $pdo->commit();
         } catch (\Throwable $e) {
@@ -295,6 +308,10 @@ final class AuthService
         $pdo->prepare('DELETE FROM email_verifications WHERE id = ?')
             ->execute([(int)$row['id']]);
 
+        // M7: zählende Conversion-Stufe — falls dieser User geworben wurde,
+        // 'registered' → 'verified' nachziehen.
+        $this->referrals?->markVerified((int)$row['user_id']);
+
         return $this->loadUserPublic((int)$row['user_id']);
     }
 
@@ -343,7 +360,7 @@ final class AuthService
         try {
             $pdo->prepare(
                 'UPDATE users SET status = "deleted", deleted_at = ?, email = ?, display_name = NULL,
-                        avatar_path = NULL, updated_at = ?
+                        avatar_path = NULL, referral_code = NULL, referred_by = NULL, updated_at = ?
                  WHERE id = ?'
             )->execute([$now, $scrubbedEmail, $now, $userId]);
 
@@ -436,6 +453,20 @@ final class AuthService
                     throw $e;
                 }
                 error_log('AuthService::deleteAccount: notifications-Tabelle existiert nicht, überspringe.');
+            }
+
+            // M7: Referral-Beziehungen entfernen — als Werber UND als
+            // Geworbener. Der FK ON DELETE CASCADE greift nur beim
+            // Hard-Delete; da wir nur soft-deleten, putzen wir hier explizit,
+            // damit kein Geworbener mehr auf einen anonymisierten Werber zeigt.
+            try {
+                $pdo->prepare('DELETE FROM referrals WHERE referrer_id = ? OR referred_user_id = ?')
+                    ->execute([$userId, $userId]);
+            } catch (\PDOException $e) {
+                if (!str_contains($e->getMessage(), '1146')) {
+                    throw $e;
+                }
+                error_log('AuthService::deleteAccount: referrals-Tabelle existiert nicht, überspringe.');
             }
 
             $pdo->commit();

@@ -25,12 +25,14 @@ final class AuthController
         $email = $v->email('email', $req->input('email'));
         $password = $v->password('password', $req->input('password'), $email);
         $displayName = $v->displayName('display_name', $req->input('display_name'));
+        // M7: optionaler Werber-Code. Lenient — blockiert nie den Signup.
+        $referralCode = $v->referralCode('referral_code', $req->input('referral_code'));
         if ($v->fails()) {
             Response::error('validation_error', 'Bitte überprüfe deine Eingaben.', 422, $v->errors());
         }
 
         try {
-            $this->auth->register($email, $password, $displayName);
+            $this->auth->register($email, $password, $displayName, $referralCode);
         } catch (AuthException $e) {
             Response::error($e->errorCode, $e->getMessage(), $e->httpStatus, $e->fields);
         }

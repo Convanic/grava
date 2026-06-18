@@ -79,10 +79,16 @@ final class AuthPagesController
     public function showRegister(Request $req): void
     {
         Csrf::ensureStarted();
+        // M7: Werber-Code aus der URL übernehmen (?ref=… bzw. ?code=…),
+        // z. B. wenn jemand über die /i/{code}-Landingpage im Browser
+        // registriert statt in der App.
+        $v = new Validator();
+        $referralCode = $v->referralCode('referral_code', $req->query['ref'] ?? ($req->query['code'] ?? null));
         $this->render('register', [
             'errors' => [],
             'email'  => '',
             'display_name' => '',
+            'referral_code' => $referralCode ?? '',
             'flash' => $this->popFlash(),
         ]);
     }
@@ -95,28 +101,33 @@ final class AuthPagesController
         $emailRaw = (string)($req->post['email'] ?? '');
         $displayName = (string)($req->post['display_name'] ?? '');
         $pw       = (string)($req->post['password'] ?? '');
+        $referralRaw = (string)($req->post['referral_code'] ?? '');
 
         $v = new Validator();
         $email = $v->email('email', $emailRaw);
         $password = $v->password('password', $pw, $email);
         $cleanName = $v->displayName('display_name', $displayName);
+        // M7: lenient — ungültiger Code wird ignoriert, blockiert nie.
+        $referralCode = $v->referralCode('referral_code', $referralRaw);
 
         if ($v->fails()) {
             $this->render('register', [
                 'errors' => $v->errors(),
                 'email' => $emailRaw,
                 'display_name' => $displayName,
+                'referral_code' => $referralRaw,
                 'flash' => null,
             ], 422);
         }
 
         try {
-            $this->auth->register($email, $password, $cleanName);
+            $this->auth->register($email, $password, $cleanName, $referralCode);
         } catch (AuthException $e) {
             $this->render('register', [
                 'errors' => $e->fields ?? ['email' => [$e->getMessage()]],
                 'email' => $emailRaw,
                 'display_name' => $displayName,
+                'referral_code' => $referralRaw,
                 'flash' => null,
             ], $e->httpStatus);
         }

@@ -1,0 +1,15 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["98JR57G9M7.world.grava.app"],
+        "components": [
+          { "/": "/share/*" },
+          { "/": "/i/*" },
+          { "/": "/verify-email", "?": { "token": "?*" } },
+          { "/": "/reset-password", "?": { "token": "?*" } }
+        ]
+      }
+    ]
+  }
+}

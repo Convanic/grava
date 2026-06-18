@@ -1,0 +1,11 @@
+<Files "apple-app-site-association">
+    <IfModule mod_authz_core.c>
+        Require all granted
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Allow from all
+        Satisfy any
+    </IfModule>
+    ForceType application/json
+</Files>

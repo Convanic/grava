@@ -17,6 +17,12 @@ DirectoryIndex index.php
 
     # index.php selbst nie weiter umschreiben (verhindert Endlosschleifen).
     RewriteRule ^index\.php$ - [L]
+    RewriteRule ^\.well-known/ - [L]
+
+    # Universal Links / RFC 5785: /.well-known/* immer als echtes Verzeichnis
+    # ausliefern, NICHT auf index.php umleiten (sonst blockt der Hoster den
+    # Dot-Pfad bzw. iOS bekommt kein gültiges application/json).
+    RewriteRule ^\.well-known/ - [L]
 
     # Route alles, was nicht existiert, auf index.php
     RewriteCond %{REQUEST_FILENAME} !-f

@@ -8,6 +8,7 @@ use App\Http\Request;
 use App\Http\Response;
 use App\Routes\GeometryParseException;
 use App\Routes\RouteNotFoundException;
+use App\Referral\ReferralService;
 use App\Routes\RouteService;
 use App\Routes\ShareTokenService;
 use App\Support\Validator;
@@ -36,6 +37,9 @@ final class RouteController
         private readonly RouteService $routes,
         private readonly ShareTokenService $shares,
         private readonly Config $config,
+        // M7: optional — markiert die Referral-Stufe 'activated' beim ersten
+        // erfolgreichen Routen-Upload des Geworbenen.
+        private readonly ?ReferralService $referrals = null,
     ) {}
 
     public function upload(Request $req): void
@@ -120,6 +124,16 @@ final class RouteController
             // sollten alle vorher vom Validator gefangen sein —
             // wenn nicht, geben wir trotzdem 422 statt 500 zurück.
             Response::error('validation_error', $e->getMessage(), 422);
+        }
+
+        // M7: erfolgreicher Upload → falls dieser User geworben wurde und
+        // bereits 'verified' ist, auf 'activated' nachziehen. Idempotent;
+        // spätere Uploads sind No-Ops. Best effort — ein Fehler hier darf
+        // den Upload-Erfolg nicht kippen.
+        try {
+            $this->referrals?->markActivated($userId);
+        } catch (\Throwable $e) {
+            error_log('RouteController::upload: Referral-Aktivierung fehlgeschlagen: ' . $e->getMessage());
         }
 
         $action = $result['action'];

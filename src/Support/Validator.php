@@ -370,6 +370,32 @@ final class Validator
         return $h;
     }
 
+    /**
+     * M7: Optionaler Referral-Code beim Signup. Bewusst LENIENT — ein
+     * fehlerhafter/unbekannter Code soll die Registrierung nie blockieren
+     * (er wird serverseitig einfach nicht aufgelöst). Daher fügen wir hier
+     * keine Validierungsfehler hinzu, sondern liefern null bei Unbrauchbarem.
+     *
+     * Liefert den getrimmten, lowercased Code (≤16 Zeichen, nur a–z/0–9/-/_)
+     * oder null.
+     */
+    public function referralCode(string $field, mixed $value): ?string
+    {
+        if (!is_string($value)) {
+            return null;
+        }
+        $v = strtolower(trim($value));
+        if ($v === '') {
+            return null;
+        }
+        // Nur erlaubte Zeichen behalten; alles andere kann kein gültiger
+        // Code sein (Codes bestehen aus Slug + base36-Suffix bzw. base36).
+        if (preg_match('/^[a-z0-9_-]{1,16}$/', $v) !== 1) {
+            return null;
+        }
+        return $v;
+    }
+
     public function add(string $field, string $message): void
     {
         $this->errors[$field][] = $message;

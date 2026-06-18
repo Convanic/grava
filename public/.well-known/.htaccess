@@ -1,0 +1,18 @@
+# Universal Links: Die AASA-Datei muss ohne Auth erreichbar sein und als
+# application/json ausgeliefert werden (sie hat bewusst keine .json-Endung).
+# Dieses Verzeichnis NICHT auf index.php umschreiben (s. ../.htaccess).
+
+<Files "apple-app-site-association">
+    # Apache 2.4
+    <IfModule mod_authz_core.c>
+        Require all granted
+    </IfModule>
+    # Apache 2.2 / Kompatibilität (überstimmt ggf. ein geerbtes Deny)
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Allow from all
+        Satisfy any
+    </IfModule>
+
+    ForceType application/json
+</Files>
