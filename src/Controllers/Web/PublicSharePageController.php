@@ -7,6 +7,7 @@ use App\Http\GeoJsonResponse;
 use App\Http\Request;
 use App\Http\Response;
 use App\Routes\RouteGeoJson;
+use App\Routes\RouteInsights;
 use App\Routes\RouteService;
 use App\Routes\ShareTokenService;
 
@@ -29,6 +30,7 @@ final class PublicSharePageController
         string $viewsPath,
         private readonly ?RouteService $routes = null,
         private readonly ?RouteGeoJson $geo = null,
+        private readonly ?RouteInsights $insights = null,
     ) {
         $this->view = new WebView($viewsPath);
     }
@@ -46,11 +48,22 @@ final class PublicSharePageController
             ], 410);
         }
 
+        $insights = null;
+        if ($this->routes !== null && $this->insights !== null) {
+            try {
+                $loaded   = $this->routes->loadPayloadByPublicId((string)$route['id']);
+                $insights = $this->insights->compute($loaded['payload']);
+            } catch (\Throwable) {
+                $insights = null;
+            }
+        }
+
         $this->view->render('share', [
             '_title' => $route['title'] . ' · GravelExplorer',
             '_layoutWide' => true,
             'route'  => $route,
             'shareToken' => $token,
+            'insights' => $insights,
             'flash'  => null,
         ]);
     }

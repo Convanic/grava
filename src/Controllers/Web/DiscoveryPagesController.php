@@ -13,6 +13,7 @@ use App\Http\Middleware\Csrf;
 use App\Http\Request;
 use App\Http\Response;
 use App\Routes\RouteGeoJson;
+use App\Routes\RouteInsights;
 use App\Routes\RouteService;
 
 /**
@@ -42,6 +43,7 @@ final class DiscoveryPagesController
         private readonly ?\App\Heatmap\HeatmapService $heatmap = null,
         private readonly ?RouteService $routesService = null,
         private readonly ?RouteGeoJson $geo = null,
+        private readonly ?RouteInsights $insights = null,
     ) {
         $this->view = new WebView($viewsPath);
     }
@@ -231,6 +233,16 @@ final class DiscoveryPagesController
             }
         }
 
+        $insights = null;
+        if ($this->routesService !== null && $this->insights !== null) {
+            try {
+                $loaded   = $this->routesService->loadPayloadByPublicId((string)$route['id']);
+                $insights = $this->insights->compute($loaded['payload']);
+            } catch (\Throwable) {
+                $insights = null;
+            }
+        }
+
         $this->renderPage('profile/route', $authedUser, [
             '_title'   => $route['title'] . ' · @' . $profile['handle'],
             'route'    => $route,
@@ -238,6 +250,7 @@ final class DiscoveryPagesController
             'likes'    => $likes,
             'comments' => $comments['comments'],
             'commentsPagination' => $comments['pagination'],
+            'insights' => $insights,
         ]);
     }
 

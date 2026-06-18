@@ -25,9 +25,14 @@ foreach ($routes as $r) {
 $mapRoutesJson = json_encode($mapRoutes, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 
 if ($mapRoutes !== []) {
-    $_pageStyles  = ['/assets/vendor/leaflet/leaflet.css'];
+    $_pageStyles  = [
+        '/assets/vendor/leaflet/leaflet.css',
+        '/assets/vendor/leaflet/MarkerCluster.css',
+        '/assets/vendor/leaflet/MarkerCluster.Default.css',
+    ];
     $_pageScripts = [
         '/assets/vendor/leaflet/leaflet.js',
+        '/assets/vendor/leaflet/leaflet.markercluster.js',
         '/assets/js/map-core.js',
         '/assets/js/map-discover.js',
     ];

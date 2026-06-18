@@ -61,6 +61,8 @@ $_pageScripts = [
      data-geojson-url="/u/<?= $h(rawurlencode($handle)) ?>/r/<?= $h(rawurlencode($pid)) ?>/geojson"></div>
 <div id="map-legend" class="map-legend" hidden></div>
 
+<?php if (!empty($insights)) { include __DIR__ . '/../partials/route-insights.php'; } ?>
+
 <?php if (!empty($route['description'])): ?>
     <section class="route-description">
         <h2>Beschreibung</h2>

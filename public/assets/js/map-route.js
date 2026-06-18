@@ -50,13 +50,16 @@
     return { color: BASE_COLOR, weight: 4, opacity: 0.85 };
   }
 
+  // Labels beschreiben den Untergrund-Typ (nicht eine Qualität): niedriger
+  // Score = glatt/befestigt, hoher Score = grob/Schotter. Deckungsgleich mit
+  // dem Insights-Partial (views/web/partials/route-insights.php).
   var SCORE_LABELS = {
-    0: 'sehr schlecht',
-    1: 'schlecht',
-    2: 'mäßig',
-    3: 'ok',
-    4: 'gut',
-    5: 'sehr gut'
+    0: 'sehr glatt',
+    1: 'glatt',
+    2: 'überwiegend fest',
+    3: 'gemischt',
+    4: 'ruppig',
+    5: 'grob / Schotter'
   };
 
   function renderLegend(geojson) {

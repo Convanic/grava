@@ -27,6 +27,8 @@ $_pageScripts = [
          data-geojson-url="/share/<?= htmlspecialchars(rawurlencode($shareToken), ENT_QUOTES, 'UTF-8') ?>/geojson"></div>
     <div id="map-legend" class="map-legend" hidden></div>
 
+    <?php if (!empty($insights)) { include __DIR__ . '/partials/route-insights.php'; } ?>
+
     <dl class="profile profile--wide">
         <dt>Distanz</dt>      <dd><?= $fmtKm($route['distance_meters'] ?? null) ?></dd>
         <dt>Höhenmeter</dt>   <dd>↑ <?= $fmtElev($route['elevation_gain_meters'] ?? null) ?></dd>

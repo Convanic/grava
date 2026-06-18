@@ -12,6 +12,7 @@ use App\Http\Request;
 use App\Http\Response;
 use App\Routes\GeometryParseException;
 use App\Routes\RouteGeoJson;
+use App\Routes\RouteInsights;
 use App\Routes\RouteNotFoundException;
 use App\Routes\RouteService;
 use App\Routes\ShareTokenService;
@@ -49,6 +50,7 @@ final class RoutePagesController
         private readonly Config $config,
         private readonly RouteGeoJson $geo,
         string $viewsPath,
+        private readonly ?RouteInsights $insights = null,
     ) {
         $this->view = new WebView($viewsPath);
     }
@@ -202,12 +204,25 @@ final class RoutePagesController
         $newShareToken = $_SESSION['flash_share_token'] ?? null;
         unset($_SESSION['flash_share_token']);
 
+        // Höhenprofil + Untergrund-Verteilung aus dem head-Payload (defensiv:
+        // ein Parse-Fehler lässt nur das Insights-Panel weg, nicht die Seite).
+        $insights = null;
+        if ($this->insights !== null) {
+            try {
+                $loaded   = $this->routes->loadPayload((int)$user['internal_id'], $publicId, null);
+                $insights = $this->insights->compute($loaded['payload']);
+            } catch (Throwable) {
+                $insights = null;
+            }
+        }
+
         $this->render('routes/show', $user, [
             '_title'        => $route['title'] . ' · GravelExplorer',
             'route'         => $route,
             'shares'        => $sharesList,
             'newShareToken' => $newShareToken,
             'shareBaseUrl'  => $this->shareBaseUrl(),
+            'insights'      => $insights,
             'flash'         => $this->popFlash(),
         ]);
     }

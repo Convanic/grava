@@ -76,6 +76,7 @@ use App\Routes\RouteService;
 use App\Routes\RouteStorage;
 use App\Routes\ShareTokenService;
 use App\Routes\SurfaceTrack;
+use App\Routes\RouteInsights;
 
 $basePath = dirname(__DIR__);
 
@@ -154,6 +155,8 @@ $shareTokens  = new ShareTokenService($routeRepo);
 // GeoJSON-Konverter für die Web-Karten (eigener Parser, zustandslos).
 // SurfaceTrack färbt GPX-Tracks mit <ge:surfaceScore> ein.
 $routeGeoJson = new RouteGeoJson(new GeometryParser(), new SurfaceTrack());
+// Höhenprofil + Untergrund-Verteilung für die Detail-Seiten.
+$routeInsights = new RouteInsights(new GeometryParser(), new SurfaceTrack());
 
 // ---------------------------------------------------------------------------
 // CLI dispatch
@@ -243,10 +246,10 @@ $apiHeatmap  = new HeatmapController($heatmapServ);
 $webAuth    = new AuthPagesController($auth, $cookieAuth, $webSession, $rate, $basePath . '/views');
 $webHome    = new DashboardController($webSession, $auth, $basePath . '/views');
 $webRefresh = new WebRefreshController($cookieAuth, $webSession);
-$webRoutes  = new RoutePagesController($webSession, $auth, $routeService, $shareTokens, $config, $routeGeoJson, $basePath . '/views');
-$webShare   = new PublicSharePageController($shareTokens, $basePath . '/views', $routeService, $routeGeoJson);
+$webRoutes  = new RoutePagesController($webSession, $auth, $routeService, $shareTokens, $config, $routeGeoJson, $basePath . '/views', $routeInsights);
+$webShare   = new PublicSharePageController($shareTokens, $basePath . '/views', $routeService, $routeGeoJson, $routeInsights);
 $webSetting = new SettingsPagesController($webSession, $auth, $basePath . '/views', $avatarServ);
-$webDiscover = new DiscoveryPagesController($webSession, $auth, $discovery, $profileServ, $feedServ, $basePath . '/views', $likeServ, $commentServ, $notifServ, $heatmapServ, $routeService, $routeGeoJson);
+$webDiscover = new DiscoveryPagesController($webSession, $auth, $discovery, $profileServ, $feedServ, $basePath . '/views', $likeServ, $commentServ, $notifServ, $heatmapServ, $routeService, $routeGeoJson, $routeInsights);
 $webSocial   = new SocialPagesController($webSession, $auth, $followServ, $blockServ);
 $webEngage   = new EngagementPagesController($webSession, $likeServ, $commentServ, $auth, $rate);
 $webStrava   = new StravaPagesController($webSession, $auth, $stravaServ, $basePath . '/views');
