@@ -431,6 +431,39 @@ $router->post('/u/{handle}/r/{id}/unlike',               fn($r) => $webEngage->u
 $router->post('/u/{handle}/r/{id}/comment',              fn($r) => $webEngage->comment($r),       [$csrf]);
 $router->post('/u/{handle}/r/{id}/comments/{cid}/delete', fn($r) => $webEngage->commentDelete($r), [$csrf]);
 
+// ---- Interne, per Token abgesicherte Endpoints (Migration & Cron) ----
+// Auf Shared-Hosting ohne SSH lassen sich die CLI-Aufgaben so über HTTP
+// auslösen. Schutz: geheimer Token aus der .env (INTERNAL_TOKEN), verglichen
+// per hash_equals. Ist kein Token gesetzt, sind die Endpoints deaktiviert
+// und verhalten sich wie eine unbekannte Route (404).
+$internalToken = (string)($config->get('INTERNAL_TOKEN', '') ?? '');
+$runInternal = function (Request $r, string $command)
+    use ($internalToken, $basePath, $tokens, $routeService, $config) {
+    if ($internalToken === '') {
+        Response::error('not_found', 'Nicht gefunden.', 404);
+    }
+    $provided = (string)($r->query['token'] ?? $r->header('X-Internal-Token', ''));
+    if ($provided === '' || !hash_equals($internalToken, $provided)) {
+        Response::error('not_found', 'Nicht gefunden.', 404);
+    }
+    $cli = new Commands($basePath, $tokens, $routeService, $config, new NotificationService(), new HeatmapService());
+    ob_start();
+    $code = $cli->run(['internal', $command]);
+    $output = trim((string)ob_get_clean());
+    Response::json([
+        'ok'      => $code === 0,
+        'command' => $command,
+        'output'  => $output,
+    ], $code === 0 ? 200 : 500);
+};
+
+$router->get('/internal/migrate',       fn($r) => $runInternal($r, 'cli:migrate'));
+$router->post('/internal/migrate',      fn($r) => $runInternal($r, 'cli:migrate'));
+$router->get('/internal/cron/cleanup',  fn($r) => $runInternal($r, 'cron:cleanup'));
+$router->post('/internal/cron/cleanup', fn($r) => $runInternal($r, 'cron:cleanup'));
+$router->get('/internal/cron/heatmap',  fn($r) => $runInternal($r, 'cron:heatmap'));
+$router->post('/internal/cron/heatmap', fn($r) => $runInternal($r, 'cron:heatmap'));
+
 // Healthcheck
 $router->get('/healthz', function ($r): void {
     Response::json(['status' => 'ok', 'time' => gmdate('Y-m-d\TH:i:s\Z')]);
