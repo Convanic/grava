@@ -464,6 +464,30 @@ $router->post('/internal/cron/cleanup', fn($r) => $runInternal($r, 'cron:cleanup
 $router->get('/internal/cron/heatmap',  fn($r) => $runInternal($r, 'cron:heatmap'));
 $router->post('/internal/cron/heatmap', fn($r) => $runInternal($r, 'cron:heatmap'));
 
+// Universal Links: Apple App Site Association (AASA).
+// iOS lädt /.well-known/apple-app-site-association, um grava.world-Links
+// direkt in der App zu öffnen. Muss als application/json, ohne Redirect und
+// ohne Auth ausgeliefert werden. Die App-ID(s) (Format TEAMID.BUNDLEID,
+// mehrere kommagetrennt) kommen aus der .env (IOS_APP_ID).
+$router->get('/.well-known/apple-app-site-association', function ($r) use ($config): void {
+    $appIds = array_values(array_filter(array_map(
+        'trim',
+        explode(',', (string)($config->get('IOS_APP_ID', '') ?? '')),
+    )));
+    if ($appIds === []) {
+        Response::error('not_configured', 'IOS_APP_ID nicht gesetzt.', 404);
+    }
+    Response::json([
+        'applinks' => [
+            'apps'    => [],
+            'details' => [[
+                'appID' => $appIds[0],
+                'paths' => ['*'],
+            ]],
+        ],
+    ]);
+});
+
 // Healthcheck
 $router->get('/healthz', function ($r): void {
     Response::json(['status' => 'ok', 'time' => gmdate('Y-m-d\TH:i:s\Z')]);
