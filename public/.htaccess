@@ -1,14 +1,22 @@
-Options -Indexes
+# FollowSymLinks ist Voraussetzung für mod_rewrite. Manche Shared-Hoster
+# haben es per Default aus — dann quittiert Apache jede RewriteRule mit
+# einem 500. Falls der Hoster FollowSymLinks verbietet, stattdessen
+# SymLinksIfOwnerMatch verwenden (s. README/Deploy-Doku).
+Options -Indexes +FollowSymLinks
 DirectoryIndex index.php
 
 <IfModule mod_rewrite.c>
     RewriteEngine On
+    RewriteBase /
 
     # Optional HTTPS-Erzwingung in Produktion. In MAMP/lokal nicht aktiv,
     # da kein HTTPS-Zertifikat eingerichtet ist. Setze APP_ENV=production
     # und entferne die folgenden zwei Zeilen-Kommentare, um zu erzwingen.
     # RewriteCond %{HTTPS} !=on
     # RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+    # index.php selbst nie weiter umschreiben (verhindert Endlosschleifen).
+    RewriteRule ^index\.php$ - [L]
 
     # Route alles, was nicht existiert, auf index.php
     RewriteCond %{REQUEST_FILENAME} !-f
