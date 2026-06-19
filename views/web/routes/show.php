@@ -48,6 +48,8 @@ $_pageScripts = [
 
     <?php if (!empty($insights)) { include __DIR__ . '/../partials/route-insights.php'; } ?>
 
+    <?php $hints = $route['hints'] ?? []; include __DIR__ . '/../partials/route-hints.php'; ?>
+
     <dl class="profile profile--wide">
         <dt>Distanz</dt>           <dd><?= $fmtKm($route['distance_meters'] ?? null) ?></dd>
         <dt>Höhenmeter</dt>        <dd>↑ <?= $fmtElev($route['elevation_gain_meters'] ?? null) ?></dd>

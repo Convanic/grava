@@ -114,6 +114,9 @@ final class RouteHintsTest extends IntegrationTestCase
         }
         $this->assertSame('negative', $byKey['unrideable']['sentiment']);
         $this->assertSame('positive', $byKey['great_view']['sentiment']);
+        // km entlang der Strecke wurde angereichert (Trackpunkte im Fixture).
+        $this->assertIsInt($byKey['unrideable']['distance_m']);
+        $this->assertIsInt($byKey['great_view']['distance_m']);
         // Millisekunden-ISO mit Z-Suffix.
         $this->assertMatchesRegularExpression(
             '/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/',

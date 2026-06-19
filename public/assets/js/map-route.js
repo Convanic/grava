@@ -99,6 +99,60 @@
     legend.hidden = false;
   }
 
+  var HINT_COLORS = { negative: '#e11d48', positive: '#15803d' };
+
+  function fmtKm(m) {
+    if (typeof m !== 'number' || isNaN(m)) {
+      return null;
+    }
+    return (m / 1000).toFixed(1).replace('.', ',') + ' km';
+  }
+
+  // Wegpunkt-Hinweise als Marker — Farbe nach Sentiment, Popup mit
+  // Label, Notiz und km-Position entlang der Strecke.
+  function renderHints(map, geojson) {
+    var hints = geojson && geojson.hints;
+    if (!Array.isArray(hints) || !hints.length) {
+      return;
+    }
+    hints.forEach(function (h) {
+      if (typeof h.lat !== 'number' || typeof h.lon !== 'number') {
+        return;
+      }
+      var color = HINT_COLORS[h.sentiment] || '#475569';
+      var marker = L.circleMarker([h.lat, h.lon], {
+        radius: 7,
+        color: '#ffffff',
+        weight: 2,
+        fillColor: color,
+        fillOpacity: 0.95
+      }).addTo(map);
+
+      var parts = [];
+      var km = fmtKm(h.distance_m);
+      if (h.label) {
+        parts.push('<strong>' + escapeHtml(h.label) + '</strong>');
+      }
+      if (km) {
+        parts.push('<span class="hint-km">' + km + '</span>');
+      }
+      if (h.note) {
+        parts.push('<span class="hint-note">' + escapeHtml(h.note) + '</span>');
+      }
+      if (parts.length) {
+        marker.bindPopup(parts.join('<br>'));
+      }
+    });
+  }
+
+  function escapeHtml(s) {
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
   function hasGeometry(geojson) {
     if (!geojson || !geojson.features || !geojson.features.length) {
       return false;
@@ -132,6 +186,7 @@
         /* leere Bounds — Default-View bleibt */
       }
       renderLegend(geojson);
+      renderHints(map, geojson);
     })
     .catch(function () {
       GE.map.showEmpty(el, 'Karte konnte nicht geladen werden.');

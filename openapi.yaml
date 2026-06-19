@@ -1203,6 +1203,10 @@ components:
         note: { type: string, nullable: true }
         lat: { type: number }
         lon: { type: number }
+        distance_m:
+          type: integer
+          nullable: true
+          description: "Distanz vom Streckenstart bis zum Hinweis (Meter, naechstgelegener Trackpunkt). null, wenn keine Geometrie vorliegt."
         recorded_at: { type: string, format: date-time, nullable: true }
     Comment:
       type: object

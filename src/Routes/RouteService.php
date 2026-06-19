@@ -273,7 +273,10 @@ final class RouteService
         }
         $routeId = (int)$route['_internal']['route_id'];
         $route['tags']  = $this->routes->listTags($routeId);
-        $route['hints'] = $this->hints?->listForRoute($routeId) ?? [];
+        $route['hints'] = $this->enrichHintsWithDistance(
+            $publicId,
+            $this->hints?->listForRoute($routeId) ?? [],
+        );
         return self::stripInternal($route);
     }
 
@@ -286,7 +289,36 @@ final class RouteService
      */
     public function hintsForPublicId(string $publicId): array
     {
-        return $this->hints?->listForPublicId($publicId) ?? [];
+        return $this->enrichHintsWithDistance(
+            $publicId,
+            $this->hints?->listForPublicId($publicId) ?? [],
+        );
+    }
+
+    /**
+     * Reichert Hinweise um `distance_m` (Meter entlang der Strecke) an und
+     * sortiert sie in Fahrt-Reihenfolge. Lädt dafür den head-Payload und
+     * projiziert die Hinweise auf den Track ({@see RouteHintLocator}).
+     *
+     * Defensiv: ohne Hinweise wird gar nicht erst geladen; schlägt das Laden/
+     * Parsen fehl, kommen die Hinweise ohne km zurück (Feld `distance_m`=null),
+     * damit das Ausgabe-Schema stabil bleibt und die Anzeige nicht crasht.
+     *
+     * @param list<array<string,mixed>> $hints
+     * @return list<array<string,mixed>>
+     */
+    private function enrichHintsWithDistance(string $publicId, array $hints): array
+    {
+        if ($hints === []) {
+            return [];
+        }
+        try {
+            $loaded = $this->loadPayloadByPublicId($publicId);
+            $parsed = $this->parser->parse($loaded['payload']);
+            return RouteHintLocator::withDistances($parsed->points, $hints);
+        } catch (Throwable) {
+            return array_map(static fn(array $h): array => $h + ['distance_m' => null], $hints);
+        }
     }
 
     /**
