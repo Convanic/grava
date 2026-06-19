@@ -535,6 +535,37 @@ $router->post('/internal/cron/heatmap-lines', fn($r) => $runInternal($r, 'cron:h
 $router->get('/internal/heatmap/manifest',  fn($r) => $runInternal($r, 'heatmap:manifest'));
 $router->post('/internal/heatmap/manifest', fn($r) => $runInternal($r, 'heatmap:manifest'));
 
+// Cutover-Rückweg: vorberechnete heatmap_edges als JSON-Body entgegennehmen und
+// serverseitig in eine Shadow-Tabelle laden + atomar swappen. Eigener Handler
+// (statt $runInternal), weil der Request-Body verarbeitet wird. Sicher: nur
+// parametrisierte INSERTs, kein beliebiges SQL.
+$router->post('/internal/heatmap/import', function (Request $r) use ($internalToken, $heatmapLines): void {
+    if ($internalToken === '') {
+        Response::error('not_found', 'Nicht gefunden.', 404);
+    }
+    $provided = (string)($r->query['token'] ?? $r->header('X-Internal-Token', ''));
+    if ($provided === '' || !hash_equals($internalToken, $provided)) {
+        Response::error('not_found', 'Nicht gefunden.', 404);
+    }
+    $body = $r->rawBody;
+    if ($body === '') {
+        Response::error('bad_request', 'Leerer Body (Body-Limit/post_max_size prüfen).', 400);
+    }
+    try {
+        $res = $heatmapLines->importEdges($body);
+    } catch (\Throwable $e) {
+        error_log('internal heatmap/import fehlgeschlagen: ' . $e->getMessage());
+        Response::json(['ok' => false, 'error' => $e->getMessage()], 500);
+        return;
+    }
+    Response::json([
+        'ok'       => $res['swapped'],
+        'received' => $res['received'],
+        'imported' => $res['imported'],
+        'swapped'  => $res['swapped'],
+    ], $res['swapped'] ? 200 : 422);
+});
+
 // Hinweis: Universal Links (Apple App Site Association) werden NICHT hier
 // als Route ausgeliefert, sondern als statische Datei unter
 // public/.well-known/apple-app-site-association (+ eigene .htaccess).

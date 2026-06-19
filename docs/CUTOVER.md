@@ -57,8 +57,8 @@ PROD (Shared-Webspace)                          LOKAL (Docker/Valhalla)
                                                      │
                                           heatmap:rebuild-local (Valhalla-Matching)
                                                      │  → lokal heatmap_edges
- heatmap_edges  ◄──Shadow-Import + RENAME──────  build/heatmap_edges.sql (Dump)
-   │
+ POST /internal/heatmap/import ◄──push────────── build/heatmap_edges.json
+   │  (Shadow-Tabelle + atomarer RENAME, serverseitig)
  GET /api/v1/heatmap/lines (nur Lesen, kein Valhalla)
 ```
 
@@ -73,11 +73,9 @@ PROD (Shared-Webspace)                          LOKAL (Docker/Valhalla)
 ### 3b. Erstbefüllung / Update der Strecken-Heatmap
 
 > **Hinweis zum DB-Zugang:** Die Prod-DB ist nur vom Webspace erreichbar (nicht
-> von lokal). Deshalb läuft der **Hinweg** über Manifest (HTTP) + SFTP, und der
-> **Rückweg** (Import) wird **auf dem Webspace** ausgeführt — entweder per
-> phpMyAdmin-Import des Dumps oder, falls vorhanden, serverseitig. Das
-> `sync_heatmap_edges.sh import` setzt einen erreichbaren `mysql`-Client mit
-> Prod-DB-Zugang voraus.
+> von lokal). Deshalb läuft sowohl der **Hinweg** (Manifest via HTTP + GPX via
+> SFTP) als auch der **Rückweg** (heatmap_edges via HTTP-Import) über die
+> token-geschützten internen Endpunkte — **kein** mysql-Client/phpMyAdmin nötig.
 
 1. **Migration in Prod** einspielen (einmalig):
    `0012_m6_heatmap_edges.sql` via `GET /internal/migrate?token=…` ausführen
@@ -107,16 +105,24 @@ PROD (Shared-Webspace)                          LOKAL (Docker/Valhalla)
    *Reiner Dev-Lauf ohne Prod-Daten* (nur lokale DB): stattdessen
    `scripts/sync_heatmap_edges.sh export build/heatmap_edges.sql`.
 
-3. **In die Prod-DB importieren** (auf dem Webspace / mit Prod-DB-Zugang):
+3. **Nach Prod schieben** (HTTP-Import, kein mysql/phpMyAdmin nötig):
 
    ```bash
-   scripts/sync_heatmap_edges.sh import build/heatmap_edges.sql
+   scripts/push_heatmap_edges.sh build/heatmap_edges.json
    ```
 
-   Lädt in die Shadow-Tabelle `heatmap_edges_new`, prüft auf >0 Zeilen und macht
-   dann einen atomaren `RENAME`-Swap (kein Lese-Ausfall). **Alternativ** den
-   Dump `build/heatmap_edges.sql` direkt per **phpMyAdmin** in die
-   `heatmap_edges`-Tabelle importieren (vorher `TRUNCATE heatmap_edges`).
+   Postet die JSON-Zeilen an `POST /internal/heatmap/import` (Token aus `.env`).
+   Der Server lädt sie in die Shadow-Tabelle `heatmap_edges_new` (nur
+   parametrisierte INSERTs, **kein** SQL aus dem Body), prüft auf >0 Zeilen und
+   macht dann einen atomaren `RENAME`-Swap (kein Lese-Ausfall). Bei 0 Zeilen
+   bleibt die Live-Tabelle unangetastet.
+
+   - **Body-Limit:** Der Import-Pfad ist serverseitig auf 25 MB Body gehoben.
+     Bei sehr vielen Kanten ggf. `post_max_size`/`upload_max_filesize` in der
+     PHP-Konfig des Webspace anheben (sonst kommt ein leerer Body → 400).
+   - **Alternative (mysql-Zugang vorhanden):** lokal
+     `scripts/sync_heatmap_edges.sh export build/heatmap_edges.sql` +
+     `… import …`, oder den SQL-Dump per phpMyAdmin importieren.
 
 ### 3c. Layer sichtbar schalten (Feature-Flag)
 

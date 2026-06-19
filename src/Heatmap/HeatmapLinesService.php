@@ -162,6 +162,116 @@ final class HeatmapLinesService
         ];
     }
 
+    // ---- Cutover-Rückweg: Export/Import der heatmap_edges ------------------
+
+    /**
+     * Liest alle heatmap_edges-Zeilen für den HTTP-Export (Cutover-Rückweg).
+     * `geom_json` bleibt als JSON-String (wird beim Import 1:1 wieder gesetzt).
+     *
+     * @return list<array<string,mixed>>
+     */
+    public function exportRows(): array
+    {
+        $pdo = Db::pdo();
+        $rows = $pdo->query(
+            "SELECT edge_key, way_id, geom_json, min_lat, min_lon, max_lat, max_lon,
+                    length_m, route_count, score_sum, score_n, avg_score, osm_surface
+               FROM heatmap_edges"
+        )->fetchAll(PDO::FETCH_ASSOC);
+        return $rows ?: [];
+    }
+
+    /**
+     * Importiert heatmap_edges-Zeilen aus JSON in eine Shadow-Tabelle und macht
+     * dann einen atomaren RENAME-Swap (kein Lese-Ausfall). Cutover-Rückweg über
+     * HTTP — bewusst sicher: ausschließlich parametrisierte INSERTs + DDL auf
+     * fixe Tabellennamen, KEIN beliebiges SQL aus dem Body.
+     *
+     * Akzeptiert `{"rows":[…]}` oder ein nacktes Array `[…]`.
+     *
+     * @return array{received:int,imported:int,swapped:bool}
+     */
+    public function importEdges(string $json): array
+    {
+        $data = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
+        $rows = [];
+        if (is_array($data)) {
+            $rows = is_array($data['rows'] ?? null) ? $data['rows'] : (array_is_list($data) ? $data : []);
+        }
+
+        $pdo = Db::pdo();
+        $now = Clock::nowUtcString();
+
+        // DDL committet implizit — daher Shadow erst frisch erzeugen, dann die
+        // INSERTs in einer Transaktion, danach der atomare RENAME.
+        $pdo->exec('DROP TABLE IF EXISTS heatmap_edges_new');
+        $pdo->exec('CREATE TABLE heatmap_edges_new LIKE heatmap_edges');
+
+        $imported = 0;
+        $pdo->beginTransaction();
+        try {
+            $sql = 'INSERT INTO heatmap_edges_new
+                (edge_key, way_id, geom_json, min_lat, min_lon, max_lat, max_lon,
+                 length_m, route_count, score_sum, score_n, avg_score, osm_surface, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
+            $stmt = $pdo->prepare($sql);
+            foreach ($rows as $r) {
+                if (!is_array($r)) {
+                    continue;
+                }
+                $edgeKey = (string)($r['edge_key'] ?? '');
+                $geom    = $r['geom_json'] ?? null;
+                if (is_array($geom)) {
+                    $geom = json_encode($geom, JSON_THROW_ON_ERROR);
+                }
+                $geom = (string)($geom ?? '');
+                if ($edgeKey === '' || $geom === '') {
+                    continue;
+                }
+                $stmt->execute([
+                    $edgeKey,
+                    isset($r['way_id']) && $r['way_id'] !== null ? (int)$r['way_id'] : null,
+                    $geom,
+                    (float)($r['min_lat'] ?? 0),
+                    (float)($r['min_lon'] ?? 0),
+                    (float)($r['max_lat'] ?? 0),
+                    (float)($r['max_lon'] ?? 0),
+                    (int)($r['length_m'] ?? 0),
+                    (int)($r['route_count'] ?? 0),
+                    isset($r['score_sum']) && $r['score_sum'] !== null ? (float)$r['score_sum'] : null,
+                    (int)($r['score_n'] ?? 0),
+                    isset($r['avg_score']) && $r['avg_score'] !== null ? (float)$r['avg_score'] : null,
+                    isset($r['osm_surface']) && $r['osm_surface'] !== null ? (string)$r['osm_surface'] : null,
+                    $now,
+                ]);
+                $imported++;
+            }
+            $pdo->commit();
+        } catch (\Throwable $e) {
+            $pdo->rollBack();
+            $pdo->exec('DROP TABLE IF EXISTS heatmap_edges_new');
+            throw $e;
+        }
+
+        $swapped = false;
+        if ($imported > 0) {
+            $pdo->exec('DROP TABLE IF EXISTS heatmap_edges_old');
+            $pdo->exec('RENAME TABLE heatmap_edges TO heatmap_edges_old, heatmap_edges_new TO heatmap_edges');
+            $pdo->exec('DROP TABLE heatmap_edges_old');
+            $swapped = true;
+        } else {
+            // Nichts Brauchbares erhalten → Swap NICHT durchführen, Live-Tabelle
+            // bleibt unverändert.
+            $pdo->exec('DROP TABLE IF EXISTS heatmap_edges_new');
+        }
+
+        return [
+            'received' => is_array($rows) ? count($rows) : 0,
+            'imported' => $imported,
+            'swapped'  => $swapped,
+        ];
+    }
+
     /**
      * Verarbeitet genau einen Payload (extrahieren → downsample → match →
      * akkumulieren). Erhöht `matched` bei Erfolg, sonst `skipped`. Geteilt von

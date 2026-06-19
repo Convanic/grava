@@ -50,6 +50,9 @@ final class Commands
             case 'heatmap:rebuild-local':
                 return $this->rebuildHeatmapLinesLocal($argv);
 
+            case 'heatmap:export-edges':
+                return $this->exportHeatmapEdges($argv);
+
             case 'help':
             default:
                 $this->help();
@@ -224,6 +227,44 @@ final class Commands
     }
 
     /**
+     * Cutover-Rückweg, LOKAL: schreibt die lokal berechneten heatmap_edges als
+     * JSON nach --out. Diese Datei wird per scripts/push_heatmap_edges.sh an
+     * /internal/heatmap/import auf PROD gepostet.
+     *
+     *   php public/index.php heatmap:export-edges --out=build/heatmap_edges.json
+     */
+    private function exportHeatmapEdges(array $argv): int
+    {
+        if ($this->heatmapLines === null) {
+            echo "HeatmapLinesService nicht verfügbar.\n";
+            return 1;
+        }
+        $opts = $this->parseOptions($argv);
+        $out  = (string)($opts['out'] ?? '');
+        if ($out === '') {
+            echo "Nutzung: heatmap:export-edges --out=<datei.json>\n";
+            return 1;
+        }
+        $rows = $this->heatmapLines->exportRows();
+        $json = json_encode([
+            'generated_at' => gmdate('Y-m-d\TH:i:s\Z'),
+            'count'        => count($rows),
+            'rows'         => $rows,
+        ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+
+        $dir = dirname($out);
+        if ($dir !== '' && !is_dir($dir)) {
+            @mkdir($dir, 0775, true);
+        }
+        if (@file_put_contents($out, $json) === false) {
+            echo "Konnte nicht schreiben: {$out}\n";
+            return 1;
+        }
+        echo "Export: " . count($rows) . " Kanten -> {$out}\n";
+        return 0;
+    }
+
+    /**
      * Parst `--key=value`-Optionen aus argv (ab Index 2, hinter dem Befehl).
      *
      * @param list<string> $argv
@@ -251,6 +292,7 @@ final class Commands
         echo "  cron:heatmap-lines  Map-Matching der public Routen -> heatmap_edges (Streckenlinien)\n";
         echo "  heatmap:manifest    (PROD) Gibt das Manifest der public Routen als JSON aus (Cutover-Hinweg)\n";
         echo "  heatmap:rebuild-local  (LOKAL) Rebuild aus Manifest + Dateien: --manifest=.. --routes-dir=..\n";
+        echo "  heatmap:export-edges   (LOKAL) heatmap_edges als JSON exportieren: --out=..\n";
         echo "  help                Zeigt diese Hilfe\n";
     }
 }

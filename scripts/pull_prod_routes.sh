@@ -40,7 +40,7 @@ SYNC_ENV="$ROOT/scripts/.env.sync"
 
 MANIFEST="${MANIFEST:-$ROOT/build/heatmap_manifest.json}"
 ROUTES_DIR="${ROUTES_DIR:-$ROOT/build/prod_routes}"
-EDGES_SQL="${EDGES_SQL:-$ROOT/build/heatmap_edges.sql}"
+EDGES_JSON="${EDGES_JSON:-$ROOT/build/heatmap_edges.json}"
 PHP_BIN="${PHP_BIN:-php}"
 
 die() { echo "FEHLER: $*" >&2; exit 1; }
@@ -132,10 +132,10 @@ echo ">> 3/4 Lokaler Rebuild (heatmap:rebuild-local gegen lokale Valhalla) ..."
 ( cd "$ROOT" && "$PHP_BIN" public/index.php heatmap:rebuild-local \
     --manifest="$MANIFEST" --routes-dir="$ROUTES_DIR" )
 
-# --- 4. heatmap_edges dumpen -------------------------------------------------
-echo ">> 4/4 heatmap_edges dumpen -> $EDGES_SQL"
-SYNC_SKIP_REBUILD=1 "$ROOT/scripts/sync_heatmap_edges.sh" export "$EDGES_SQL"
+# --- 4. heatmap_edges als JSON exportieren -----------------------------------
+echo ">> 4/4 heatmap_edges exportieren -> $EDGES_JSON"
+( cd "$ROOT" && "$PHP_BIN" public/index.php heatmap:export-edges --out="$EDGES_JSON" )
 
 echo
-echo "FERTIG. Jetzt nach PROD schieben:"
-echo "  scripts/sync_heatmap_edges.sh import \"$EDGES_SQL\""
+echo "FERTIG. Jetzt nach PROD schieben (HTTP-Import, kein mysql/phpMyAdmin nötig):"
+echo "  scripts/push_heatmap_edges.sh \"$EDGES_JSON\""
