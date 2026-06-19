@@ -1,6 +1,6 @@
-# GravelExplorer – API-Integrationsguide (iOS)
+# GRAVA – API-Integrationsguide (iOS)
 
-Diese Datei beschreibt die **komplette HTTP-API** des GravelExplorer-Backends
+Diese Datei beschreibt die **komplette HTTP-API** des GRAVA-Backends
 (Milestones 1–4) für die Anbindung der iOS-App. Sie ist als Übergabe-Dokument
 gedacht: in das iOS-Repo kopieren oder dem dortigen Assistenten als Kontext geben.
 
@@ -13,7 +13,7 @@ Maschinenlesbare Variante: [`openapi.yaml`](../openapi.yaml) (OpenAPI 3.1).
 | Punkt | Wert |
 |-------|------|
 | Base-URL (lokal) | `http://gravelexplorer.test` (MAMP-Vhost) |
-| Base-URL (prod)  | `https://gravelexplorer.benx.de` |
+| Base-URL (prod)  | `https://grava.world` |
 | API-Präfix | `/api/v1` (konfigurierbar via `API_BASE_PATH`) |
 | Content-Type (Request) | `application/json` (Upload zusätzlich `multipart/form-data`) |
 | Content-Type (Response) | `application/json; charset=utf-8` |

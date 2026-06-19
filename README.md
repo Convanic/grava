@@ -1,6 +1,6 @@
-# GravelExplorer Backend
+# GRAVA Backend
 
-PHP/MySQL-Backend für die GravelExplorer iOS-App. **Milestone 1** (Auth & Accounts) gemäß
+PHP/MySQL-Backend für die GRAVA iOS-App. **Milestone 1** (Auth & Accounts) gemäß
 `SPEC.md` aus dem App-Repo.
 
 ## Stack
@@ -86,7 +86,7 @@ backend/
 
 - `.env` aus `.env.example` ableiten, `APP_ENV=production`, `APP_KEY` neu generieren
   (`php -r "echo base64_encode(random_bytes(32));"`), DB-Zugangsdaten,
-  SMTP-Daten und `COOKIE_DOMAIN=gravelexplorer.benx.de` setzen.
+  SMTP-Daten und `COOKIE_DOMAIN=grava.world` setzen.
 - DocumentRoot des Vhosts muss auf `public/` zeigen.
 - HTTPS muss aktiv sein. Die HTTPS-Weiterleitung in `public/.htaccess` ist
   vorbereitet und muss nur ent-kommentiert werden.

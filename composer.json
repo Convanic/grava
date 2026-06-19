@@ -1,6 +1,6 @@
 {
-    "name": "gravelexplorer/backend",
-    "description": "GravelExplorer backend (auth, accounts) — Milestone 1.",
+    "name": "grava/backend",
+    "description": "GRAVA backend (auth, accounts) — Milestone 1.",
     "type": "project",
     "license": "proprietary",
     "require": {

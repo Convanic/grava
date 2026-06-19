@@ -1,13 +1,13 @@
 openapi: 3.1.0
 info:
-  title: GravelExplorer API
+  title: GRAVA API
   version: "1.0.0"
   description: >
-    HTTP-API des GravelExplorer-Backends (Milestones 1–4) für die iOS-App.
+    HTTP-API des GRAVA-Backends (Milestones 1–4) für die iOS-App.
     Bearer-Token-Auth. Alle Zeitstempel sind ISO-8601 UTC. IDs sind UUID-Strings.
     Erklärender Guide: siehe docs/API.md.
 servers:
-  - url: https://gravelexplorer.benx.de/api/v1
+  - url: https://grava.world/api/v1
     description: Produktion
   - url: http://gravelexplorer.test/api/v1
     description: Lokal (MAMP)
