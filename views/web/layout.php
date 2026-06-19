@@ -17,13 +17,15 @@ $_pageScripts = $_pageScripts ?? [];
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title><?= htmlspecialchars($_title ?? 'GravelExplorer', ENT_QUOTES, 'UTF-8') ?></title>
     <link rel="stylesheet" href="/assets/style.css">
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="/assets/brand/apple-touch-icon.png">
     <?php foreach ($_pageStyles as $_href): ?>
     <link rel="stylesheet" href="<?= htmlspecialchars((string)$_href, ENT_QUOTES, 'UTF-8') ?>">
     <?php endforeach; ?>
 </head>
 <body>
     <header class="site-header">
-        <a href="/" class="brand">GravelExplorer</a>
+        <a href="/" class="brand"><span class="brand-mark">G</span><span class="brand-word">GRAVA</span></a>
         <nav>
         <?php if ($_authedUser !== null): ?>
             <a href="/dashboard">Dashboard</a>

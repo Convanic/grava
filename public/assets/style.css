@@ -70,9 +70,27 @@ a:hover { text-decoration: underline; }
     background: var(--surface);
 }
 .site-header .brand {
-    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 800;
     font-size: 18px;
+    letter-spacing: 0.10em;
     color: var(--text);
+}
+.site-header .brand:hover { text-decoration: none; }
+.site-header .brand-mark {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 9px;
+    background: var(--primary);
+    color: #f4f1ea;
+    font-size: 17px;
+    line-height: 1;
+    letter-spacing: 0;
 }
 .site-header nav a {
     margin-left: 16px;
