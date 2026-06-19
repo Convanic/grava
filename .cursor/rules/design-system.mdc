@@ -1,0 +1,46 @@
+---
+description: GRAVA CI & Designsystem ("Trail") - Tokens, Komponenten, Branding-Regeln für alle Web-/E-Mail-UI
+globs: public/assets/**,views/**
+alwaysApply: false
+---
+
+# GRAVA Designsystem ("Trail")
+
+Marke: **GRAVA** · Domain: **grava.world**. Persönlichkeit: rau/outdoor + community/einladend.
+Vollständige Spec: `docs/superpowers/specs/2026-06-19-grava-ci-design.md`.
+
+## Grundregel
+
+Farben/Radien/Schatten **immer** über die CSS-Tokens aus `public/assets/style.css` (`:root`) verwenden — **nie** Hex-Werte in Komponenten hartkodieren (Voraussetzung für späteren Dark Mode).
+
+## Tokens (Auszug)
+
+- Brand: `--primary #2f5233`, `--primary-hover #264227`, `--primary-weak #e7ede2`
+- Akzent (Clay): `--accent #bf7a3a`, `--accent-hover #a76a31`, `--accent-weak #f3e7d4`
+- Neutrals: `--bg #f4f1ea` (Paper), `--surface #fff`, `--text #2b2a26`, `--muted #6f6a60`, `--border #e6e1d6`, `--border-strong #d6cfc0`
+- Semantik: `--success/-bg`, `--warning/-bg`, `--error/-bg`
+- Radien: `--radius-sm 8` · `--radius 12` · `--radius-lg 14` · `--radius-pill 999`
+- Schatten: `--shadow-sm`, `--shadow-card` (Hover)
+
+## Komponenten
+
+- Buttons: `.btn-primary` (grün), `.btn-accent` (clay, sekundäre CTAs wie „Folgen"), `.btn-secondary`, `.btn-link`.
+- Schwierigkeitsgrade: `.level .level-easy|-medium|-hard`. Neu-Marker: `.tag-new`.
+- Karten: `.card` (Hover-Schatten via `--shadow-card`).
+- Typografie: System-Font; H1 30/700, H2 22/700, H3 17/600, Body 16/1.55, Meta 13 muted, Label 12 CAPS.
+
+## Branding
+
+- Web-Header: Logo-Lockup `.brand` = „G"-Tile (`.brand-mark`) + Wortmarke „GRAVA".
+- App-Icon: `public/assets/brand/` (G-Monogramm, grün/cream). Favicon: `public/favicon.svg`.
+
+```css
+/* ❌ NICHT */
+.foo { color: #2f5233; border-radius: 12px; }
+/* ✅ SO */
+.foo { color: var(--primary); border-radius: var(--radius); }
+```
+
+## Stabil halten (NICHT umbenennen)
+
+DB-Name `gravelexplorer`, PHP-Namespace `App\`, GPX-XML-Namespace `https://gravelexplorer.benx.de/gpx/v1`.
