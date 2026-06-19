@@ -48,6 +48,7 @@ use App\Controllers\Web\ReferralPagesController;
 use App\Controllers\Web\AdminReferralPagesController;
 use App\Controllers\Web\RoutePagesController;
 use App\Controllers\Web\SettingsPagesController;
+use App\Controllers\Web\SurfaceCheckController;
 use App\Controllers\Web\SocialPagesController;
 use App\Controllers\Web\WebRefreshController;
 use App\Http\Middleware\Csrf;
@@ -61,6 +62,8 @@ use App\Engagement\LikeService;
 use App\Engagement\NotificationService;
 use App\Heatmap\HeatmapService;
 use App\Heatmap\HeatmapLinesService;
+use App\Heatmap\RouteSurfaceService;
+use App\Heatmap\SurfaceProjector;
 use App\Heatmap\ValhallaClient;
 use App\Integrations\Strava\FakeStravaClient;
 use App\Integrations\Strava\RealStravaClient;
@@ -189,6 +192,21 @@ $heatmapLines = new HeatmapLinesService(
     (int)($config->get('HEATMAP_LINES_RESAMPLE_M', 20) ?? 20),
 );
 
+// M9: Surface-Check — projiziert vorhandene Crowd-Belagsdaten (heatmap_edges)
+// auf eine hochgeladene Fremd-Route. Standard ist die geometrische Projektion
+// (kein Valhalla im Request-Pfad, prod-tauglich); der Valhalla-Client dient
+// nur dem optionalen "Details"-Pfad und ist hier wiederverwendet.
+$surfaceProjector = new SurfaceProjector(
+    (float)($config->get('SURFACE_PROJECT_THRESHOLD_M', 25) ?? 25),
+    (int)($config->get('SURFACE_PROJECT_RESAMPLE_M', 20) ?? 20),
+);
+$routeSurface = new RouteSurfaceService(
+    new GeometryParser(),
+    new SurfaceTrack(),
+    $surfaceProjector,
+    $valhalla,
+);
+
 // ---------------------------------------------------------------------------
 // CLI dispatch
 // ---------------------------------------------------------------------------
@@ -286,6 +304,7 @@ $webDiscover = new DiscoveryPagesController($webSession, $auth, $discovery, $pro
 $webSocial   = new SocialPagesController($webSession, $auth, $followServ, $blockServ);
 $webEngage   = new EngagementPagesController($webSession, $likeServ, $commentServ, $auth, $rate);
 $webStrava   = new StravaPagesController($webSession, $auth, $stravaServ, $basePath . '/views');
+$webSurface  = new SurfaceCheckController($webSession, $auth, $routeSurface, $config, $basePath . '/views');
 $webReferral = new ReferralPagesController($config, $basePath . '/views');
 $webAdminRef = new AdminReferralPagesController($webSession, $auth, $referrals, $config, $basePath . '/views');
 
@@ -427,6 +446,12 @@ $router->get ('/routes/{id}/download',                   fn($r) => $webRoutes->d
 $router->get ('/routes/{id}/geojson',                    fn($r) => $webRoutes->geojson($r));
 $router->post('/routes/{id}/shares',                     fn($r) => $webRoutes->doCreateShare($r),  [$csrf]);
 $router->post('/routes/{id}/shares/{shareId}/revoke',    fn($r) => $webRoutes->doRevokeShare($r),  [$csrf]);
+
+// ---- Surface-Check (M9) — Crowd-Belag auf eine hochgeladene Route projizieren ----
+$router->get ('/surface-check',                          fn($r) => $webSurface->showForm($r));
+$router->post('/surface-check',                          fn($r) => $webSurface->analyze($r),  [$csrf]);
+// Präziser Valhalla-Pfad (on-demand, same-origin-Fetch -> JSON).
+$router->get ('/surface-check/details',                  fn($r) => $webSurface->details($r));
 
 // Public Share-Page — kein Login, kein CSRF (read-only GET).
 $router->get ('/share/{token}',                          fn($r) => $webShare->show($r));

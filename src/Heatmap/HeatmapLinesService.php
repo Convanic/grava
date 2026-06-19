@@ -392,7 +392,7 @@ final class HeatmapLinesService
         // Innerhalb der Route nach edge_key gruppieren (gleiche Kante zählt 1×).
         $routeEdges = [];
         foreach ($edges as $idx => $edge) {
-            $key = self::edgeKey($edge->wayId, $edge->geometry);
+            $key = EdgeKey::for($edge->wayId, $edge->geometry);
             if ($key === null) {
                 continue;
             }
@@ -527,26 +527,6 @@ final class HeatmapLinesService
             $out = $reduced;
         }
         return $out;
-    }
-
-    /**
-     * Richtungsunabhängiger Schlüssel pro physischem Wegstück.
-     *
-     * @param list<array{0:float,1:float}> $geom
-     */
-    private static function edgeKey(?int $wayId, array $geom): ?string
-    {
-        $c = count($geom);
-        if ($c < 2) {
-            return null;
-        }
-        $a = $geom[0];
-        $b = $geom[$c - 1];
-        $pa = sprintf('%.5f,%.5f', $a[1], $a[0]); // lat,lon
-        $pb = sprintf('%.5f,%.5f', $b[1], $b[0]);
-        $ends = [$pa, $pb];
-        sort($ends);
-        return ($wayId ?? 0) . ':' . $ends[0] . '|' . $ends[1];
     }
 
     /**

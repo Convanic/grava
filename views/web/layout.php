@@ -27,11 +27,13 @@ $_pageScripts = $_pageScripts ?? [];
     <header class="site-header">
         <a href="/" class="brand"><span class="brand-mark">G</span><span class="brand-word">GRAVA</span></a>
         <nav>
+        <?php $_surfaceCheck = \App\Config\Config::instance()->bool('SURFACE_CHECK_ENABLED', true); ?>
         <?php if ($_authedUser !== null): ?>
             <a href="/dashboard">Dashboard</a>
             <a href="/routes">Routen</a>
             <a href="/discover">Entdecken</a>
             <a href="/heatmap">Heatmap</a>
+            <?php if ($_surfaceCheck): ?><a href="/surface-check">Belag prüfen</a><?php endif; ?>
             <a href="/feed">Feed</a>
             <?php $_notifUnread = $_notifUnread ?? 0; ?>
             <a href="/notifications">Mitteilungen<?php if ((int)$_notifUnread > 0): ?> <span class="notif-badge"><?= (int)$_notifUnread ?></span><?php endif; ?></a>

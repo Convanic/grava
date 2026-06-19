@@ -299,3 +299,55 @@ Valhalla als eigener Dienst neben der App; `cron:heatmap-lines` läuft serversei
   ohne Umbau möglich ist.
 - **Doku:** dieser §12 bleibt die Referenz; beim Go-Live nur abarbeiten.
 ```
+
+---
+
+## 13. Surface-Check: Crowd-Belag auf eine hochgeladene Route projizieren (M9)
+
+Aufbauend auf der M6-Infrastruktur (`heatmap_edges`, `ValhallaClient`,
+`EdgeKey`). Web-Tool unter `GET /surface-check`: User lädt eine fremde Route
+(z. B. Strava-GPX) hoch, GRAVA gleicht sie mit den vorhandenen Crowd-Belagsdaten
+ab und zeigt ein Belags-Profil + farbige Karte. **Die Route wird nicht
+gespeichert** (ephemer, nur kurz in der Session unter einem Token; PRG-Muster).
+
+### Zweistufige Architektur
+- **Standard (geometrische Projektion, prod-tauglich):**
+  `RouteSurfaceService::analyzeSpatial()` → `SurfaceProjector`. Für jeden
+  (ausgedünnten) Routenpunkt wird via Hash-Grid die nächste `heatmap_edges`-Kante
+  innerhalb `SURFACE_PROJECT_THRESHOLD_M` (Default 25 m) gesucht und deren
+  `avg_score`/`osm_surface` übernommen. **Kein Valhalla im Request-Pfad** — liest
+  nur `heatmap_edges`. Läuft sofort in Prod (gleiche Read-Abhängigkeit wie §12).
+- **On-demand „Details zur Wegbeschaffenheit" (präzise):**
+  `RouteSurfaceService::analyzeValhalla()` → `ValhallaClient::matchTrace()` →
+  pro gematchter Kante `EdgeKey::for()` → exakter Lookup in `heatmap_edges`.
+  Braucht ein erreichbares Valhalla; per `SURFACE_CHECK_VALHALLA_ENABLED`
+  (Default **false**) geschaltet. Ist es aus/nicht erreichbar, liefert der
+  Endpunkt `{"available":false}` und das Frontend zeigt einen Hinweis statt eines
+  Fehlers (sauberes Degradieren).
+
+### Endpunkte (alle Web, CSRF/WebSession wie der Routen-Upload)
+- `GET  /surface-check` — Formular bzw. Ergebnis (bei `?r=token`).
+- `POST /surface-check` — Upload (multipart `payload`) + Weg C, dann PRG-Redirect.
+  (`/surface-check` ist in `Request::fromGlobals()` als Upload-Pfad mit 25-MB-Cap
+  registriert.)
+- `GET  /surface-check/details?r=token` — präziser Valhalla-Pfad als JSON.
+
+### Ergebnisform (identisch für beide Verfahren)
+GeoJSON-FeatureCollection aus LineStrings mit
+`properties.{score:0..5|null, surface, source:"crowd"|"none"}` plus `summary`
+(`total_length_m`, `covered_length_m`, `coverage_pct`, `avg_score`, `by_score[]`,
+`by_bucket{paved,mixed,gravel}`). Score→Farbe/Label wie M6 (0 grün … 5 dunkelrot).
+
+### Produktion
+- Weg C ist ab Tag 1 prod-tauglich (nur `heatmap_edges`). Voraussetzung: Tabelle
+  ist befüllt (Cutover §12, Modell A).
+- Weg A erst nach Valhalla-Deploy in Prod (§12 Modell B) per
+  `SURFACE_CHECK_VALHALLA_ENABLED=true` freischalten.
+- Flags: `SURFACE_CHECK_ENABLED` (Seite/Nav, Default an),
+  `SURFACE_CHECK_VALHALLA_ENABLED` (Details-Pfad, Default aus),
+  `SURFACE_PROJECT_THRESHOLD_M`, `SURFACE_PROJECT_RESAMPLE_M`.
+
+### Nicht im Scope (später nachrüstbar)
+- Persistieren/Teilen der Fremd-Route (via `RouteService::createOrAddVersion`).
+- API-Endpunkt `POST /api/v1/surface/project` für iOS (bewusst weggelassen;
+  Logik in `RouteSurfaceService` ist API-fähig, falls später gewünscht).

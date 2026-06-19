@@ -107,11 +107,14 @@ final class Request
         $isApiUpload  = $method === 'POST'
             && (str_starts_with($path, $routesPrefix . '/') || $path === $routesPrefix);
         $isWebUpload  = $method === 'POST' && $path === '/routes';
+        // M9: Surface-Check lädt ebenfalls eine GPX/GeoJSON-Datei hoch
+        // (multipart) — gleicher Cap wie Routen-Uploads.
+        $isSurfaceCheckUpload = $method === 'POST' && $path === '/surface-check';
         // Cutover-Rückweg: der heatmap_edges-Import schiebt die vorberechneten
         // Kanten als JSON-Body (kann mehrere MB groß sein) — gleicher Cap wie
         // Routen-Uploads. Token-geschützt in index.php.
         $isInternalImport = $method === 'POST' && $path === '/internal/heatmap/import';
-        $isUploadPath = $isApiUpload || $isWebUpload || $isInternalImport;
+        $isUploadPath = $isApiUpload || $isWebUpload || $isSurfaceCheckUpload || $isInternalImport;
         $maxBytes = $isUploadPath
             ? $cfg->int('REQUEST_MAX_UPLOAD_BYTES', 26_214_400)  // 25 MB
             : $cfg->int('REQUEST_MAX_BODY_BYTES',   1_048_576);  // 1 MiB

@@ -713,3 +713,61 @@ form textarea { resize: vertical; }
 .map.ge-bbox-mode { cursor: crosshair; }
 .map.ge-bbox-mode .leaflet-grab { cursor: crosshair; }
 
+/* --- Surface-Check (M9): Belags-Profil einer hochgeladenen Route -------- */
+.surface-result { margin-top: 24px; }
+.surface-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 24px;
+    margin: 12px 0 16px;
+}
+.surface-stat { min-width: 200px; flex: 1 1 220px; }
+.surface-stat-value {
+    display: block;
+    font-size: 28px;
+    font-weight: 700;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+}
+.surface-stat-label {
+    display: block;
+    font-size: 13px;
+    color: var(--muted);
+    margin-top: 2px;
+}
+.coverage-bar {
+    margin: 8px 0 4px;
+    width: 100%;
+    height: 12px;
+    border-radius: 6px;
+    background: #e8ebe4;
+    border: 1px solid var(--border);
+    overflow: hidden;
+}
+.coverage-bar > span {
+    display: block;
+    height: 100%;
+    background: #15803d;
+}
+.bucket-list {
+    list-style: none;
+    margin: 0 0 16px;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 20px;
+    font-size: 14px;
+}
+.bucket-list li { display: flex; align-items: center; gap: 8px; }
+.bucket-list .swatch {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    flex: 0 0 auto;
+}
+.bucket-list .swatch-paved  { background: #15803d; }
+.bucket-list .swatch-mixed  { background: #eab308; }
+.bucket-list .swatch-gravel { background: #b91c1c; }
+.surface-actions { margin-top: 12px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
