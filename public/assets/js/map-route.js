@@ -24,7 +24,7 @@
     return;
   }
 
-  var BASE_COLOR = '#4a7c2a';
+  var BASE_COLOR = '#2f5233';
 
   // Farbskala für Surface-Scores: niedrig = grün, hoch = rot.
   // (Umgekehrt zur ersten Version — glatte Straße grün, Gravel rot.)

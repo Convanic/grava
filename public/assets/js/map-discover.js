@@ -83,9 +83,9 @@
     }
     var marker = L.circleMarker([r.lat, r.lon], {
       radius: 7,
-      color: '#3c6622',
+      color: '#264227',
       weight: 2,
-      fillColor: '#4a7c2a',
+      fillColor: '#2f5233',
       fillOpacity: 0.8
     });
 
