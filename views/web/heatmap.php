@@ -2,10 +2,12 @@
 /** @var list<array{lat:float,lon:float,weight:int}> $cells */
 /** @var array{grid:float,cell_count:int,max_weight:int} $meta */
 /** @var array<string,mixed>|null $_authedUser */
+/** @var bool $linesEnabled */
 
 $h = static fn(string|int|float|null $v): string => htmlspecialchars((string)($v ?? ''), ENT_QUOTES, 'UTF-8');
 $num = static fn(float $v): string => rtrim(rtrim(number_format($v, 6, '.', ''), '0'), '.');
 $maxW = max(1, (int)($meta['max_weight'] ?? 1));
+$linesEnabled = !empty($linesEnabled);
 
 $_pageStyles  = ['/assets/vendor/leaflet/leaflet.css'];
 $_pageScripts = [
@@ -28,14 +30,20 @@ $_pageScripts = [
 
 <div id="map" class="map map--full"
      data-heatmap-url="/api/v1/heatmap"
-     data-lines-url="/api/v1/heatmap/lines"></div>
+     <?php if ($linesEnabled): ?>data-lines-url="/api/v1/heatmap/lines"<?php endif; ?>></div>
 <div id="map-legend" class="map-legend" hidden></div>
+<?php if ($linesEnabled): ?>
 <p class="muted map-hint">
     Oben rechts umschaltbar: <strong>Dichte</strong> (Raster-Heatmap) und
     <strong>Strecken</strong> — die tatsächlich gefahrenen Wege, aufs
     Straßennetz gematcht. Linienfarbe = Ø Untergrund, Breite = Häufigkeit.
     Die Strecken-Ebene lädt den jeweils sichtbaren Kartenausschnitt nach.
 </p>
+<?php else: ?>
+<p class="muted map-hint">
+    <strong>Dichte</strong> (Raster-Heatmap) der öffentlichen Routen.
+</p>
+<?php endif; ?>
 
 <?php if (empty($cells)): ?>
     <div class="empty-state">

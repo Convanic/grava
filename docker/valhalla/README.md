@@ -19,11 +19,12 @@ ab. Folgestarts nutzen die Tiles direkt (Sekunden).
 ## Region wechseln
 
 Standard ist ein kleiner Spike-Extrakt (**Regierungsbezirk Karlsruhe**), der die
-Kraichgau-Beispielroute abdeckt. Andere Regionen via Umgebungsvariable:
+Kraichgau-Beispielroute abdeckt. Andere Regionen via Umgebungsvariable — aber
+**immer nur EIN PBF** (siehe Warnung unten):
 
 ```bash
-# Volles DACH (DE + AT + CH) — braucht ~5–6 GB PBF + ~3–6 GB Tiles:
-export VALHALLA_TILE_URLS="https://download.geofabrik.de/europe/germany-latest.osm.pbf https://download.geofabrik.de/europe/austria-latest.osm.pbf https://download.geofabrik.de/europe/switzerland-latest.osm.pbf"
+# Deutschland (ein PBF, ~4,3 GB) — deckt aktuell alle public Routen ab:
+export VALHALLA_TILE_URLS="https://download.geofabrik.de/europe/germany-latest.osm.pbf"
 docker compose -f docker/valhalla/docker-compose.yml up -d --force-recreate
 ```
 
@@ -33,6 +34,20 @@ Nach einem Regionswechsel muss neu gebaut werden:
 rm -rf docker/valhalla/custom_files     # alte Tiles verwerfen
 docker compose -f docker/valhalla/docker-compose.yml up -d --force-recreate
 ```
+
+> ⚠️ **Kein Multi-PBF.** Mehrere getrennte PBFs (z. B. DE + AT + CH als drei
+> URLs) lassen `valhalla_build_tiles` sofort mit `std::exception … Aborted`
+> abstürzen (Valhalla warnt selbst davor). Ergebnis: 0 Tiles auf Level 0/1,
+> jeder Match scheitert mit `No suitable edges`. Geofabrik bietet **kein**
+> fertiges `dach-latest.osm.pbf`.
+>
+> **Volles DACH** daher nur über einen vorher **gemergten** Extrakt:
+> ```bash
+> brew install osmium-tool   # oder dockerisiertes osmium
+> osmium merge germany-latest.osm.pbf austria-latest.osm.pbf \
+>   switzerland-latest.osm.pbf -o dach.osm.pbf
+> # dann dach.osm.pbf in custom_files/ legen und ohne tile_urls bauen.
+> ```
 
 ## Map-Match testen
 

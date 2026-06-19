@@ -10,3 +10,5 @@
 !/storage/routes/.gitkeep
 .DS_Store
 *.log
+# Build-Artefakte (z. B. scripts/sync_heatmap_edges.sh export -> build/heatmap_edges.sql)
+/build/

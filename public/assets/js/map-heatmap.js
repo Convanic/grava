@@ -23,7 +23,11 @@
   }
 
   var heatUrl = el.getAttribute('data-heatmap-url') || '/api/v1/heatmap';
-  var linesUrl = el.getAttribute('data-lines-url') || '/api/v1/heatmap/lines';
+  // M6: Der "Strecken"-Layer erscheint nur, wenn das Backend ihn freigegeben
+  // hat (Feature-Flag HEATMAP_LINES_ENABLED -> data-lines-url gesetzt). Ohne
+  // Attribut bleibt die Seite die reine Dichte-Heatmap.
+  var linesUrl = el.getAttribute('data-lines-url') || '';
+  var linesEnabled = linesUrl !== '';
 
   // Farbskala wie map-route.js: niedrig = glatt = grün, hoch = grob = rot.
   var SCORE_COLORS = {
@@ -195,8 +199,13 @@
     if (heatLayer) {
       overlays['Dichte (Heatmap)'] = heatLayer;
     }
-    overlays['Strecken (gematcht)'] = linesGroup;
-    L.control.layers(null, overlays, { collapsed: false }).addTo(map);
+    if (linesEnabled) {
+      overlays['Strecken (gematcht)'] = linesGroup;
+    }
+    // Kein Umschalter, wenn es nur eine (oder keine) Ebene gibt.
+    if (Object.keys(overlays).length > 1) {
+      L.control.layers(null, overlays, { collapsed: false }).addTo(map);
+    }
   }
 
   function finishSetup() {

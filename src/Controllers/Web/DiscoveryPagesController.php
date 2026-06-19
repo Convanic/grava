@@ -360,11 +360,17 @@ final class DiscoveryPagesController
             ];
         }
 
+        // M6: Der "Strecken"-Layer (Valhalla-gematchte heatmap_edges) wird erst
+        // sichtbar, wenn die Daten in Prod befüllt sind. Flag-gesteuert, damit
+        // der Web-Code vor dem Cutover (Modell A) deploybar bleibt.
+        $linesEnabled = \App\Config\Config::instance()->bool('HEATMAP_LINES_ENABLED', false);
+
         $this->renderPage('heatmap', $authedUser, [
-            '_title'      => 'Heatmap · GravelExplorer',
-            'cells'       => $cells,
-            'meta'        => $fc['meta'],
-            '_layoutWide' => true,
+            '_title'       => 'Heatmap · GravelExplorer',
+            'cells'        => $cells,
+            'meta'         => $fc['meta'],
+            'linesEnabled' => $linesEnabled,
+            '_layoutWide'  => true,
         ]);
     }
 

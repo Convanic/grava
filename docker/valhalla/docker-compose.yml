@@ -21,7 +21,10 @@ services:
     volumes:
       - ./custom_files:/custom_files
     environment:
-      # Mehrere URLs space-separiert möglich (für DACH: DE+AT+CH).
+      # NUR EIN PBF angeben. Mehrere getrennte Extrakte (DE+AT+CH) crashen
+      # valhalla_build_tiles sofort (std::exception/Aborted, 0 Tiles auf
+      # Level 0/1). Für volles DACH vorher mit `osmium merge` zusammenführen
+      # (siehe README.md). Default = Spike-Extrakt Regierungsbezirk Karlsruhe.
       - tile_urls=${VALHALLA_TILE_URLS:-https://download.geofabrik.de/europe/germany/baden-wuerttemberg/karlsruhe-regbez-latest.osm.pbf}
       - serve_tiles=True
       # Vorhandene Tiles werden weiterverwendet; PBF nur beim Erstbau ziehen.

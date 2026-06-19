@@ -57,6 +57,12 @@ müssen die Spuren auf ein gemeinsames Straßennetz **gesnappt** werden.
 
 ## 3a. Spike-Erkenntnisse (Phase 1, verifiziert)
 
+- **Kein Multi-PBF-Build.** Mehrere getrennte Extrakte (DE+AT+CH als drei
+  `tile_urls`) lassen `valhalla_build_tiles` sofort abstürzen
+  (`terminate … std::exception … Aborted`) → 0 Tiles auf Level 0/1, jeder Match
+  `No suitable edges`. Geofabrik hat kein fertiges `dach-latest.osm.pbf`. Lösung:
+  EIN Extrakt (z. B. `germany-latest`, deckt aktuell alle public Routen ab) oder
+  vorab `osmium merge` zu einem DACH-PBF. (Build-Defekt unabhängig vom RAM.)
 - **`build_admins=False` ist Pflicht.** Mit aktivierter Admin-DB bricht
   `valhalla_build_tiles` bei DACH/Germany deterministisch ab (`vector::
   _M_range_check … size 0`, nur ~16 Tiles, RAM-unabhängig — auch mit 31 GB).
@@ -246,14 +252,16 @@ Build-Runner); nur das **Ergebnis** (`heatmap_edges`) wird nach Prod übertragen
 - **Pro:** keine Valhalla-Infra in Prod, kein zusätzlicher RAM/Plattenbedarf am
   Server, kleinste Angriffsfläche. Geht sofort.
 - **Contra:** Aktualität hängt am manuellen/zeitgesteuerten Export.
-- **Sync-Mechanik:**
-  1. Lokaler Lauf `php public/index.php cron:heatmap-lines` (gegen *Prod-Kopie*
-     der public Routen, oder gegen Prod-DB read-only).
-  2. Export `heatmap_edges` → `mysqldump --single-transaction heatmap_edges`.
-  3. Import in Prod in eine **Shadow-Tabelle** `heatmap_edges_new`, dann atomar
-     `RENAME TABLE heatmap_edges TO heatmap_edges_old, heatmap_edges_new TO heatmap_edges;`
-     (kein Lese-Ausfall während des Imports).
-  4. `heatmap_edges_old` nach Verifikation droppen.
+- **Sync-Mechanik:** umgesetzt in `scripts/sync_heatmap_edges.sh` (getestet):
+  1. Lokal: `scripts/sync_heatmap_edges.sh export [datei.sql]` — ruft
+     `cron:heatmap-lines` (gegen lokale Valhalla) auf und dumpt `heatmap_edges`
+     (nur Daten) nach `datei.sql` (Default `build/heatmap_edges.sql`).
+  2. `datei.sql` per scp/rsync auf den Prod-Server kopieren.
+  3. Prod: `scripts/sync_heatmap_edges.sh import datei.sql` — lädt in die
+     Shadow-Tabelle `heatmap_edges_new`, prüft auf >0 Zeilen und macht dann den
+     atomaren `RENAME`-Swap (kein Lese-Ausfall); die alte Tabelle wird gedroppt.
+  - DB-Zugang kommt aus der `.env`; `mysql`/`mysqldump` via `MYSQL_BIN`/
+    `MYSQLDUMP_BIN` überschreibbar (z. B. MAMP-Pfade).
 
 ### Modell B — „Valhalla in Prod" (wenn Aktualität automatisiert sein soll)
 Valhalla als eigener Dienst neben der App; `cron:heatmap-lines` läuft serverseitig.
