@@ -14,3 +14,5 @@
 /build/
 # Lokale Sync-/SFTP-Credentials für pull_prod_routes.sh (NIE committen)
 /scripts/.env.sync
+# Brainstorming-/Visual-Companion-Artefakte
+/.superpowers/
