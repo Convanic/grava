@@ -98,21 +98,41 @@ Font-Stack bleibt: `-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helv
 - **Jetzt:** nur Light Mode sauber umsetzen.
 - **Vorbereitung Dark Mode:** Alle Farben ausschließlich über Tokens referenzieren, damit ein späteres `@media (prefers-color-scheme: dark)` / `[data-theme="dark"]`-Override genügt. Keine hartkodierten Hex-Werte in Komponenten.
 
-## 6. Umsetzung im Repo (Überblick — Details im Implementation-Plan)
+## 6. Domain & Rename-Entscheidungen
 
-1. **Tokens** in `public/assets/style.css` `:root` aktualisieren/erweitern (neue Farben, Radien, Schatten, Akzent). Bestehende Tokennamen auf das neue Schema vereinheitlichen und Verwendungsstellen anpassen.
-2. **Branding umbenennen:** „GravelExplorer" → „GRAVA" in `views/web/layout.php` (Header-Brand, `<title>`-Default, Footer) und weiteren Views/Templates/E-Mails. Domain-Referenzen → grava.world (z. B. `COOKIE_DOMAIN`, Doku, `apple-app-site-association`-Kontext).
-3. **Logo-Lockup** als CSS-Komponente (`.brand` mit Tile + Wortmarke); App-Icon „G" als Asset (SVG/PNG) für Favicon/Touch-Icon.
-4. **Komponenten** an die neuen Tokens angleichen (Buttons inkl. `accent`, Cards, Chips/Schwierigkeitsgrade, Inputs, Alerts).
-5. **E-Mail-Templates** (`views/email/*`) farblich angleichen.
-6. **Konsistenz festschreiben:** Cursor-Rule `.cursor/rules/design-system.mdc` mit Tokens, Komponenten-Regeln und Do/Don'ts, damit künftige UI automatisch CI-konform gebaut wird.
+- **Domain-Aufteilung:** Alles auf der **Apex-Domain `grava.world`** (Web + API). `APP_URL=https://grava.world`, `COOKIE_DOMAIN=grava.world`.
+- **PHP-Namespace:** bleibt `App\` (kein Namespace-Rename nötig).
+- **Datenbankname:** bleibt `gravelexplorer` (rein interner, in `.env` konfigurierbarer Wert — keine DB-Migration, kein Risiko).
+- **Rename-Tiefe:** nutzersichtbares **und** technisches Branding wird auf GRAVA/grava.world umgestellt (siehe unten), mit Ausnahme von DB-Name und Namespace.
 
-> **Hinweis zur Umbenennung:** „GravelExplorer" steckt auch in Code/DB/Doku (Repo-Name, `COOKIE_DOMAIN=gravelexplorer.benx.de`, README, Migrations-Kommentare). Im Design-Scope wird nur das **nutzersichtbare** Branding (Web/E-Mail/Icon) auf GRAVA umgestellt. Technische Umbenennungen (DB-Name, Hostnamen, Repo) sind separat zu entscheiden und nicht Teil dieser Design-Spec.
+## 7. Umsetzung im Repo (Überblick — Details im Implementation-Plan)
 
-## 7. Bewusst NICHT im Scope
+**Design / CI**
+
+1. **Tokens** in `public/assets/style.css` `:root` aktualisieren/erweitern (neue Farben, Radien, Schatten, Akzent). Bestehende Tokennamen (`--error-text`, `--warn-*`, `--success-text`) auf das neue Schema vereinheitlichen und Verwendungsstellen anpassen.
+2. **Komponenten** an die neuen Tokens angleichen (Buttons inkl. `accent`, Cards, Chips/Schwierigkeitsgrade, Inputs, Alerts, Header).
+3. **E-Mail-Templates** (`views/email/*`) farblich angleichen.
+
+**Logo / Icon**
+
+4. **Logo-Lockup** als CSS-Komponente (`.brand` mit „G"-Tile + Wortmarke „GRAVA") in `views/web/layout.php`.
+5. **App-Icon „G" als Asset migrieren:** SVG-Monogramm + abgeleitete Favicon-/Apple-Touch-Icon-Größen unter `public/assets/`, im `<head>` von `layout.php` verlinkt (`icon`, `apple-touch-icon`).
+
+**Rename GravelExplorer → GRAVA (nutzersichtbar + technisch)**
+
+6. **Nutzersichtbar:** Header-Brand, `<title>`-Default, Footer, alle Views/Templates, E-Mail-Texte, `MAIL_FROM_NAME=GRAVA`.
+7. **Technisch:** `composer.json` (`name`, `description`), `.env.example` (`APP_URL`, `MAIL_FROM_ADDRESS=no-reply@grava.world`, `COOKIE_DOMAIN=grava.world`; `DB_NAME` unverändert), Default-Werte/Strings im Code (`src/**`), `openapi.yaml` (Server-URLs, Titel), Doku (`README.md`, `docs/**`), `apple-app-site-association`.
+8. **Deploy-Hinweise:** Produktions-`.env` (`APP_URL`, `COOKIE_DOMAIN`, Mail-Absender) sind beim Cutover anzupassen; bestehende Sessions/Cookies auf der alten Domain werden ungültig.
+
+**Konsistenz festschreiben**
+
+9. **Cursor-Rule** `.cursor/rules/design-system.mdc` mit Tokens, Komponenten-Regeln und Do/Don'ts, damit künftige UI automatisch CI-konform gebaut wird.
+
+## 8. Bewusst NICHT im Scope
 
 - Dark Mode (nur vorbereitet).
 - Custom Web-Fonts (System-Font gewählt).
 - iOS-Umsetzung (nur Token-Spiegelung später).
-- Technische/infrastrukturelle Umbenennung von GravelExplorer (DB, Hostnamen, Repo).
+- Umbenennung von **DB-Name** (`gravelexplorer` bleibt) und **PHP-Namespace** (`App\` bleibt).
+- Repo-Verzeichnis-/Git-Remote-Umbenennung (separat, außerhalb des Codes).
 - Foto-/Bildsprache-Guidelines (kann als Folge-Spec entstehen).
