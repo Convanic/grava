@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="GravelExplorer" xmlns="http://www.topografix.com/GPX/1/1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:ge="https://gravelexplorer.benx.de/gpx/v1" xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd">
+<metadata><name>Gravel Ride with Hints</name><time>2026-06-19T09:30:00Z</time></metadata>
+<wpt lat="47.123456" lon="9.654321">
+  <time>2026-06-19T09:31:12Z</time>
+  <name>Unfahrbar / Umkehren</name>
+  <desc>Brücke weggespült</desc>
+  <extensions>
+    <ge:hintReason>unrideable</ge:hintReason>
+    <ge:hintSentiment>negative</ge:hintSentiment>
+    <ge:hintSymbol>xmark.octagon.fill</ge:hintSymbol>
+  </extensions>
+</wpt>
+<wpt lat="47.130000" lon="9.660000">
+  <time>2026-06-19T09:45:00Z</time>
+  <name>Tolle Aussicht</name>
+  <extensions>
+    <ge:hintReason>great_view</ge:hintReason>
+    <ge:hintSentiment>positive</ge:hintSentiment>
+  </extensions>
+</wpt>
+<wpt lat="47.140000" lon="9.670000">
+  <name>Fremder Wegpunkt ohne Extension</name>
+</wpt>
+<trk><name>Gravel Ride with Hints</name><trkseg>
+<trkpt lat="47.123000" lon="9.654000"><time>2026-06-19T09:30:00Z</time></trkpt>
+<trkpt lat="47.125000" lon="9.656000"><time>2026-06-19T09:35:00Z</time></trkpt>
+<trkpt lat="47.130000" lon="9.660000"><time>2026-06-19T09:45:00Z</time></trkpt>
+</trkseg></trk>
+</gpx>

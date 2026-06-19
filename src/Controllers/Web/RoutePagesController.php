@@ -365,7 +365,11 @@ final class RoutePagesController
         }
         try {
             $loaded = $this->routes->loadPayload((int)$ctx['user_id'], $publicId, null);
-            $fc = $this->geo->toFeatureCollection($loaded['payload']);
+            $fc = $this->geo->toFeatureCollection(
+                $loaded['payload'],
+                [],
+                $this->routes->hintsForPublicId($publicId),
+            );
         } catch (RouteNotFoundException) {
             GeoJsonResponse::error(404);
         } catch (GeometryParseException) {

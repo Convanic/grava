@@ -1176,6 +1176,13 @@ components:
         tags:
           type: array
           items: { type: string }
+        hints:
+          type: array
+          description: >-
+            Wegpunkt-Hinweise zum Weg, die der Fahrer während der Aufzeichnung
+            gesetzt hat (aus den GPX-<wpt>-Extensions geparst). Nur in der
+            Einzelroute (GET /routes/{id}) enthalten, nicht in Listen.
+          items: { $ref: '#/components/schemas/RouteHint' }
         owner:
           nullable: true
           type: object
@@ -1185,6 +1192,18 @@ components:
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
         deleted_at: { type: string, format: date-time, nullable: true }
+    RouteHint:
+      type: object
+      properties:
+        reason_key:
+          type: string
+          description: "Grund-Schlüssel, ^[a-z0-9_]{1,40}$ (z. B. unrideable, great_view, custom_xxxx)"
+        sentiment: { type: string, enum: [negative, positive] }
+        label: { type: string, description: "Lesbarer Anzeigename zum Zeitpunkt der Erfassung" }
+        note: { type: string, nullable: true }
+        lat: { type: number }
+        lon: { type: number }
+        recorded_at: { type: string, format: date-time, nullable: true }
     Comment:
       type: object
       properties:

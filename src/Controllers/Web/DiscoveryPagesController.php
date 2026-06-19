@@ -282,7 +282,11 @@ final class DiscoveryPagesController
         }
         try {
             $loaded = $this->routesService->loadPayloadByPublicId($routePid);
-            $fc = $this->geo->toFeatureCollection($loaded['payload']);
+            $fc = $this->geo->toFeatureCollection(
+                $loaded['payload'],
+                [],
+                $this->routesService->hintsForPublicId($routePid),
+            );
         } catch (\Throwable) {
             GeoJsonResponse::error(404);
         }

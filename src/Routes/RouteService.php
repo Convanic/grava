@@ -45,6 +45,10 @@ final class RouteService
         private readonly RouteStorage $storage,
         private readonly GeometryParser $parser,
         private readonly GeometryStats $stats,
+        // M8: optional — parst/persistiert Wegpunkt-Hinweise aus dem
+        // GPX-Payload und liefert sie für die Ausgabe. Nullable, damit
+        // bestehende Aufrufer/Tests RouteService ohne Hinweise bauen können.
+        private readonly ?RouteHintService $hints = null,
     ) {}
 
     /**
@@ -135,6 +139,13 @@ final class RouteService
             );
 
             $this->routes->updateRouteHead($routeId, $versionId, $stats);
+
+            // M8: Wegpunkt-Hinweise aus dem GPX-Payload spiegeln. Nur für
+            // GPX — GeoJSON kann keine <wpt>-Hinweise tragen, ein
+            // GeoJSON-Re-Upload soll bestehende Hinweise also nicht löschen.
+            if ($parsed->sourceFormat === 'gpx') {
+                $this->hints?->syncFromPayload($routeId, $payload);
+            }
 
             if (!$isNew) {
                 // PATCH-artiges Verhalten: bei Re-Upload aktualisieren wir
@@ -260,8 +271,22 @@ final class RouteService
         if ($route === null) {
             return null;
         }
-        $route['tags'] = $this->routes->listTags((int)$route['_internal']['route_id']);
+        $routeId = (int)$route['_internal']['route_id'];
+        $route['tags']  = $this->routes->listTags($routeId);
+        $route['hints'] = $this->hints?->listForRoute($routeId) ?? [];
         return self::stripInternal($route);
+    }
+
+    /**
+     * Wegpunkt-Hinweise einer Route über die öffentliche UUID — ohne
+     * Owner-Check (Sichtbarkeit muss der Aufrufer geprüft haben). Gedacht
+     * für die GeoJSON-Endpunkte (eigene Karte, Share, fremdes Profil).
+     *
+     * @return list<array<string,mixed>>
+     */
+    public function hintsForPublicId(string $publicId): array
+    {
+        return $this->hints?->listForPublicId($publicId) ?? [];
     }
 
     /**

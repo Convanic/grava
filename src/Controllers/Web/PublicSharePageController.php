@@ -80,7 +80,11 @@ final class PublicSharePageController
         }
         try {
             $loaded = $this->routes->loadPayloadByPublicId((string)$route['id']);
-            $fc = $this->geo->toFeatureCollection($loaded['payload']);
+            $fc = $this->geo->toFeatureCollection(
+                $loaded['payload'],
+                [],
+                $this->routes->hintsForPublicId((string)$route['id']),
+            );
         } catch (\Throwable) {
             GeoJsonResponse::error(404);
         }

@@ -25,16 +25,20 @@ final class RouteGeoJson
     /**
      * @param array<string,mixed> $properties Optionale Feature-Properties
      *        (z. B. Name, Distanz) — landen 1:1 im `properties`-Objekt.
+     * @param list<array<string,mixed>> $hints Wegpunkt-Hinweise — werden als
+     *        Foreign-Member `hints` an die FeatureCollection gehängt
+     *        (RFC 7946 §6.1 erlaubt zusätzliche Member). Leeres Array → kein
+     *        `hints`-Feld.
      * @return array<string,mixed> GeoJSON-FeatureCollection
      */
-    public function toFeatureCollection(string $payload, array $properties = []): array
+    public function toFeatureCollection(string $payload, array $properties = [], array $hints = []): array
     {
         // Surface-Score-Einfärbung (optional): GPX mit <ge:surfaceScore>
         // liefert farbcodierte Teilsegmente. Sonst Fallback unten.
         if ($this->surface !== null) {
             $colored = $this->surface->extract($payload);
             if ($colored !== null) {
-                return $colored;
+                return self::withHints($colored, $hints);
             }
         }
 
@@ -46,7 +50,7 @@ final class RouteGeoJson
             $coordinates[] = [$point->lon, $point->lat];
         }
 
-        return [
+        return self::withHints([
             'type' => 'FeatureCollection',
             'features' => [
                 [
@@ -58,6 +62,19 @@ final class RouteGeoJson
                     ],
                 ],
             ],
-        ];
+        ], $hints);
+    }
+
+    /**
+     * @param array<string,mixed> $featureCollection
+     * @param list<array<string,mixed>> $hints
+     * @return array<string,mixed>
+     */
+    private static function withHints(array $featureCollection, array $hints): array
+    {
+        if ($hints !== []) {
+            $featureCollection['hints'] = $hints;
+        }
+        return $featureCollection;
     }
 }

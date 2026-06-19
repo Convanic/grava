@@ -78,6 +78,9 @@ use App\Referral\ReferralService;
 use App\Routes\GeometryParser;
 use App\Routes\GeometryStats;
 use App\Routes\RouteGeoJson;
+use App\Routes\RouteHintParser;
+use App\Routes\RouteHintRepository;
+use App\Routes\RouteHintService;
 use App\Routes\RouteRepository;
 use App\Routes\RouteService;
 use App\Routes\RouteStorage;
@@ -160,7 +163,10 @@ $webSession = new WebSession($config);
 // M2: Routes-Stack
 $routeStorage = new RouteStorage($config);
 $routeRepo    = new RouteRepository();
-$routeService = new RouteService($routeRepo, $routeStorage, new GeometryParser(), new GeometryStats());
+// M8: Wegpunkt-Hinweise — parst <wpt>-Hinweise aus dem GPX-Payload beim
+// Upload und liefert sie für Route-JSON + GeoJSON-Antworten.
+$routeHints   = new RouteHintService(new RouteHintParser(), new RouteHintRepository());
+$routeService = new RouteService($routeRepo, $routeStorage, new GeometryParser(), new GeometryStats(), $routeHints);
 $shareTokens  = new ShareTokenService($routeRepo);
 // GeoJSON-Konverter für die Web-Karten (eigener Parser, zustandslos).
 // SurfaceTrack färbt GPX-Tracks mit <ge:surfaceScore> ein.
