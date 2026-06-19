@@ -44,6 +44,12 @@ final class Commands
             case 'heatmap-lines':
                 return $this->rebuildHeatmapLines();
 
+            case 'heatmap:manifest':
+                return $this->heatmapManifest();
+
+            case 'heatmap:rebuild-local':
+                return $this->rebuildHeatmapLinesLocal($argv);
+
             case 'help':
             default:
                 $this->help();
@@ -151,6 +157,89 @@ final class Commands
         return 0;
     }
 
+    /**
+     * Cutover-Hinweg (Modell A), PROD-seitig: gibt das Manifest der public
+     * Routen als JSON auf stdout aus. Wird per /internal/heatmap/manifest
+     * ausgelöst; der lokale `pull_prod_routes.sh` holt es per curl.
+     */
+    private function heatmapManifest(): int
+    {
+        if ($this->heatmapLines === null) {
+            echo "HeatmapLinesService nicht verfügbar.\n";
+            return 1;
+        }
+        $routes = $this->heatmapLines->publicManifest();
+        echo json_encode([
+            'generated_at' => gmdate('Y-m-d\TH:i:s\Z'),
+            'count'        => count($routes),
+            'routes'       => $routes,
+        ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n";
+        return 0;
+    }
+
+    /**
+     * Cutover-Hinweg (Modell A), LOKAL: matcht die per SFTP geholten
+     * Prod-Payloads gegen die lokale Valhalla und füllt heatmap_edges — ohne
+     * dass die Prod-DB lokal vorliegen muss.
+     *
+     *   php public/index.php heatmap:rebuild-local \
+     *       --manifest=build/heatmap_manifest.json --routes-dir=build/prod_routes
+     */
+    private function rebuildHeatmapLinesLocal(array $argv): int
+    {
+        if ($this->heatmapLines === null) {
+            echo "HeatmapLinesService nicht verfügbar.\n";
+            return 1;
+        }
+        $opts = $this->parseOptions($argv);
+        $manifestPath = (string)($opts['manifest'] ?? '');
+        $routesDir    = (string)($opts['routes-dir'] ?? '');
+        if ($manifestPath === '' || $routesDir === '') {
+            echo "Nutzung: heatmap:rebuild-local --manifest=<datei.json> --routes-dir=<verzeichnis>\n";
+            return 1;
+        }
+        if (!is_file($manifestPath)) {
+            echo "Manifest nicht gefunden: {$manifestPath}\n";
+            return 1;
+        }
+        $raw = (string)@file_get_contents($manifestPath);
+        try {
+            $data = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
+        } catch (\JsonException $e) {
+            echo "Manifest ist kein gültiges JSON: {$e->getMessage()}\n";
+            return 1;
+        }
+        $entries = is_array($data['routes'] ?? null) ? $data['routes'] : [];
+        if ($entries === []) {
+            echo "Manifest enthält keine Routen.\n";
+            return 1;
+        }
+
+        $res = $this->heatmapLines->rebuildFromManifest($entries, $routesDir);
+        echo "Heatmap-Linien lokal aus Manifest gematcht:\n";
+        foreach ($res as $k => $v) {
+            echo "  {$k}: {$v}\n";
+        }
+        return 0;
+    }
+
+    /**
+     * Parst `--key=value`-Optionen aus argv (ab Index 2, hinter dem Befehl).
+     *
+     * @param list<string> $argv
+     * @return array<string,string>
+     */
+    private function parseOptions(array $argv): array
+    {
+        $opts = [];
+        foreach (array_slice($argv, 2) as $arg) {
+            if (preg_match('/^--([a-z0-9\-]+)=(.*)$/i', (string)$arg, $m)) {
+                $opts[$m[1]] = $m[2];
+            }
+        }
+        return $opts;
+    }
+
     private function help(): void
     {
         echo "GravelExplorer Backend CLI\n";
@@ -160,6 +249,8 @@ final class Commands
         echo "  cron:cleanup        Löscht abgelaufene Tokens, Sessions, Verifizierungen, Rate-Limits + Heatmap-Rebuild\n";
         echo "  cron:heatmap        Aggregiert die Crowd-Heatmap (Centroids) aus public Routen neu\n";
         echo "  cron:heatmap-lines  Map-Matching der public Routen -> heatmap_edges (Streckenlinien)\n";
+        echo "  heatmap:manifest    (PROD) Gibt das Manifest der public Routen als JSON aus (Cutover-Hinweg)\n";
+        echo "  heatmap:rebuild-local  (LOKAL) Rebuild aus Manifest + Dateien: --manifest=.. --routes-dir=..\n";
         echo "  help                Zeigt diese Hilfe\n";
     }
 }

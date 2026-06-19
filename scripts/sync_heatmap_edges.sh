@@ -80,8 +80,15 @@ cmd_export() {
   local out="${1:-$ROOT/build/heatmap_edges.sql}"
   mkdir -p "$(dirname "$out")"
 
-  echo ">> Rebuild lokal (cron:heatmap-lines gegen lokale Valhalla) ..."
-  ( cd "$ROOT" && "$PHP_BIN" public/index.php cron:heatmap-lines )
+  # SYNC_SKIP_REBUILD=1: nur dumpen, kein DB-getriebener Rebuild. Genutzt vom
+  # pull_prod_routes.sh, das heatmap_edges bereits per heatmap:rebuild-local
+  # (aus dem Prod-Manifest) gefüllt hat.
+  if [ "${SYNC_SKIP_REBUILD:-0}" = "1" ]; then
+    echo ">> Rebuild übersprungen (SYNC_SKIP_REBUILD=1) — dumpe vorhandene Tabelle."
+  else
+    echo ">> Rebuild lokal (cron:heatmap-lines gegen lokale Valhalla) ..."
+    ( cd "$ROOT" && "$PHP_BIN" public/index.php cron:heatmap-lines )
+  fi
 
   build_conn_args
   table_exists "$TABLE" || die "Tabelle ${TABLE} fehlt lokal — erst 'cli:migrate' laufen lassen."

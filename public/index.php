@@ -530,6 +530,10 @@ $router->get('/internal/cron/heatmap',  fn($r) => $runInternal($r, 'cron:heatmap
 $router->post('/internal/cron/heatmap', fn($r) => $runInternal($r, 'cron:heatmap'));
 $router->get('/internal/cron/heatmap-lines',  fn($r) => $runInternal($r, 'cron:heatmap-lines'));
 $router->post('/internal/cron/heatmap-lines', fn($r) => $runInternal($r, 'cron:heatmap-lines'));
+// Cutover-Hinweg (Modell A): Manifest der public Routen für den lokalen
+// Rebuild. Reines Lesen (kein Valhalla), daher auch auf PROD unbedenklich.
+$router->get('/internal/heatmap/manifest',  fn($r) => $runInternal($r, 'heatmap:manifest'));
+$router->post('/internal/heatmap/manifest', fn($r) => $runInternal($r, 'heatmap:manifest'));
 
 // Hinweis: Universal Links (Apple App Site Association) werden NICHT hier
 // als Route ausgeliefert, sondern als statische Datei unter

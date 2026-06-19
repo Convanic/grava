@@ -12,3 +12,5 @@
 *.log
 # Build-Artefakte (z. B. scripts/sync_heatmap_edges.sh export -> build/heatmap_edges.sql)
 /build/
+# Lokale Sync-/SFTP-Credentials für pull_prod_routes.sh (NIE committen)
+/scripts/.env.sync

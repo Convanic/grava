@@ -43,12 +43,23 @@ ausschließlich **lokal** zum *Berechnen* gebraucht. Die App liest zur Laufzeit
 nur die fertige Tabelle `heatmap_edges`. Detail-Begründung:
 `docs/PLAN_HEATMAP_MAPMATCH.md` §12 (Modell A).
 
+**Datenfluss (vollständig, beide Richtungen):** Valhalla rechnet lokal, das
+Ergebnis (`heatmap_edges`) geht nach Prod. Da die Prod-DB **nicht** von lokal
+erreichbar ist, kommen die public Routen als *Manifest* (interner HTTP-Endpunkt)
++ die GPX-Dateien per *SFTP* aufs lokale System — den **Hinweg** automatisiert
+`scripts/pull_prod_routes.sh`.
+
 ```
-LOKAL (Docker/Valhalla)                         PROD (Shared-Webspace)
-  cron:heatmap-lines  ──►  heatmap_edges.sql  ──►  Shadow-Import + RENAME
-  (Valhalla-Matching)        (Dump)                 (heatmap_edges aktiv)
-                                                       │
-                                          GET /api/v1/heatmap/lines (nur Lesen)
+PROD (Shared-Webspace)                          LOKAL (Docker/Valhalla)
+ GET /internal/heatmap/manifest ──curl───────►  build/heatmap_manifest.json
+   (public_id, payload_path, format)             (welche Routen sind public)
+ storage/routes/*.gpx ───────────sftp────────►  build/prod_routes/…
+                                                     │
+                                          heatmap:rebuild-local (Valhalla-Matching)
+                                                     │  → lokal heatmap_edges
+ heatmap_edges  ◄──Shadow-Import + RENAME──────  build/heatmap_edges.sql (Dump)
+   │
+ GET /api/v1/heatmap/lines (nur Lesen, kein Valhalla)
 ```
 
 ### 3a. Die beiden Heatmaps unterscheiden
@@ -61,28 +72,51 @@ LOKAL (Docker/Valhalla)                         PROD (Shared-Webspace)
 
 ### 3b. Erstbefüllung / Update der Strecken-Heatmap
 
+> **Hinweis zum DB-Zugang:** Die Prod-DB ist nur vom Webspace erreichbar (nicht
+> von lokal). Deshalb läuft der **Hinweg** über Manifest (HTTP) + SFTP, und der
+> **Rückweg** (Import) wird **auf dem Webspace** ausgeführt — entweder per
+> phpMyAdmin-Import des Dumps oder, falls vorhanden, serverseitig. Das
+> `sync_heatmap_edges.sh import` setzt einen erreichbaren `mysql`-Client mit
+> Prod-DB-Zugang voraus.
+
 1. **Migration in Prod** einspielen (einmalig):
    `0012_m6_heatmap_edges.sql` via `GET /internal/migrate?token=…` ausführen
    und prüfen, dass die Tabelle `heatmap_edges` existiert.
-2. **Lokal rechnen + exportieren** (lokale Valhalla muss laufen,
-   `docker/valhalla/`):
+
+2. **Hinweg + lokaler Rebuild + Dump** in einem Schritt (lokale Valhalla muss
+   laufen, `docker/valhalla/`). Vorher SFTP-Zugang konfigurieren — am
+   einfachsten in `scripts/.env.sync` (gitignored):
 
    ```bash
-   scripts/sync_heatmap_edges.sh export build/heatmap_edges.sql
+   # scripts/.env.sync
+   PROD_BASE_URL=https://grava.world
+   SFTP_HOST=…ud-webspace.de
+   SFTP_USER=…
+   SFTP_PASS=…                 # oder SFTP_KEY=/pfad/zum/key
+   SFTP_REMOTE_DIR=/…/storage/routes   # Pfad zu storage/routes auf dem Webspace
    ```
 
-3. **In die Prod-DB importieren.** Die Prod-DB liegt auf einem extern
-   erreichbaren Host (`database-…ud-webspace.de:3306`), daher kann der Import
-   **vom lokalen Rechner** gegen die Prod-DB laufen — kein SSH auf dem Webspace
-   nötig. Dazu eine `.env` mit den **Prod-DB-Zugangsdaten** verwenden:
+   ```bash
+   scripts/pull_prod_routes.sh
+   ```
+
+   Das Skript holt das Manifest (`/internal/heatmap/manifest`), lädt die
+   GPX-Dateien per SFTP nach `build/prod_routes/`, matcht sie lokal
+   (`heatmap:rebuild-local`) und schreibt den Dump nach `build/heatmap_edges.sql`.
+
+   *Reiner Dev-Lauf ohne Prod-Daten* (nur lokale DB): stattdessen
+   `scripts/sync_heatmap_edges.sh export build/heatmap_edges.sql`.
+
+3. **In die Prod-DB importieren** (auf dem Webspace / mit Prod-DB-Zugang):
 
    ```bash
    scripts/sync_heatmap_edges.sh import build/heatmap_edges.sql
    ```
 
-   Das Skript lädt in die Shadow-Tabelle `heatmap_edges_new`, prüft auf >0
-   Zeilen und macht dann einen atomaren `RENAME`-Swap (kein Lese-Ausfall).
-   Alternativ den Dump per **phpMyAdmin** importieren.
+   Lädt in die Shadow-Tabelle `heatmap_edges_new`, prüft auf >0 Zeilen und macht
+   dann einen atomaren `RENAME`-Swap (kein Lese-Ausfall). **Alternativ** den
+   Dump `build/heatmap_edges.sql` direkt per **phpMyAdmin** in die
+   `heatmap_edges`-Tabelle importieren (vorher `TRUNCATE heatmap_edges`).
 
 ### 3c. Layer sichtbar schalten (Feature-Flag)
 

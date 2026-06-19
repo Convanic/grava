@@ -57,21 +57,7 @@ final class HeatmapLinesService
         foreach ($publicIds as $pid) {
             try {
                 $loaded = $this->routes->loadPayloadByPublicId((string)$pid);
-                $points = $this->extractPoints($loaded['payload']);
-                if (count($points) < 2) {
-                    $skipped++;
-                    continue;
-                }
-                $points = $this->downsample($points);
-                $match  = $this->valhalla->matchTrace(
-                    array_map(static fn($p) => ['lat' => $p['lat'], 'lon' => $p['lon']], $points)
-                );
-                if ($match === null) {
-                    $skipped++;
-                    continue;
-                }
-                $this->accumulate($acc, $points, $match);
-                $matched++;
+                $this->accumulateOne($acc, $loaded['payload'], $matched, $skipped);
             } catch (\Throwable) {
                 $skipped++;
             }
@@ -86,6 +72,120 @@ final class HeatmapLinesService
             'skipped' => $skipped,
             'edges'   => count($rows),
         ];
+    }
+
+    /**
+     * Manifest der public Routen für den Cutover-Hinweg (Modell A): Liste aus
+     * `public_id` + relativem `payload_path` + `format` der jeweiligen
+     * Head-Version. Wird auf PROD (wo die DB erreichbar ist) erzeugt und per
+     * `/internal/heatmap/manifest` ausgegeben; lokal speist es
+     * {@see rebuildFromManifest()}. Privacy: nur visibility='public'.
+     *
+     * @return list<array{public_id:string,payload_path:string,format:string}>
+     */
+    public function publicManifest(): array
+    {
+        $pdo = Db::pdo();
+        $rows = $pdo->query(
+            "SELECT r.public_id, v.payload_path, v.format
+               FROM routes r
+               JOIN route_versions v ON v.id = r.head_version_id
+              WHERE r.visibility='public' AND r.deleted_at IS NULL
+              ORDER BY r.public_id"
+        )->fetchAll(PDO::FETCH_ASSOC);
+
+        $out = [];
+        foreach ($rows as $row) {
+            $out[] = [
+                'public_id'    => (string)$row['public_id'],
+                'payload_path' => (string)$row['payload_path'],
+                'format'       => (string)$row['format'],
+            ];
+        }
+        return $out;
+    }
+
+    /**
+     * DB-freier Rebuild aus einem Manifest + lokal vorliegenden Payload-Dateien.
+     *
+     * Anders als {@see rebuild()} braucht das KEINE `routes`/`route_versions`
+     * in der lokalen DB und KEINEN {@see RouteService} — gedacht für den
+     * Cutover-Hinweg: Manifest (HTTP) + Dateien (SFTP) von PROD, Matching
+     * lokal, Ergebnis nach `heatmap_edges`. Valhalla/Parser/Surface sind nötig.
+     *
+     * @param list<array{public_id?:string,payload_path:string,format?:string}> $entries
+     * @param string $baseDir Basisverzeichnis, gegen das `payload_path` aufgelöst wird.
+     * @return array{routes:int,matched:int,skipped:int,edges:int}
+     */
+    public function rebuildFromManifest(array $entries, string $baseDir): array
+    {
+        if ($this->valhalla === null || $this->parser === null || $this->surface === null) {
+            throw new \RuntimeException('rebuildFromManifest() benötigt valhalla/parser/surface.');
+        }
+        $base = rtrim($baseDir, '/');
+
+        $acc = [];
+        $matched = 0;
+        $skipped = 0;
+
+        foreach ($entries as $e) {
+            try {
+                $rel = ltrim((string)($e['payload_path'] ?? ''), '/');
+                if ($rel === '' || str_contains($rel, '..')) {
+                    $skipped++;
+                    continue;
+                }
+                $abs = $base . '/' . $rel;
+                if (!is_file($abs)) {
+                    $skipped++;
+                    continue;
+                }
+                $payload = @file_get_contents($abs);
+                if ($payload === false || $payload === '') {
+                    $skipped++;
+                    continue;
+                }
+                $this->accumulateOne($acc, $payload, $matched, $skipped);
+            } catch (\Throwable) {
+                $skipped++;
+            }
+        }
+
+        $rows = $this->finalize($acc);
+        $this->write($rows);
+
+        return [
+            'routes'  => count($entries),
+            'matched' => $matched,
+            'skipped' => $skipped,
+            'edges'   => count($rows),
+        ];
+    }
+
+    /**
+     * Verarbeitet genau einen Payload (extrahieren → downsample → match →
+     * akkumulieren). Erhöht `matched` bei Erfolg, sonst `skipped`. Geteilt von
+     * {@see rebuild()} (DB) und {@see rebuildFromManifest()} (Datei).
+     *
+     * @param array<string,array<string,mixed>> $acc by-ref Akkumulator
+     */
+    private function accumulateOne(array &$acc, string $payload, int &$matched, int &$skipped): void
+    {
+        $points = $this->extractPoints($payload);
+        if (count($points) < 2) {
+            $skipped++;
+            return;
+        }
+        $points = $this->downsample($points);
+        $match  = $this->valhalla->matchTrace(
+            array_map(static fn($p) => ['lat' => $p['lat'], 'lon' => $p['lon']], $points)
+        );
+        if ($match === null) {
+            $skipped++;
+            return;
+        }
+        $this->accumulate($acc, $points, $match);
+        $matched++;
     }
 
     /**
