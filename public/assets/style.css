@@ -1,18 +1,45 @@
 :root {
-    --bg: #f6f7f4;
+    /* Brand */
+    --primary: #2f5233;
+    --primary-hover: #264227;
+    --primary-weak: #e7ede2;
+    --accent: #bf7a3a;
+    --accent-hover: #a76a31;
+    --accent-weak: #f3e7d4;
+    --green-soft: #6b8e4e;
+
+    /* Neutrals */
+    --bg: #f4f1ea;
     --surface: #ffffff;
-    --text: #1f2421;
-    --muted: #6b7268;
-    --primary: #4a7c2a;
-    --primary-hover: #3c6622;
-    --border: #e3e6df;
-    --error-bg: #fdecec;
-    --error-text: #8a1f1f;
+    --surface-alt: #faf8f3;
+    --text: #2b2a26;
+    --muted: #6f6a60;
+    --border: #e6e1d6;
+    --border-strong: #d6cfc0;
+
+    /* Semantic */
+    --success: #3c7d3a;
     --success-bg: #e7f4dc;
     --success-text: #2c5a17;
-    --warn-bg: #fff3cd;
+    --warning: #9a6b08;
+    --warning-bg: #faecc9;
+    --error: #a3342b;
+    --error-bg: #f7e2df;
+    --error-text: #a3342b;
+
+    /* Aliase für Bestandscode (nicht entfernen) */
+    --warn-bg: #faecc9;
     --warn-text: #7a5a04;
-    --radius: 10px;
+
+    /* Radii & Shadows */
+    --radius-sm: 8px;
+    --radius: 12px;
+    --radius-lg: 14px;
+    --radius-pill: 999px;
+    --shadow-sm: 0 1px 3px rgba(43,42,38,.06);
+    --shadow-card: 0 4px 14px rgba(43,42,38,.10);
+
+    /* Layout */
     --max: 520px;
 }
 
