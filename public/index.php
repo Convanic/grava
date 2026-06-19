@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /*
- * GravelExplorer — front controller for API, web and CLI.
+ * GRAVA — front controller for API, web and CLI.
  *
  * Routes:
  *   /api/v1/auth/*            JSON API (Bearer auth)

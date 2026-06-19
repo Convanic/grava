@@ -63,7 +63,7 @@ final class RoutePagesController
         [$user] = $this->resolveOrRefresh($req, '/routes');
         $items  = $this->routes->listForUser((int)$user['internal_id'], 100, 0);
         $this->render('routes/index', $user, [
-            '_title'  => 'Meine Routen · GravelExplorer',
+            '_title'  => 'Meine Routen · GRAVA',
             'routes'  => $items,
             'verified' => (bool)$user['email_verified'],
             'flash'   => $this->popFlash(),
@@ -77,7 +77,7 @@ final class RoutePagesController
     {
         [$user] = $this->resolveOrRefresh($req, '/routes/new');
         $this->render('routes/new', $user, [
-            '_title'   => 'Route hochladen · GravelExplorer',
+            '_title'   => 'Route hochladen · GRAVA',
             'verified' => (bool)$user['email_verified'],
             'errors'   => [],
             'values'   => ['title' => '', 'description' => '', 'visibility' => 'private', 'tags' => ''],
@@ -129,7 +129,7 @@ final class RoutePagesController
 
         if ($errors !== [] || $upload === null) {
             $this->render('routes/new', $user, [
-                '_title'   => 'Route hochladen · GravelExplorer',
+                '_title'   => 'Route hochladen · GRAVA',
                 'verified' => true,
                 'errors'   => $errors,
                 'values'   => ['title' => $title, 'description' => $desc, 'visibility' => $vis, 'tags' => $tags],
@@ -140,7 +140,7 @@ final class RoutePagesController
         $payload = @file_get_contents($upload['tmp_name']);
         if ($payload === false) {
             $this->render('routes/new', $user, [
-                '_title'   => 'Route hochladen · GravelExplorer',
+                '_title'   => 'Route hochladen · GRAVA',
                 'verified' => true,
                 'errors'   => ['payload' => ['Datei konnte nicht gelesen werden.']],
                 'values'   => ['title' => $title, 'description' => $desc, 'visibility' => $vis, 'tags' => $tags],
@@ -163,7 +163,7 @@ final class RoutePagesController
             );
         } catch (GeometryParseException $e) {
             $this->render('routes/new', $user, [
-                '_title'   => 'Route hochladen · GravelExplorer',
+                '_title'   => 'Route hochladen · GRAVA',
                 'verified' => true,
                 'errors'   => ['payload' => [$e->getMessage()]],
                 'values'   => ['title' => $title, 'description' => $desc, 'visibility' => $vis, 'tags' => $tags],
@@ -171,7 +171,7 @@ final class RoutePagesController
             ], 422);
         } catch (Throwable $e) {
             $this->render('routes/new', $user, [
-                '_title'   => 'Route hochladen · GravelExplorer',
+                '_title'   => 'Route hochladen · GRAVA',
                 'verified' => true,
                 'errors'   => ['payload' => [$e->getMessage()]],
                 'values'   => ['title' => $title, 'description' => $desc, 'visibility' => $vis, 'tags' => $tags],
@@ -217,7 +217,7 @@ final class RoutePagesController
         }
 
         $this->render('routes/show', $user, [
-            '_title'        => $route['title'] . ' · GravelExplorer',
+            '_title'        => $route['title'] . ' · GRAVA',
             'route'         => $route,
             'shares'        => $sharesList,
             'newShareToken' => $newShareToken,
@@ -241,7 +241,7 @@ final class RoutePagesController
         }
 
         $this->render('routes/edit', $user, [
-            '_title' => 'Route bearbeiten · GravelExplorer',
+            '_title' => 'Route bearbeiten · GRAVA',
             'route'  => $route,
             'errors' => [],
             'values' => [
@@ -278,7 +278,7 @@ final class RoutePagesController
             $route = $this->routes->get((int)$user['internal_id'], $publicId);
             if ($route === null) { $this->render404($user); }
             $this->render('routes/edit', $user, [
-                '_title' => 'Route bearbeiten · GravelExplorer',
+                '_title' => 'Route bearbeiten · GRAVA',
                 'route'  => $route,
                 'errors' => $v->errors(),
                 'values' => ['title' => $title, 'description' => $desc, 'visibility' => $vis, 'tags' => $tags],
@@ -299,7 +299,7 @@ final class RoutePagesController
             $route = $this->routes->get((int)$user['internal_id'], $publicId);
             if ($route === null) { $this->render404($user); }
             $this->render('routes/edit', $user, [
-                '_title' => 'Route bearbeiten · GravelExplorer',
+                '_title' => 'Route bearbeiten · GRAVA',
                 'route'  => $route,
                 'errors' => ['title' => [$e->getMessage()]],
                 'values' => ['title' => $title, 'description' => $desc, 'visibility' => $vis, 'tags' => $tags],
@@ -446,7 +446,7 @@ final class RoutePagesController
     private function render404(array $user): never
     {
         $this->render('routes/not_found', $user, [
-            '_title' => 'Route nicht gefunden · GravelExplorer',
+            '_title' => 'Route nicht gefunden · GRAVA',
             'flash'  => null,
         ], 404);
     }

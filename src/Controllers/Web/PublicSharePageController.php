@@ -43,7 +43,7 @@ final class PublicSharePageController
             // 410 statt 404: der Link hat *existiert*, ist aber jetzt
             // ungültig. RFC 7231 §6.5.9 — explizit semantisch passend.
             $this->view->render('share_gone', [
-                '_title' => 'Link nicht mehr verfügbar · GravelExplorer',
+                '_title' => 'Link nicht mehr verfügbar · GRAVA',
                 'flash'  => null,
             ], 410);
         }
@@ -59,7 +59,7 @@ final class PublicSharePageController
         }
 
         $this->view->render('share', [
-            '_title' => $route['title'] . ' · GravelExplorer',
+            '_title' => $route['title'] . ' · GRAVA',
             '_layoutWide' => true,
             'route'  => $route,
             'shareToken' => $token,

@@ -58,7 +58,7 @@ final class MailService
             $mailer->CharSet = 'UTF-8';
             $mailer->setFrom(
                 (string)$this->config->get('MAIL_FROM_ADDRESS', 'no-reply@example.com'),
-                (string)$this->config->get('MAIL_FROM_NAME', 'GravelExplorer'),
+                (string)$this->config->get('MAIL_FROM_NAME', 'GRAVA'),
             );
             $mailer->addAddress($toEmail, $toName ?? '');
 
@@ -80,7 +80,7 @@ final class MailService
         return match ($template) {
             'verify_email'   => 'Bestätige deine E-Mail-Adresse',
             'reset_password' => 'Passwort zurücksetzen',
-            default          => 'GravelExplorer',
+            default          => 'GRAVA',
         };
     }
 
@@ -114,7 +114,7 @@ final class MailService
         $path = "{$dir}/{$stamp}_{$safeTo}_{$rand}.eml";
 
         $from = (string)$this->config->get('MAIL_FROM_ADDRESS', 'no-reply@example.com');
-        $fromName = (string)$this->config->get('MAIL_FROM_NAME', 'GravelExplorer');
+        $fromName = (string)$this->config->get('MAIL_FROM_NAME', 'GRAVA');
         $boundary = 'b_' . bin2hex(random_bytes(8));
 
         // H2: Defense-in-Depth — auch hier, nicht nur im Validator, alle

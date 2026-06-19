@@ -283,7 +283,7 @@ final class Commands
 
     private function help(): void
     {
-        echo "GravelExplorer Backend CLI\n";
+        echo "GRAVA Backend CLI\n";
         echo "Nutzung: php public/index.php <befehl>\n\n";
         echo "Befehle:\n";
         echo "  cli:migrate         Wendet ausstehende Migrationen an\n";

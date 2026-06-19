@@ -38,7 +38,7 @@ final class StravaPagesController
         $user = $this->requireUser('/settings/integrations');
         $status = $this->strava->status((int)$user['internal_id']);
         $this->view->render('settings/integrations', [
-            '_title'      => 'Integrationen · GravelExplorer',
+            '_title'      => 'Integrationen · GRAVA',
             '_authedUser' => $user,
             'status'      => $status,
             'configured'  => $this->strava->isConfigured(),

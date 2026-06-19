@@ -30,7 +30,7 @@ final class WebView
         header('Content-Type: text/html; charset=utf-8');
 
         $vars['_csrf']  = Csrf::token();
-        $vars['_title'] = $vars['_title'] ?? ucfirst($view) . ' · GravelExplorer';
+        $vars['_title'] = $vars['_title'] ?? ucfirst($view) . ' · GRAVA';
         $vars['_view']  = $view;
 
         $partial = rtrim($this->viewsPath, '/') . '/web/' . $view . '.php';

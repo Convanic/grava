@@ -45,7 +45,7 @@ if ($createdAt !== '') {
 ?>
 <section class="card">
     <h1>Hallo, <?= htmlspecialchars((string)$greeting, ENT_QUOTES, 'UTF-8') ?>!</h1>
-    <p>Willkommen im GravelExplorer Dashboard.</p>
+    <p>Willkommen im GRAVA Dashboard.</p>
 
     <dl class="profile">
         <dt>E-Mail</dt>

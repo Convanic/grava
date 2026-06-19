@@ -15,7 +15,7 @@ $_pageScripts = $_pageScripts ?? [];
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title><?= htmlspecialchars($_title ?? 'GravelExplorer', ENT_QUOTES, 'UTF-8') ?></title>
+    <title><?= htmlspecialchars($_title ?? 'GRAVA', ENT_QUOTES, 'UTF-8') ?></title>
     <link rel="stylesheet" href="/assets/style.css">
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/assets/brand/apple-touch-icon.png">
@@ -57,7 +57,7 @@ $_pageScripts = $_pageScripts ?? [];
         <?= $content ?? '' ?>
     </main>
     <footer class="site-footer">
-        <small>&copy; <?= date('Y') ?> GravelExplorer</small>
+        <small>&copy; <?= date('Y') ?> GRAVA</small>
     </footer>
     <?php foreach ($_pageScripts as $_src): ?>
     <script src="<?= htmlspecialchars((string)$_src, ENT_QUOTES, 'UTF-8') ?>"></script>

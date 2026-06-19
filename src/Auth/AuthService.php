@@ -572,7 +572,7 @@ final class AuthService
             'display_name' => $displayName,
             'verify_url'   => $url,
             'hours_valid'  => $hours,
-            'app_name'     => 'GravelExplorer',
+            'app_name'     => 'GRAVA',
         ]);
         // H7/L6: bei Mail-Fehlern den Operator informieren, aber den
         // User-Flow nicht hart brechen — der Resend-Endpoint kann es
@@ -590,7 +590,7 @@ final class AuthService
             'display_name' => $displayName,
             'reset_url'    => $url,
             'minutes_valid'=> $minutes,
-            'app_name'     => 'GravelExplorer',
+            'app_name'     => 'GRAVA',
         ]);
         if (!$ok) {
             error_log("AuthService: Reset-Mail an {$email} konnte nicht versendet werden.");
