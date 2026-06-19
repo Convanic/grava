@@ -90,8 +90,10 @@ a:hover { text-decoration: underline; }
     border: 1px solid var(--border);
     border-radius: var(--radius);
     padding: 28px 24px;
-    box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+    box-shadow: var(--shadow-sm);
+    transition: box-shadow .15s ease;
 }
+.card:hover { box-shadow: var(--shadow-card); }
 
 .card h1 {
     margin-top: 0;
@@ -257,6 +259,18 @@ code {
     font-size: 14px;
 }
 .btn-secondary:hover { background: #f5f6f2; text-decoration: none; }
+.btn-accent {
+    display: inline-block;
+    background: var(--accent);
+    color: #fff;
+    padding: 8px 14px;
+    border-radius: var(--radius-sm);
+    font-weight: 600;
+    font-size: 14px;
+    border: 0;
+    cursor: pointer;
+}
+.btn-accent:hover { background: var(--accent-hover); text-decoration: none; }
 .btn-link {
     background: transparent;
     color: var(--primary);
@@ -336,6 +350,12 @@ form textarea { resize: vertical; }
     padding: 2px 10px;
     font-size: 12px;
 }
+
+.level { display: inline-block; border-radius: var(--radius-pill); padding: 2px 10px; font-size: 12px; font-weight: 600; }
+.level-easy   { background: #e7f4dc; color: #2c5a17; }
+.level-medium { background: #faecc9; color: #7a5a04; }
+.level-hard   { background: #f7e2df; color: #8a1f1f; }
+.tag-new      { background: var(--accent-weak); color: #8a4f1c; }
 
 .badge-private  { background: #ebeef0; color: #555c6e; }
 .badge-unlisted { background: #fff3cd; color: var(--warn-text); }
