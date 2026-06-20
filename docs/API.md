@@ -471,6 +471,8 @@ für die Farbe; `surface` ist ein OSM/Valhalla-Fallback. Ungültige `bbox` ⇒ `
 
 Ingestion läuft automatisch nicht-blockierend nach jedem Route-Upload. Voller Recompute: `php public/index.php game:recompute`.
 
+**Admin-Dashboard:** `/admin/*` ist NUR unter `admin.grava.world` erreichbar (auf der Hauptdomain → 404); die `/api/v1/game/*`-Endpunkte sind davon unverändert. Hinweis: Spielwerte (Besitzer/Wert/Frische) können sich durch Admin-Aktionen (Pass-Invalidierung, Ban, Recompute) **rückwirkend** ändern — Clients sollten gecachte Kanten nicht als unveränderlich behandeln. Setup: siehe `backend/GAME_DASHBOARD_SETUP.md`.
+
 ---
 
 ## 6. iOS-Praxis

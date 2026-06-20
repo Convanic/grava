@@ -1,6 +1,6 @@
 # Gamification Stufe 1 — Testbericht
 
-Generiert: 2026-06-20T14:48:55Z
+Generiert: 2026-06-20T15:59:24Z
 
 ## Pionier-Golden-Tabelle (P0=100, k=12, s=4)
 
@@ -27,3 +27,18 @@ Generiert: 2026-06-20T14:48:55Z
 | 10.8 | Authentizitaet | GameIngestionTest::testAuthFiltersRejectSlowAndInaccuratePasses |
 | 10.9 | Valhalla-Ausfall | GameIngestionTest::testMatcherFailureLeavesNoDataButReingestRecovers |
 | 10.10 | BBox-Read | tests/Integration/Game/GameReadServiceTest::testBboxReturnsEdgeInsideAndOmitsOutside |
+
+## Dashboard (Stufe 1) — Akzeptanz §5
+
+Mapping der Akzeptanzkriterien aus `backend/GAME_STAGE1_DASHBOARD.md` (§5, 1–8) auf die implementierenden Tests.
+
+| § | Kriterium | Test |
+|---|---|---|
+| 5.1 | Zugriffsschutz/Host-Gate | tests/Unit/Game/Admin/AdminGuardTest + tests/Unit/Game/Admin/AdminHostTest (+ Host-Gate in public/index.php) |
+| 5.2 | Config-Update + Audit + Validierung | tests/Integration/Game/Admin/GameConfigAdminServiceTest |
+| 5.3 | Recompute identisch zum Live-Pfad | tests/Integration/Game/GameRecomputeBboxTest (+ Backend §10.5 GameRecomputeTest) |
+| 5.4 | Ingest-Monitor (failed→reingest→ok) | tests/Integration/Game/GameIngestBanLogTest (Ingest-Log) + Controller reingest |
+| 5.5 | Pass-Invalidierung wirkt (+ Reaktivieren) | tests/Integration/Game/Admin/GamePassAdminServiceTest + tests/Integration/Game/GameInvalidationTest |
+| 5.6 | Ban-Effekt (keine neuen Pässe) | tests/Integration/Game/GameIngestBanLogTest + tests/Integration/Game/Admin/GameUserFlagServiceTest |
+| 5.7 | Leaderboard-Aggregate | tests/Integration/Game/Admin/GameAdminServiceTest |
+| 5.8 | Inspector-Wertaufschlüsselung (Golden Number n=12 → pioneer 50.0) | tests/Integration/Game/Admin/GameAdminServiceTest |
