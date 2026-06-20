@@ -461,6 +461,16 @@ für die Farbe; `surface` ist ein OSM/Valhalla-Fallback. Ungültige `bbox` ⇒ `
 |---------|------|------|-------|
 | GET | `/healthz` | — | Liveness (nicht unter `/api/v1`) |
 
+### 5.14 Game (Stufe 1 — Territorialspiel)
+
+- `GET /api/v1/game/edges?bbox=minLon,minLat,maxLon,maxLat[&mine=1]` — eingefärbte Kanten im Ausschnitt (OptionalBearer). Antwort: `{ "edges": [ { id, geom, owner, owner_is_me, value, freshness, distinct_riders_total, surface_character } ] }`.
+- `GET /api/v1/game/edges/{id}` — Detail inkl. `value` (total/pioneer/popularity/curation) + `pioneer_cohort` (≤10).
+- `GET /api/v1/game/me` — eigene Statistik (gehaltene Kanten, Erstbefahrungen, gehaltene Länge). Bearer.
+- `GET /api/v1/game/config` — aktuelle `game_config`-Werte. Bearer.
+- `POST /api/v1/game/ingest/{route_id}` — Re-Run der Ingestion (idempotent), nur Owner. Antwort: Match-/Pass-/Skip-Zähler.
+
+Ingestion läuft automatisch nicht-blockierend nach jedem Route-Upload. Voller Recompute: `php public/index.php game:recompute`.
+
 ---
 
 ## 6. iOS-Praxis
