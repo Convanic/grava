@@ -332,6 +332,24 @@ $webSurface  = new SurfaceCheckController($webSession, $auth, $routeSurface, $co
 $webReferral = new ReferralPagesController($config, $basePath . '/views');
 $webAdminRef = new AdminReferralPagesController($webSession, $auth, $referrals, $config, $basePath . '/views');
 
+// ---- Game-Admin-Dashboard (Stufe 1) — nur unter admin.grava.world erreichbar ----
+$adminGuard      = new \App\Game\Admin\AdminGuard((string)$config->get('ADMIN_EMAILS', ''));
+$gameAudit       = new \App\Game\Admin\GameAuditService(Db::pdo());
+$gameAdminSvc    = new \App\Game\Admin\GameAdminService(Db::pdo(), $gameRepo, $gameConfig);
+$gameCfgAdmin    = new \App\Game\Admin\GameConfigAdminService(Db::pdo(), $gameConfig, $gameAudit);
+$gameModeration  = new \App\Game\Admin\GameModerationService(Db::pdo(), $gameConfig);
+$gamePassAdmin   = new \App\Game\Admin\GamePassAdminService(Db::pdo(), $gameRepo, $gameRecalc, $gameAudit);
+$gameUserFlag    = new \App\Game\Admin\GameUserFlagService(Db::pdo(), $gameAudit);
+$webGameAdmin    = new \App\Controllers\Web\Admin\GameAdminController(
+    $webSession, $auth, $adminGuard, $gameAdminSvc, $gameCfgAdmin, $gameConfig,
+    $gameModeration, $gameRecompute, $gameAudit, $gameRepo, $gameIngest, $routeService,
+    new GeometryParser(), $basePath . '/views',
+);
+$webGameEdge     = new \App\Controllers\Web\Admin\GameEdgeInspectorController(
+    $webSession, $auth, $adminGuard, $gameAdminSvc, $gamePassAdmin, $gameUserFlag,
+    $gameRecalc, $gameRepo, $gameAudit, $basePath . '/views',
+);
+
 // ---- JSON API ----
 $router->post("{$apiBase}/auth/register",                fn($r) => $apiAuth->register($r));
 $router->post("{$apiBase}/auth/login",                   fn($r) => $apiAuth->login($r));
@@ -497,6 +515,22 @@ $router->get ('/i/{code}',                               fn($r) => $webReferral-
 $router->get ('/admin/referrals',                        fn($r) => $webAdminRef->index($r));
 $router->get ('/admin/referrals.csv',                    fn($r) => $webAdminRef->csv($r));
 
+// ---- Game-Admin-Dashboard (A–F) — ADMIN_EMAILS-Gate in den Controllern, Host-Gate vor dispatch ----
+$router->get ('/admin/game',                           fn($r) => $webGameAdmin->health($r));
+$router->get ('/admin/game/config',                    fn($r) => $webGameAdmin->config($r));
+$router->post('/admin/game/config',                    fn($r) => $webGameAdmin->saveConfig($r),  [$csrf]);
+$router->post('/admin/game/recompute',                 fn($r) => $webGameAdmin->recompute($r),   [$csrf]);
+$router->get ('/admin/game/ingest',                    fn($r) => $webGameAdmin->ingest($r));
+$router->post('/admin/game/ingest/{route_id}',         fn($r) => $webGameAdmin->reingest($r),    [$csrf]);
+$router->get ('/admin/game/moderation',                fn($r) => $webGameAdmin->moderation($r));
+$router->get ('/admin/game/players',                   fn($r) => $webGameAdmin->players($r));
+$router->get ('/admin/game/edge',                      fn($r) => $webGameEdge->show($r));
+$router->get ('/admin/game/edge/{id}',                 fn($r) => $webGameEdge->show($r));
+$router->post('/admin/game/edge/{id}/recalc',          fn($r) => $webGameEdge->recalcEdge($r),       [$csrf]);
+$router->post('/admin/game/pass/{pass_id}/invalidate', fn($r) => $webGameEdge->invalidatePass($r),   [$csrf]);
+$router->post('/admin/game/pass/{pass_id}/reactivate', fn($r) => $webGameEdge->reactivatePass($r),   [$csrf]);
+$router->post('/admin/game/user/{user_id}/ban',        fn($r) => $webGameEdge->banUser($r),          [$csrf]);
+
 // ---- Settings Web-UI (M3 Phase 0) ----
 $router->get ('/settings/handle',                        fn($r) => $webSetting->showHandle($r));
 $router->post('/settings/handle',                        fn($r) => $webSetting->doHandle($r), [$csrf]);
@@ -635,5 +669,33 @@ $router->post('/internal/heatmap/import', function (Request $r) use ($internalTo
 $router->get('/healthz', function ($r): void {
     Response::json(['status' => 'ok', 'time' => gmdate('Y-m-d\TH:i:s\Z')]);
 });
+
+// ---- Host-aware Admin-Split: /admin/* nur unter admin.grava.world, sonst 404 ----
+// Das PHP-Session-Cookie setzt keine Domain → die Admin-Session auf der
+// Subdomain ist automatisch host-gebunden (eigenes Cookie + CSRF).
+$isAdminHost = \App\Game\Admin\AdminHost::isAdmin(
+    (string)$request->header('Host', ''),
+    (string)$config->get('ADMIN_HOST', ''),
+    (string)$config->get('APP_URL', ''),
+);
+$reqPath = $request->path;
+$isAdminPath = ($reqPath === '/admin' || str_starts_with($reqPath, '/admin/'));
+if ($isAdminHost) {
+    if ($reqPath === '/') {
+        Response::redirect('/admin/game');
+    }
+    $allowed = $isAdminPath
+        || in_array($reqPath, ['/login', '/logout', '/auth/web-refresh', '/healthz'], true)
+        || str_starts_with($reqPath, '/internal/')
+        || str_starts_with($reqPath, '/assets/')
+        || $reqPath === '/favicon.ico'
+        || $reqPath === '/favicon.svg';
+    if (!$allowed) {
+        Response::error('not_found', 'Nicht gefunden.', 404);
+    }
+} elseif ($isAdminPath) {
+    // Hauptdomain: Admin-Seiten sind hier nicht erreichbar.
+    Response::error('not_found', 'Nicht gefunden.', 404);
+}
 
 $router->dispatch($request);
