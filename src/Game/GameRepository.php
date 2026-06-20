@@ -30,6 +30,17 @@ final class GameRepository
         return (int)$stmt->fetchColumn();
     }
 
+    /** Wie riderClaimantId, aber legt KEINEN Claimant an (für Lese-Pfade). */
+    public function findRiderClaimantId(int $userId): ?int
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT id FROM game_claimant WHERE type = "rider" AND user_id = ?'
+        );
+        $stmt->execute([$userId]);
+        $id = $stmt->fetchColumn();
+        return $id === false ? null : (int)$id;
+    }
+
     public function upsertNode(int $osmNodeId, float $lat, float $lon): int
     {
         $this->pdo->prepare(

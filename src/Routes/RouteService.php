@@ -49,6 +49,8 @@ final class RouteService
         // GPX-Payload und liefert sie für die Ausgabe. Nullable, damit
         // bestehende Aufrufer/Tests RouteService ohne Hinweise bauen können.
         private readonly ?RouteHintService $hints = null,
+        // Stufe 1 Gamification: nicht-blockierender Hook nach dem Upload.
+        private readonly ?\App\Game\GameIngestionService $game = null,
     ) {}
 
     /**
@@ -170,6 +172,17 @@ final class RouteService
             // deterministisch, also können wir das auch ohne $saved tun.
             $this->storage->deleteFile(sprintf('%d/%s/v%d.%s', $userId, $routePublicId, $newVersion, $parsed->sourceFormat));
             throw $e;
+        }
+
+        // Stufe 1: Spiel-Ingestion best effort — darf den Upload NIE kippen
+        // (Spec §2). Bei Valhalla-Ausfall bleibt die Route gespeichert; ein
+        // späterer POST /game/ingest/{route_id} holt es nach.
+        if ($this->game !== null) {
+            try {
+                $this->game->ingest($routeId, $userId, $parsed, $parsed->startedAt !== null, null);
+            } catch (Throwable $e) {
+                error_log('RouteService: Spiel-Ingestion fehlgeschlagen (pending): ' . $e->getMessage());
+            }
         }
 
         $route = $this->routes->findByPublicId($routePublicId, $userId);

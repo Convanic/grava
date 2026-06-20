@@ -90,6 +90,15 @@ use App\Routes\RouteStorage;
 use App\Routes\ShareTokenService;
 use App\Routes\SurfaceTrack;
 use App\Routes\RouteInsights;
+use App\Game\GameConfig;
+use App\Game\GameRepository;
+use App\Game\EdgeRecalculator;
+use App\Game\ValhallaEdgeMatcher;
+use App\Game\GameIngestionService;
+use App\Game\GameReadService;
+use App\Game\GameRecomputeService;
+use App\Controllers\Api\GameController;
+use App\Database\Db;
 
 $basePath = dirname(__DIR__);
 
@@ -163,13 +172,27 @@ $auth       = new AuthService($config, $passwords, $tokens, $mailer, $referrals)
 $cookieAuth = new CookieAuth($config, $tokens);
 $webSession = new WebSession($config);
 
+// Stufe 1 Gamification. Lokaler Valhalla via VALHALLA_BASE_URL (Fallback VALHALLA_URL).
+$gameEnabled  = $config->bool('GAME_ENABLED', true);
+$gameConfig   = new GameConfig(Db::pdo());
+$gameRepo     = new GameRepository(Db::pdo());
+$gameRecalc   = new EdgeRecalculator($gameRepo, $gameConfig);
+$gameValhalla = new ValhallaClient(
+    (string)($config->get('VALHALLA_BASE_URL', $config->get('VALHALLA_URL', 'http://localhost:8002')) ?? 'http://localhost:8002'),
+    (string)($config->get('VALHALLA_COSTING', 'bicycle') ?? 'bicycle'),
+);
+$gameMatcher   = new ValhallaEdgeMatcher($gameValhalla);
+$gameIngest    = new GameIngestionService($gameMatcher, $gameRepo, $gameRecalc, $gameConfig, Db::pdo());
+$gameRead      = new GameReadService($gameRepo, $gameConfig);
+$gameRecompute = new GameRecomputeService($gameRepo, $gameRecalc);
+
 // M2: Routes-Stack
 $routeStorage = new RouteStorage($config);
 $routeRepo    = new RouteRepository();
 // M8: Wegpunkt-Hinweise — parst <wpt>-Hinweise aus dem GPX-Payload beim
 // Upload und liefert sie für Route-JSON + GeoJSON-Antworten.
 $routeHints   = new RouteHintService(new RouteHintParser(), new RouteHintRepository());
-$routeService = new RouteService($routeRepo, $routeStorage, new GeometryParser(), new GeometryStats(), $routeHints);
+$routeService = new RouteService($routeRepo, $routeStorage, new GeometryParser(), new GeometryStats(), $routeHints, $gameEnabled ? $gameIngest : null);
 $shareTokens  = new ShareTokenService($routeRepo);
 // GeoJSON-Konverter für die Web-Karten (eigener Parser, zustandslos).
 // SurfaceTrack färbt GPX-Tracks mit <ge:surfaceScore> ein.
@@ -211,7 +234,7 @@ $routeSurface = new RouteSurfaceService(
 // CLI dispatch
 // ---------------------------------------------------------------------------
 if (PHP_SAPI === 'cli') {
-    $cli = new Commands($basePath, $tokens, $routeService, $config, new NotificationService(), new HeatmapService(), $heatmapLines);
+    $cli = new Commands($basePath, $tokens, $routeService, $config, new NotificationService(), new HeatmapService(), $heatmapLines, $gameRecompute);
     exit($cli->run($_SERVER['argv'] ?? []));
 }
 
@@ -294,6 +317,7 @@ $apiIntegr   = new IntegrationsController($stravaServ);
 $apiHeatmap  = new HeatmapController($heatmapServ);
 $apiHeatmapLines = new HeatmapLinesController($heatmapLines);
 $apiReferral = new ReferralController($referrals);
+$apiGame = new GameController($gameRead, $gameRepo, $gameIngest, $gameConfig, $routeService, new GeometryParser());
 $webAuth    = new AuthPagesController($auth, $cookieAuth, $webSession, $rate, $basePath . '/views');
 $webHome    = new DashboardController($webSession, $auth, $basePath . '/views');
 $webRefresh = new WebRefreshController($cookieAuth, $webSession);
@@ -416,6 +440,13 @@ $router->get("{$apiBase}/heatmap/lines",                          fn($r) => $api
 // Eigener Code/Link + Statistik. Kein öffentliches Leaderboard.
 $router->get("{$apiBase}/referrals/me",                           fn($r) => $apiReferral->me($r), [$requireBearer]);
 
+// ---- Game (Stufe 1 — Territorialspiel) ----
+$router->get("{$apiBase}/game/edges",              fn($r) => $apiGame->edges($r),    [$optionalBearer]);
+$router->get("{$apiBase}/game/edges/{id}",         fn($r) => $apiGame->edge($r),     [$optionalBearer]);
+$router->get("{$apiBase}/game/me",                 fn($r) => $apiGame->me($r),       [$requireBearer]);
+$router->get("{$apiBase}/game/config",             fn($r) => $apiGame->config($r),   [$requireBearer]);
+$router->post("{$apiBase}/game/ingest/{route_id}", fn($r) => $apiGame->reingest($r), [$requireBearer]);
+
 // ---- Web pages ----
 $router->get('/',                  fn($r) => Response::redirect('/dashboard'));
 $router->get('/login',             fn($r) => $webAuth->showLogin($r));
@@ -512,7 +543,7 @@ $router->post('/u/{handle}/r/{id}/comments/{cid}/delete', fn($r) => $webEngage->
 // und verhalten sich wie eine unbekannte Route (404).
 $internalToken = (string)($config->get('INTERNAL_TOKEN', '') ?? '');
 $runInternal = function (Request $r, string $command)
-    use ($internalToken, $basePath, $tokens, $routeService, $config, $heatmapLines) {
+    use ($internalToken, $basePath, $tokens, $routeService, $config, $heatmapLines, $gameRecompute) {
     if ($internalToken === '') {
         Response::error('not_found', 'Nicht gefunden.', 404);
     }
@@ -520,7 +551,7 @@ $runInternal = function (Request $r, string $command)
     if ($provided === '' || !hash_equals($internalToken, $provided)) {
         Response::error('not_found', 'Nicht gefunden.', 404);
     }
-    $cli = new Commands($basePath, $tokens, $routeService, $config, new NotificationService(), new HeatmapService(), $heatmapLines);
+    $cli = new Commands($basePath, $tokens, $routeService, $config, new NotificationService(), new HeatmapService(), $heatmapLines, $gameRecompute);
     ob_start();
     try {
         $code = $cli->run(['internal', $command]);
@@ -555,6 +586,8 @@ $router->get('/internal/cron/heatmap',  fn($r) => $runInternal($r, 'cron:heatmap
 $router->post('/internal/cron/heatmap', fn($r) => $runInternal($r, 'cron:heatmap'));
 $router->get('/internal/cron/heatmap-lines',  fn($r) => $runInternal($r, 'cron:heatmap-lines'));
 $router->post('/internal/cron/heatmap-lines', fn($r) => $runInternal($r, 'cron:heatmap-lines'));
+$router->get('/internal/cron/game-recompute',  fn($r) => $runInternal($r, 'game:recompute'));
+$router->post('/internal/cron/game-recompute', fn($r) => $runInternal($r, 'game:recompute'));
 // Cutover-Hinweg (Modell A): Manifest der public Routen für den lokalen
 // Rebuild. Reines Lesen (kein Valhalla), daher auch auf PROD unbedenklich.
 $router->get('/internal/heatmap/manifest',  fn($r) => $runInternal($r, 'heatmap:manifest'));
