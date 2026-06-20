@@ -109,6 +109,6 @@ final class EdgeRecalculator
     {
         $dt = new DateTimeImmutable($mysqlDatetime, new DateTimeZone('UTC'));
         $seconds = $now->getTimestamp() - $dt->getTimestamp();
-        return $seconds / 86400.0;
+        return max(0.0, $seconds / 86400.0);
     }
 }
