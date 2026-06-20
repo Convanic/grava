@@ -29,7 +29,8 @@ final class GameIngestionService
 
     /**
      * @return array{matched:int,passes_new:int,skipped_day_cap:int,
-     *               skipped_auth_speed:int,skipped_auth_hacc:int,skipped_no_motion:int}
+     *               skipped_auth_speed:int,skipped_auth_hacc:int,skipped_no_motion:int,
+     *               banned:bool}
      */
     public function ingest(
         int $routeId,
@@ -42,11 +43,20 @@ final class GameIngestionService
         $summary = [
             'matched' => 0, 'passes_new' => 0, 'skipped_day_cap' => 0,
             'skipped_auth_speed' => 0, 'skipped_auth_hacc' => 0, 'skipped_no_motion' => 0,
+            'banned' => false,
         ];
+
+        if ($this->repo->isUserBanned($userId)) {
+            $summary['banned'] = true;
+            $this->repo->insertIngestLog($routeId, $userId, 'ok', 0, 0, ['banned' => 1], null, 0);
+            return $summary;
+        }
+        $startedAt = microtime(true);
 
         $segments = $this->matcher->match($route);
         $summary['matched'] = count($segments);
         if ($segments === []) {
+            $this->logOk($routeId, $userId, $summary, $startedAt);
             return $summary;
         }
 
@@ -112,7 +122,28 @@ final class GameIngestionService
             throw $e;
         }
 
+        $this->logOk($routeId, $userId, $summary, $startedAt);
         return $summary;
+    }
+
+    /** @param array{matched:int,passes_new:int,skipped_day_cap:int,skipped_auth_speed:int,skipped_auth_hacc:int,skipped_no_motion:int,banned:bool} $summary */
+    private function logOk(int $routeId, int $userId, array $summary, float $startedAt): void
+    {
+        $this->repo->insertIngestLog(
+            $routeId,
+            $userId,
+            'ok',
+            $summary['matched'],
+            $summary['passes_new'],
+            [
+                'day_cap'    => $summary['skipped_day_cap'],
+                'auth_speed' => $summary['skipped_auth_speed'],
+                'auth_hacc'  => $summary['skipped_auth_hacc'],
+                'no_motion'  => $summary['skipped_no_motion'],
+            ],
+            null,
+            (int) round((microtime(true) - $startedAt) * 1000),
+        );
     }
 
     /** @param list<array{0:float,1:float}> $geom @return array{0:float,1:float,2:float,3:float} */
