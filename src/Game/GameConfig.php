@@ -32,6 +32,9 @@ final class GameConfig
         'auth_max_hacc_m'      => '30',
         'auth_require_motion'  => '1',
         'start_buffer_m'       => '0',
+        'auth_max_speed_kmh'        => '80',
+        'mod_max_new_edges_per_min' => '30',
+        'mod_max_passes_per_day'    => '200',
     ];
 
     public function __construct(private readonly PDO $pdo) {}
