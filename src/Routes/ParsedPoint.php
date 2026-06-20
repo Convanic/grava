@@ -20,6 +20,8 @@ final class ParsedPoint
         public readonly float $lon,
         public readonly ?float $elevationM,
         public readonly ?DateTimeImmutable $timestamp,
+        public readonly ?float $speedMps = null,
+        public readonly ?float $horizontalAccuracyM = null,
     ) {
     }
 }
