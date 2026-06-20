@@ -467,7 +467,7 @@ für die Farbe; `surface` ist ein OSM/Valhalla-Fallback. Ungültige `bbox` ⇒ `
 - `GET /api/v1/game/edges/{id}` — Detail inkl. `value` (total/pioneer/popularity/curation) + `pioneer_cohort` (≤10).
 - `GET /api/v1/game/me` — eigene Statistik (gehaltene Kanten, Erstbefahrungen, gehaltene Länge). Bearer.
 - `GET /api/v1/game/config` — aktuelle `game_config`-Werte. Bearer.
-- `POST /api/v1/game/ingest/{route_id}` — Re-Run der Ingestion (idempotent), nur Owner. Antwort: Match-/Pass-/Skip-Zähler.
+- `POST /api/v1/game/ingest/{route_id}` — Re-Run der Ingestion (idempotent), nur Owner. `{route_id}` ist die **öffentliche Route-ID (UUID)**, konsistent mit `GET /routes/{id}` (intern-numerische ID wird rückwärtskompatibel ebenfalls akzeptiert). Antwort: Match-/Pass-/Skip-Zähler.
 
 Ingestion läuft automatisch nicht-blockierend nach jedem Route-Upload. Voller Recompute: `php public/index.php game:recompute`.
 

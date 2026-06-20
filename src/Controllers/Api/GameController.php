@@ -75,8 +75,11 @@ final class GameController
     public function reingest(Request $req): void
     {
         $uid = $this->userId($req);
-        $routeId = (int)($req->routeParams['route_id'] ?? 0);
-        $route = $this->repo->routeForIngest($routeId);
+        // iOS kennt nur die öffentliche Route-ID (UUID) — konsistent mit
+        // GET /routes/{id} & Co. resolveRouteForIngest() akzeptiert UUID
+        // ODER (rückwärtskompatibel) die interne numerische ID.
+        $routeRef = trim((string)($req->routeParams['route_id'] ?? ''));
+        $route = $this->repo->resolveRouteForIngest($routeRef);
         if ($route === null) {
             Response::error('not_found', 'Route nicht gefunden.', 404);
         }
@@ -85,7 +88,7 @@ final class GameController
         }
         $loaded = $this->routes->loadPayloadByPublicId($route['public_id']);
         $parsed = $this->parser->parse($loaded['payload']);
-        $summary = $this->ingest->ingest($routeId, $uid, $parsed, $parsed->startedAt !== null, null);
+        $summary = $this->ingest->ingest((int)$route['route_id'], $uid, $parsed, $parsed->startedAt !== null, null);
         Response::json($summary);
     }
 
