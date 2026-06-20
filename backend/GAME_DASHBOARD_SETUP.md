@@ -22,6 +22,8 @@ schaltet die `/admin/*`-Routen ausschließlich auf der Admin-Subdomain frei.
 | `ADMIN_EMAILS` | Kommagetrennte Liste der Admin-E-Mails — bestimmt, wer Admin ist. |
 | `APP_URL` | Bestehende Basis-URL der Hauptanwendung (Grundlage für `ADMIN_HOST`-Ableitung). |
 
+> **Wichtig:** Mindestens **eines** von `ADMIN_HOST` oder `APP_URL` muss gesetzt sein. Sind beide leer/unparsbar, ist das Gate fail-closed — `/admin/*` liefert dann auf **jedem** Host 404 (das Dashboard ist unerreichbar, ohne Fehlermeldung).
+
 ## Session
 
 Das `ge_session`-Cookie setzt **keine** `Domain` → das Admin-Login auf der Subdomain

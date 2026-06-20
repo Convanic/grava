@@ -42,7 +42,8 @@ $num = static fn($v): string => number_format((float)$v, 1);
         Pionier: <strong><?= $num($value['pioneer']) ?></strong> ·
         Popularität: <strong><?= $num($value['popularity']) ?></strong> ·
         Kuration: <strong><?= $num($value['curation']) ?></strong> ·
-        Gesamt: <strong><?= $num($value['total']) ?></strong>
+        Gesamt: <strong><?= $num($value['total']) ?></strong> ·
+        Frische: <strong><?= $num($edge['freshness_cached'] ?? 0) ?></strong>
     </p>
     <form method="post" action="/admin/game/edge/<?= $edgeIdInt ?>/recalc" class="inline-form">
         <input type="hidden" name="_csrf" value="<?= $e($_csrf) ?>">

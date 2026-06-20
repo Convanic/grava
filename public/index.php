@@ -681,7 +681,9 @@ $isAdminHost = \App\Game\Admin\AdminHost::isAdmin(
 $reqPath = $request->path;
 $isAdminPath = ($reqPath === '/admin' || str_starts_with($reqPath, '/admin/'));
 if ($isAdminHost) {
-    if ($reqPath === '/') {
+    // Root + Post-Login-Ziel (/dashboard) auf das Admin-Board umleiten,
+    // damit der Login-Flow auf der Subdomain nicht in einem 404 endet.
+    if ($reqPath === '/' || $reqPath === '/dashboard') {
         Response::redirect('/admin/game');
     }
     $allowed = $isAdminPath
