@@ -254,6 +254,21 @@ final class GameRepository
         );
     }
 
+    /** Setzt die materialisierten Live-Werte NUR der angegebenen Kanten zurück. @param list<int> $edgeIds */
+    public function resetEdgeCaches(array $edgeIds): void
+    {
+        if ($edgeIds === []) {
+            return;
+        }
+        $in = implode(',', array_fill(0, count($edgeIds), '?'));
+        $this->pdo->prepare(
+            "UPDATE game_edge SET
+                owner_claimant_id = NULL, owner_since = NULL,
+                value_cached = 0, freshness_cached = 0, last_pass_at = NULL
+             WHERE id IN ($in)"
+        )->execute(array_values($edgeIds));
+    }
+
     public function updateEdgeCached(
         int $edgeId,
         ?int $ownerClaimantId,

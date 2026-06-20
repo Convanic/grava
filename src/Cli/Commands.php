@@ -55,7 +55,7 @@ final class Commands
                 return $this->exportHeatmapEdges($argv);
 
             case 'game:recompute':
-                return $this->recomputeGame();
+                return $this->recomputeGame($argv);
 
             case 'help':
             default:
@@ -139,11 +139,25 @@ final class Commands
         return 0;
     }
 
-    private function recomputeGame(): int
+    /** @param list<string> $argv */
+    private function recomputeGame(array $argv): int
     {
         if ($this->gameRecompute === null) {
             echo "GameRecomputeService nicht verfügbar.\n";
             return 1;
+        }
+        $opts = $this->parseOptions($argv);
+        $bbox = trim((string)($opts['bbox'] ?? ''));
+        if ($bbox !== '') {
+            $parts = array_map('trim', explode(',', $bbox));
+            if (count($parts) !== 4 || array_filter($parts, static fn($p) => !is_numeric($p)) !== []) {
+                echo "Nutzung: game:recompute --bbox=minLon,minLat,maxLon,maxLat\n";
+                return 1;
+            }
+            [$minLon, $minLat, $maxLon, $maxLat] = array_map('floatval', $parts);
+            $n = $this->gameRecompute->recomputeBbox($minLon, $minLat, $maxLon, $maxLat);
+            echo "Spiel-Region neu berechnet: {$n} Kanten.\n";
+            return 0;
         }
         $n = $this->gameRecompute->recomputeAll();
         echo "Spiel neu berechnet: {$n} Kanten.\n";
@@ -308,7 +322,7 @@ final class Commands
         echo "  heatmap:manifest    (PROD) Gibt das Manifest der public Routen als JSON aus (Cutover-Hinweg)\n";
         echo "  heatmap:rebuild-local  (LOKAL) Rebuild aus Manifest + Dateien: --manifest=.. --routes-dir=..\n";
         echo "  heatmap:export-edges   (LOKAL) heatmap_edges als JSON exportieren: --out=..\n";
-        echo "  game:recompute      Berechnet alle Spiel-Kanten aus den Pässen neu\n";
+        echo "  game:recompute      Berechnet alle Spiel-Kanten aus den Pässen neu [--bbox=minLon,minLat,maxLon,maxLat]\n";
         echo "  help                Zeigt diese Hilfe\n";
     }
 }
