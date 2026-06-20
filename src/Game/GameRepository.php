@@ -209,6 +209,18 @@ final class GameRepository
         )->execute([$ownerClaimantId, $ownerSince, $value, $freshness, $lastPassAt, $edgeId]);
     }
 
+    /** @return array{user_id:int,public_id:string}|null */
+    public function routeForIngest(int $routeId): ?array
+    {
+        $stmt = $this->pdo->prepare('SELECT user_id, public_id FROM routes WHERE id = ?');
+        $stmt->execute([$routeId]);
+        $r = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($r === false) {
+            return null;
+        }
+        return ['user_id' => (int)$r['user_id'], 'public_id' => (string)$r['public_id']];
+    }
+
     /** @return array<string,mixed>|null Roh-Zeile der Kante. */
     public function edgeById(int $edgeId): ?array
     {
