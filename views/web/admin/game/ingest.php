@@ -12,6 +12,8 @@ $active = static fn(?string $s, ?string $cur): string => $s === $cur ? ' style="
     <a href="/admin/game/ingest">Ingest</a>
     <a href="/admin/game/moderation">Moderation</a>
     <a href="/admin/game/players">Spieler</a>
+    <a href="/admin/game/edge">Inspector</a>
+    <a href="/admin/game/map">Karte</a>
 </nav>
 <section class="card">
     <h1>Game · Ingest</h1>
@@ -20,6 +22,17 @@ $active = static fn(?string $s, ?string $cur): string => $s === $cur ? ' style="
         pending: <strong><?= (int)$ingestHealth['pending'] ?></strong> ·
         failed: <strong><?= (int)$ingestHealth['failed'] ?></strong> ·
         Match-Rate: <strong><?= number_format((float)$ingestHealth['match_rate'] * 100, 1) ?>&nbsp;%</strong>
+    </p>
+    <form method="post" action="/admin/game/ingest" class="inline-form" style="margin:.5rem 0">
+        <input type="hidden" name="_csrf" value="<?= $e($_csrf) ?>">
+        <label>Route ingestieren
+            <input type="text" name="route" placeholder="Route-ID oder Public-ID (UUID)" size="40">
+        </label>
+        <button type="submit" class="btn-primary">Ingestieren</button>
+    </form>
+    <p class="muted" style="margin-top:0">
+        Holt eine beliebige Route nachträglich ins Spiel — auch ohne bestehenden
+        Log-Eintrag. Akzeptiert die interne Route-ID (Zahl) oder die Public-ID.
     </p>
     <p class="inline-form">
         <a href="/admin/game/ingest"<?= $active(null, $status) ?>>Alle</a> ·

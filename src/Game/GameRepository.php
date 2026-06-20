@@ -300,6 +300,37 @@ final class GameRepository
         return ['user_id' => (int)$r['user_id'], 'public_id' => (string)$r['public_id']];
     }
 
+    /**
+     * Löst eine Eingabe (interne Route-ID als Zahl ODER Public-ID/UUID) zu
+     * Route auf. Für die manuelle Admin-Ingestion beliebiger Routen.
+     *
+     * @return array{route_id:int,user_id:int,public_id:string}|null
+     */
+    public function resolveRouteForIngest(string $idOrPublicId): ?array
+    {
+        $idOrPublicId = trim($idOrPublicId);
+        if ($idOrPublicId === '') {
+            return null;
+        }
+        if (ctype_digit($idOrPublicId)) {
+            $stmt = $this->pdo->prepare('SELECT id, user_id, public_id FROM routes WHERE id = ?');
+            $stmt->bindValue(1, (int)$idOrPublicId, PDO::PARAM_INT);
+        } else {
+            $stmt = $this->pdo->prepare('SELECT id, user_id, public_id FROM routes WHERE public_id = ?');
+            $stmt->bindValue(1, $idOrPublicId, PDO::PARAM_STR);
+        }
+        $stmt->execute();
+        $r = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($r === false) {
+            return null;
+        }
+        return [
+            'route_id'  => (int)$r['id'],
+            'user_id'   => (int)$r['user_id'],
+            'public_id' => (string)$r['public_id'],
+        ];
+    }
+
     /** @return array<string,mixed>|null Roh-Zeile der Kante. */
     public function edgeById(int $edgeId): ?array
     {
@@ -338,6 +369,42 @@ final class GameRepository
         $stmt = $this->pdo->prepare($sql);
         foreach ($params as $i => $v) {
             $stmt->bindValue($i + 1, $v, is_int($v) ? PDO::PARAM_INT : PDO::PARAM_STR);
+        }
+        $stmt->bindValue(count($params) + 1, $limit, PDO::PARAM_INT);
+        $stmt->execute();
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /**
+     * Kanten für die Admin-Übersichtskarte: Geometrie + Anzeige-Props inkl.
+     * Owner-Handle. BBox optional (null = alle, bis $limit). Rein lesend.
+     *
+     * @return list<array<string,mixed>>
+     */
+    public function edgesGeoForMap(
+        ?float $minLon,
+        ?float $minLat,
+        ?float $maxLon,
+        ?float $maxLat,
+        int $limit,
+    ): array {
+        $sql = 'SELECT e.id, e.geom_geojson, e.length_m, e.surface_character,
+                       e.owner_claimant_id, u.public_handle AS owner_handle,
+                       e.value_cached, e.freshness_cached, e.distinct_riders_total,
+                       e.min_lat, e.min_lon, e.max_lat, e.max_lon
+                  FROM game_edge e
+                  LEFT JOIN game_claimant c ON c.id = e.owner_claimant_id
+                  LEFT JOIN users u ON u.id = c.user_id';
+        $params = [];
+        $hasBbox = $minLon !== null && $minLat !== null && $maxLon !== null && $maxLat !== null;
+        if ($hasBbox) {
+            $sql .= ' WHERE e.max_lat >= ? AND e.min_lat <= ? AND e.max_lon >= ? AND e.min_lon <= ?';
+            $params = [$minLat, $maxLat, $minLon, $maxLon];
+        }
+        $sql .= ' ORDER BY e.id LIMIT ?';
+        $stmt = $this->pdo->prepare($sql);
+        foreach ($params as $i => $v) {
+            $stmt->bindValue($i + 1, $v, PDO::PARAM_STR);
         }
         $stmt->bindValue(count($params) + 1, $limit, PDO::PARAM_INT);
         $stmt->execute();

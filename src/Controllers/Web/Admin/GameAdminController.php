@@ -136,18 +136,42 @@ final class GameAdminController
             $this->flash('Route nicht gefunden.');
             Response::redirect('/admin/game/ingest');
         }
-        try {
-            $loaded = $this->routes->loadPayloadByPublicId($route['public_id']);
-            $parsed = $this->parser->parse($loaded['payload']);
-            $summary = $this->ingest->ingest($routeId, $route['user_id'], $parsed, $parsed->startedAt !== null, null);
-            $this->audit->record($adminId, 'ingest_rerun', 'route:' . $routeId, $summary);
-            $this->flash("Route {$routeId} neu ingestiert: {$summary['passes_new']} neue Pässe.");
-        } catch (Throwable $e) {
-            $this->repo->insertIngestLog($routeId, (int)$route['user_id'], 'failed', 0, 0, null, substr($e->getMessage(), 0, 255), null);
-            $this->audit->record($adminId, 'ingest_rerun_failed', 'route:' . $routeId, ['error' => $e->getMessage()]);
-            $this->flash('Re-Ingestion fehlgeschlagen: ' . $e->getMessage());
-        }
+        $this->ingestRoute($adminId, $routeId, (int)$route['user_id'], (string)$route['public_id']);
         Response::redirect('/admin/game/ingest');
+    }
+
+    /** Manuelle Ingestion per interner Route-ID ODER Public-ID (Formular). */
+    public function ingestByRoute(Request $req): void
+    {
+        [, $adminId] = $this->requireAdmin();
+        $input = trim((string)$req->input('route', ''));
+        if ($input === '') {
+            $this->flash('Bitte eine Route-ID oder Public-ID angeben.');
+            Response::redirect('/admin/game/ingest');
+        }
+        $route = $this->repo->resolveRouteForIngest($input);
+        if ($route === null) {
+            $this->flash("Keine Route gefunden für: {$input}");
+            Response::redirect('/admin/game/ingest');
+        }
+        $this->ingestRoute($adminId, (int)$route['route_id'], (int)$route['user_id'], (string)$route['public_id']);
+        Response::redirect('/admin/game/ingest');
+    }
+
+    /** Gemeinsame Ingest-Ausführung mit Audit + Flash (reingest + manuell). */
+    private function ingestRoute(int $adminId, int $routeId, int $userId, string $publicId): void
+    {
+        try {
+            $loaded = $this->routes->loadPayloadByPublicId($publicId);
+            $parsed = $this->parser->parse($loaded['payload']);
+            $summary = $this->ingest->ingest($routeId, $userId, $parsed, $parsed->startedAt !== null, null);
+            $this->audit->record($adminId, 'ingest_rerun', 'route:' . $routeId, $summary);
+            $this->flash("Route {$routeId} ingestiert: {$summary['passes_new']} neue Pässe (gematcht: {$summary['matched']}).");
+        } catch (Throwable $e) {
+            $this->repo->insertIngestLog($routeId, $userId, 'failed', 0, 0, null, substr($e->getMessage(), 0, 255), null);
+            $this->audit->record($adminId, 'ingest_rerun_failed', 'route:' . $routeId, ['error' => $e->getMessage()]);
+            $this->flash('Ingestion fehlgeschlagen: ' . $e->getMessage());
+        }
     }
 
     public function moderation(Request $req): void
@@ -169,6 +193,84 @@ final class GameAdminController
             'flash' => $this->takeFlash(),
             'rows' => $this->admin->leaderboard(50),
         ]);
+    }
+
+    /** Regions-Übersichtskarte (Leaflet). Daten kommen per GeoJSON-Endpunkt. */
+    public function map(Request $req): void
+    {
+        [$user] = $this->requireAdmin();
+        $this->view->render('admin/game/map', [
+            '_title' => 'Game · Karte', '_authedUser' => $user, '_layoutWide' => true,
+            'flash' => $this->takeFlash(),
+        ]);
+    }
+
+    /**
+     * GeoJSON-FeatureCollection der Kanten (optional BBox-gefiltert) für die
+     * Übersichtskarte. Props: owner/value/freshness zum Einfärben am Client.
+     */
+    public function edgesGeoJson(Request $req): void
+    {
+        $this->requireAdmin();
+        [$minLon, $minLat, $maxLon, $maxLat] = $this->parseBbox((string)($req->query['bbox'] ?? ''));
+        $limit = (int)($req->query['limit'] ?? 5000);
+        $limit = max(1, min(8000, $limit));
+
+        $rows = $this->repo->edgesGeoForMap($minLon, $minLat, $maxLon, $maxLat, $limit);
+
+        $features = [];
+        $maxValue = 0.0;
+        $bMinLon = $bMinLat = INF;
+        $bMaxLon = $bMaxLat = -INF;
+        foreach ($rows as $r) {
+            $geom = json_decode((string)$r['geom_geojson'], true);
+            if (!is_array($geom) || !isset($geom['coordinates'])) {
+                continue;
+            }
+            $value = (float)$r['value_cached'];
+            $maxValue = max($maxValue, $value);
+            $bMinLon = min($bMinLon, (float)$r['min_lon']);
+            $bMinLat = min($bMinLat, (float)$r['min_lat']);
+            $bMaxLon = max($bMaxLon, (float)$r['max_lon']);
+            $bMaxLat = max($bMaxLat, (float)$r['max_lat']);
+            $features[] = [
+                'type' => 'Feature',
+                'geometry' => $geom,
+                'properties' => [
+                    'id'           => (int)$r['id'],
+                    'owner_id'     => $r['owner_claimant_id'] !== null ? (int)$r['owner_claimant_id'] : null,
+                    'owner_handle' => $r['owner_handle'] !== null ? (string)$r['owner_handle'] : null,
+                    'value'        => round($value, 2),
+                    'freshness'    => round((float)$r['freshness_cached'], 3),
+                    'riders'       => (int)$r['distinct_riders_total'],
+                    'length_m'     => round((float)$r['length_m'], 1),
+                    'surface'      => $r['surface_character'] !== null ? (string)$r['surface_character'] : null,
+                ],
+            ];
+        }
+
+        $meta = ['count' => count($features), 'max_value' => round($maxValue, 2)];
+        if ($features !== []) {
+            $meta['bbox'] = [$bMinLon, $bMinLat, $bMaxLon, $bMaxLat];
+        }
+
+        Response::json(['type' => 'FeatureCollection', 'features' => $features, 'meta' => $meta]);
+    }
+
+    /**
+     * @return array{0:?float,1:?float,2:?float,3:?float} [minLon,minLat,maxLon,maxLat] oder vier null.
+     */
+    private function parseBbox(string $bbox): array
+    {
+        if ($bbox === '') {
+            return [null, null, null, null];
+        }
+        $parts = array_map('trim', explode(',', $bbox));
+        if (count($parts) !== 4 || array_filter($parts, static fn($p) => !is_numeric($p)) !== []) {
+            return [null, null, null, null];
+        }
+        [$minLon, $minLat, $maxLon, $maxLat] = array_map('floatval', $parts);
+        return [$minLon, $minLat, $maxLon, $maxLat];
     }
 
     /** @return array{0:array<string,mixed>,1:int} [user, adminId] */
