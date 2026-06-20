@@ -21,6 +21,7 @@ final class Commands
         private readonly ?NotificationService $notifications = null,
         private readonly ?HeatmapService $heatmap = null,
         private readonly ?HeatmapLinesService $heatmapLines = null,
+        private readonly ?\App\Game\GameRecomputeService $gameRecompute = null,
     ) {}
 
     public function run(array $argv): int
@@ -52,6 +53,9 @@ final class Commands
 
             case 'heatmap:export-edges':
                 return $this->exportHeatmapEdges($argv);
+
+            case 'game:recompute':
+                return $this->recomputeGame();
 
             case 'help':
             default:
@@ -132,6 +136,17 @@ final class Commands
             array_values($merged),
         ));
         error_log("cron:cleanup [{$summary}]");
+        return 0;
+    }
+
+    private function recomputeGame(): int
+    {
+        if ($this->gameRecompute === null) {
+            echo "GameRecomputeService nicht verfügbar.\n";
+            return 1;
+        }
+        $n = $this->gameRecompute->recomputeAll();
+        echo "Spiel neu berechnet: {$n} Kanten.\n";
         return 0;
     }
 
@@ -293,6 +308,7 @@ final class Commands
         echo "  heatmap:manifest    (PROD) Gibt das Manifest der public Routen als JSON aus (Cutover-Hinweg)\n";
         echo "  heatmap:rebuild-local  (LOKAL) Rebuild aus Manifest + Dateien: --manifest=.. --routes-dir=..\n";
         echo "  heatmap:export-edges   (LOKAL) heatmap_edges als JSON exportieren: --out=..\n";
+        echo "  game:recompute      Berechnet alle Spiel-Kanten aus den Pässen neu\n";
         echo "  help                Zeigt diese Hilfe\n";
     }
 }

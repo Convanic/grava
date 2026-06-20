@@ -180,6 +180,16 @@ final class GameRepository
         )->execute([$edgeId]);
     }
 
+    /** Setzt alle materialisierten Live-Werte zurück (für vollen Recompute). */
+    public function resetAllEdgeCaches(): void
+    {
+        $this->pdo->exec(
+            'UPDATE game_edge SET
+                owner_claimant_id = NULL, owner_since = NULL,
+                value_cached = 0, freshness_cached = 0, last_pass_at = NULL'
+        );
+    }
+
     public function updateEdgeCached(
         int $edgeId,
         ?int $ownerClaimantId,
