@@ -104,7 +104,8 @@ final class GameRepository
     public function distinctRidersTotal(int $edgeId): int
     {
         $stmt = $this->pdo->prepare(
-            'SELECT COUNT(DISTINCT user_id) FROM game_edge_pass WHERE edge_id = ?'
+            'SELECT COUNT(DISTINCT user_id) FROM game_edge_pass
+              WHERE edge_id = ? AND invalidated_at IS NULL'
         );
         $stmt->execute([$edgeId]);
         return (int)$stmt->fetchColumn();
@@ -115,7 +116,7 @@ final class GameRepository
     {
         $stmt = $this->pdo->prepare(
             'SELECT COUNT(DISTINCT user_id) FROM game_edge_pass
-              WHERE edge_id = ? AND ridden_on >= ?'
+              WHERE edge_id = ? AND ridden_on >= ? AND invalidated_at IS NULL'
         );
         $stmt->execute([$edgeId, $sinceDate]);
         return (int)$stmt->fetchColumn();
@@ -127,7 +128,8 @@ final class GameRepository
     public function passesForEdge(int $edgeId): array
     {
         $stmt = $this->pdo->prepare(
-            'SELECT claimant_id, user_id, ridden_at FROM game_edge_pass WHERE edge_id = ?'
+            'SELECT claimant_id, user_id, ridden_at FROM game_edge_pass
+              WHERE edge_id = ? AND invalidated_at IS NULL'
         );
         $stmt->execute([$edgeId]);
         $out = [];
@@ -151,7 +153,7 @@ final class GameRepository
                     MIN(p.claimant_id) AS claimant_id, u.public_handle AS handle
                FROM game_edge_pass p
                JOIN users u ON u.id = p.user_id
-              WHERE p.edge_id = ?
+              WHERE p.edge_id = ? AND p.invalidated_at IS NULL
               GROUP BY p.user_id, u.public_handle
               ORDER BY first_ridden_at ASC, p.user_id ASC
               LIMIT ?'
@@ -177,18 +179,69 @@ final class GameRepository
         $this->pdo->prepare(
             'UPDATE game_edge e SET
                 e.distinct_riders_total = (
-                    SELECT COUNT(DISTINCT user_id) FROM game_edge_pass WHERE edge_id = e.id
+                    SELECT COUNT(DISTINCT user_id) FROM game_edge_pass
+                     WHERE edge_id = e.id AND invalidated_at IS NULL
                 ),
                 e.discovered_at = (
-                    SELECT MIN(ridden_at) FROM game_edge_pass WHERE edge_id = e.id
+                    SELECT MIN(ridden_at) FROM game_edge_pass
+                     WHERE edge_id = e.id AND invalidated_at IS NULL
                 ),
                 e.discoverer_claimant_id = (
                     SELECT claimant_id FROM game_edge_pass
-                     WHERE edge_id = e.id
+                     WHERE edge_id = e.id AND invalidated_at IS NULL
                      ORDER BY ridden_at ASC, id ASC LIMIT 1
                 )
              WHERE e.id = ?'
         )->execute([$edgeId]);
+    }
+
+    /** Inspector: ALLE Pässe inkl. invalidierte (mit Handle + Route + Invalidierungs-Info). */
+    public function allPassesForEdge(int $edgeId): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT p.id, p.user_id, u.public_handle AS handle, p.route_id,
+                    p.ridden_on, p.ridden_at, p.invalidated_at, p.invalid_reason
+               FROM game_edge_pass p
+               JOIN users u ON u.id = p.user_id
+              WHERE p.edge_id = ?
+              ORDER BY p.ridden_at ASC, p.id ASC'
+        );
+        $stmt->execute([$edgeId]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /** @return list<int> Kanten-IDs im BBox (für Region-Recompute). */
+    public function edgeIdsInBbox(float $minLon, float $minLat, float $maxLon, float $maxLat): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT id FROM game_edge
+              WHERE max_lat >= ? AND min_lat <= ? AND max_lon >= ? AND min_lon <= ?
+              ORDER BY id'
+        );
+        $stmt->execute([$minLat, $maxLat, $minLon, $maxLon]);
+        return array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
+    }
+
+    /** Spiel-Sperre eines Users (Dashboard). */
+    public function isUserBanned(int $userId): bool
+    {
+        $stmt = $this->pdo->prepare('SELECT banned FROM game_user_flag WHERE user_id = ?');
+        $stmt->execute([$userId]);
+        $v = $stmt->fetchColumn();
+        return $v !== false && (int)$v === 1;
+    }
+
+    /** Schreibt eine Ingest-Log-Zeile. */
+    public function insertIngestLog(int $routeId, int $userId, string $status, int $matchedEdges, int $newPasses, ?array $skipped, ?string $valhallaError, ?int $durationMs): void
+    {
+        $this->pdo->prepare(
+            'INSERT INTO game_ingest_log (route_id, user_id, status, matched_edges, new_passes, skipped_json, valhalla_error, duration_ms)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+        )->execute([
+            $routeId, $userId, $status, $matchedEdges, $newPasses,
+            $skipped !== null ? json_encode($skipped, JSON_THROW_ON_ERROR) : null,
+            $valhallaError, $durationMs,
+        ]);
     }
 
     /** Setzt alle materialisierten Live-Werte zurück (für vollen Recompute). */
