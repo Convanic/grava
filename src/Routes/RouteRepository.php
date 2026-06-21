@@ -382,7 +382,12 @@ final class RouteRepository
         // Owner-Daten in einer zweiten Query auflösen — pro Route
         // das gleiche User-Set wäre möglich, aber bei n=20 Items ist
         // das eine 20er-IN-Query, die immer noch schnell ist.
-        $userIds = array_unique(array_map(fn($r) => (int)$r['user_id'], $rows));
+        // array_values: array_unique behält die Original-Keys, wodurch bei
+        // doppelten Owner-IDs (zwei Routen desselben Users im Result) eine
+        // Lücke in den Keys entsteht. PDO::execute() mit positionalen `?`
+        // erwartet aber eine 0-basierte, lückenlose Liste — sonst wirft es
+        // SQLSTATE[HY093] Invalid parameter number.
+        $userIds = array_values(array_unique(array_map(fn($r) => (int)$r['user_id'], $rows)));
         $owners = [];
         if ($userIds !== []) {
             $ph = implode(',', array_fill(0, count($userIds), '?'));
@@ -460,7 +465,10 @@ final class RouteRepository
         // Owner-Daten in einer zweiten Query (gleiches Pattern wie
         // searchPublic — DRY-Refactor wäre möglich, aber bei zwei
         // Aufrufstellen lohnt sich der Aufwand nicht).
-        $userIds = array_unique(array_map(fn($r) => (int)$r['user_id'], $rows));
+        // array_values: siehe searchPublic — array_unique behält Keys, was
+        // bei doppelten Owner-IDs eine Key-Lücke erzeugt und PDO::execute()
+        // mit positionalen `?` als SQLSTATE[HY093] quittiert.
+        $userIds = array_values(array_unique(array_map(fn($r) => (int)$r['user_id'], $rows)));
         $owners = [];
         if ($userIds !== []) {
             $ph = implode(',', array_fill(0, count($userIds), '?'));

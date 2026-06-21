@@ -640,6 +640,9 @@ $router->get('/internal/cron/heatmap-lines',  fn($r) => $runInternal($r, 'cron:h
 $router->post('/internal/cron/heatmap-lines', fn($r) => $runInternal($r, 'cron:heatmap-lines'));
 $router->get('/internal/cron/game-recompute',  fn($r) => $runInternal($r, 'game:recompute'));
 $router->post('/internal/cron/game-recompute', fn($r) => $runInternal($r, 'game:recompute'));
+// Read-only Log-Tail für Diagnose ohne SSH (z. B. frischer PDO/SQLSTATE-Stacktrace).
+$router->get('/internal/logtail',  fn($r) => $runInternal($r, 'internal:logtail'));
+$router->post('/internal/logtail', fn($r) => $runInternal($r, 'internal:logtail'));
 // Cutover-Hinweg (Modell A): Manifest der public Routen für den lokalen
 // Rebuild. Reines Lesen (kein Valhalla), daher auch auf PROD unbedenklich.
 $router->get('/internal/heatmap/manifest',  fn($r) => $runInternal($r, 'heatmap:manifest'));

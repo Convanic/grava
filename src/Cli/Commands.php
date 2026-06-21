@@ -57,6 +57,10 @@ final class Commands
             case 'game:recompute':
                 return $this->recomputeGame($argv);
 
+            case 'internal:logtail':
+            case 'logtail':
+                return $this->logTail($argv);
+
             case 'help':
             default:
                 $this->help();
@@ -161,6 +165,48 @@ final class Commands
         }
         $n = $this->gameRecompute->recomputeAll();
         echo "Spiel neu berechnet: {$n} Kanten.\n";
+        return 0;
+    }
+
+    /**
+     * Gibt die letzten Zeilen des PHP-Errorlogs (storage/logs/php.log) auf
+     * stdout aus — read-only Diagnose ohne SSH. Wird per /internal/logtail
+     * (token-geschützt) ausgelöst, z. B. um einen frischen PDO-Stacktrace
+     * (SQLSTATE) nachzuschlagen.
+     *
+     * @param list<string> $argv
+     */
+    private function logTail(array $argv): int
+    {
+        $lines = (int)($argv[2] ?? 200);
+        $lines = max(1, min(2000, $lines));
+        $file  = $this->basePath . '/storage/logs/php.log';
+        if (!is_file($file)) {
+            echo "Kein Logfile vorhanden: {$file}\n";
+            return 0;
+        }
+        // Effizient: nur das Dateiende lesen (bis ~512 KB), dann die
+        // letzten N Zeilen ausschneiden. So bleibt der Endpoint auch bei
+        // großen Logs bezahlbar.
+        $maxBytes = 512 * 1024;
+        $size     = (int)filesize($file);
+        $fh       = fopen($file, 'rb');
+        if ($fh === false) {
+            echo "Logfile nicht lesbar: {$file}\n";
+            return 1;
+        }
+        if ($size > $maxBytes) {
+            fseek($fh, -$maxBytes, SEEK_END);
+            fgets($fh); // angeschnittene erste Zeile verwerfen
+        }
+        $content = (string)stream_get_contents($fh);
+        fclose($fh);
+
+        $all  = preg_split("/\r\n|\n|\r/", rtrim($content, "\r\n"));
+        $all  = $all === false ? [] : $all;
+        $tail = array_slice($all, -$lines);
+        echo "--- letzte " . count($tail) . " Zeilen aus storage/logs/php.log ---\n";
+        echo implode("\n", $tail) . "\n";
         return 0;
     }
 
