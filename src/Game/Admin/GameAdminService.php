@@ -97,6 +97,46 @@ final class GameAdminService
         return $out;
     }
 
+    /**
+     * Crew-Rangliste: gehaltene Kanten/Länge + Pionierleistung je Crew-
+     * (Group-)Claimant, plus Mitgliederzahl und Captain. Zeigt alle Crews
+     * (auch ohne Territorium), sortiert nach Besitz.
+     *
+     * @return list<array{crew_id:int,name:string,slug:string,members:int,held_edges:int,held_length_m:float,pioneered:int,captain_handle:?string}>
+     */
+    public function crewLeaderboard(int $limit = 100): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT cr.id AS crew_id, cr.name, cr.slug,
+                    (SELECT COUNT(*) FROM game_crew_member m WHERE m.crew_id = cr.id) AS members,
+                    (SELECT COUNT(*) FROM game_edge e WHERE e.owner_claimant_id = cr.claimant_id) AS held_edges,
+                    (SELECT COALESCE(SUM(length_m),0) FROM game_edge e WHERE e.owner_claimant_id = cr.claimant_id) AS held_length_m,
+                    (SELECT COUNT(*) FROM game_edge e WHERE e.discoverer_claimant_id = cr.claimant_id) AS pioneered,
+                    cap.public_handle AS captain_handle
+               FROM game_crew cr
+               LEFT JOIN game_crew_member cm ON cm.crew_id = cr.id AND cm.role = "captain"
+               LEFT JOIN users cap ON cap.id = cm.user_id
+              ORDER BY held_edges DESC, held_length_m DESC, pioneered DESC, members DESC, cr.id ASC
+              LIMIT ?'
+        );
+        $stmt->bindValue(1, $limit, PDO::PARAM_INT);
+        $stmt->execute();
+        $out = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $out[] = [
+                'crew_id'        => (int)$r['crew_id'],
+                'name'           => (string)$r['name'],
+                'slug'           => (string)$r['slug'],
+                'members'        => (int)$r['members'],
+                'held_edges'     => (int)$r['held_edges'],
+                'held_length_m'  => (float)$r['held_length_m'],
+                'pioneered'      => (int)$r['pioneered'],
+                'captain_handle' => $r['captain_handle'] !== null ? (string)$r['captain_handle'] : null,
+            ];
+        }
+        return $out;
+    }
+
     /** @return array<string,mixed>|null Inspector-Aggregat einer Kante. */
     public function edgeInspector(int $edgeId, ?DateTimeImmutable $now = null): ?array
     {

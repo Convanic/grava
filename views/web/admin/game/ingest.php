@@ -12,6 +12,7 @@ $active = static fn(?string $s, ?string $cur): string => $s === $cur ? ' style="
     <a href="/admin/game/ingest">Ingest</a>
     <a href="/admin/game/moderation">Moderation</a>
     <a href="/admin/game/players">Spieler</a>
+    <a href="/admin/game/crews">Crews</a>
     <a href="/admin/game/edge">Inspector</a>
     <a href="/admin/game/map">Karte</a>
 </nav>

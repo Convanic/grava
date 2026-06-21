@@ -195,6 +195,16 @@ final class GameAdminController
         ]);
     }
 
+    public function crews(Request $req): void
+    {
+        [$user] = $this->requireAdmin();
+        $this->view->render('admin/game/crews', [
+            '_title' => 'Game · Crews', '_authedUser' => $user, '_layoutWide' => true,
+            'flash' => $this->takeFlash(),
+            'rows' => $this->admin->crewLeaderboard(100),
+        ]);
+    }
+
     /** Regions-Übersichtskarte (Leaflet). Daten kommen per GeoJSON-Endpunkt. */
     public function map(Request $req): void
     {

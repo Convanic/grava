@@ -11,6 +11,7 @@ $num = static fn($v): string => number_format((float)$v, 1);
     <a href="/admin/game/ingest">Ingest</a>
     <a href="/admin/game/moderation">Moderation</a>
     <a href="/admin/game/players">Spieler</a>
+    <a href="/admin/game/crews">Crews</a>
     <a href="/admin/game/map">Karte</a>
 </nav>
 <section class="card">

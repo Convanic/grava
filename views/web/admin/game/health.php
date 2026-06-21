@@ -11,6 +11,7 @@ $e = static fn($v): string => htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8');
     <a href="/admin/game/ingest">Ingest</a>
     <a href="/admin/game/moderation">Moderation</a>
     <a href="/admin/game/players">Spieler</a>
+    <a href="/admin/game/crews">Crews</a>
     <a href="/admin/game/edge">Inspector</a>
     <a href="/admin/game/map">Karte</a>
 </nav>

@@ -84,6 +84,66 @@ final class GameAdminServiceTest extends IntegrationTestCase
         $this->assertSame(1, $board[1]['held_edges']);
     }
 
+    private function makeCrew(string $name, string $slug, string $joinCode, int $captainUserId): array
+    {
+        $this->pdo->prepare('INSERT INTO game_claimant (type, user_id) VALUES ("group", NULL)')->execute();
+        $groupClaimant = (int)$this->pdo->lastInsertId();
+        $this->pdo->prepare(
+            'INSERT INTO game_crew (claimant_id, name, slug, owner_user_id, join_code) VALUES (?, ?, ?, ?, ?)'
+        )->execute([$groupClaimant, $name, $slug, $captainUserId, $joinCode]);
+        $crewId = (int)$this->pdo->lastInsertId();
+        $this->pdo->prepare('INSERT INTO game_crew_member (user_id, crew_id, role) VALUES (?, ?, "captain")')
+            ->execute([$captainUserId, $crewId]);
+        return [$crewId, $groupClaimant];
+    }
+
+    public function testCrewLeaderboardRanksByHeldEdgesAndExposesCaptain(): void
+    {
+        $cap1 = $this->createUser('captain1');
+        $cap2 = $this->createUser('captain2');
+        [, $gc1] = $this->makeCrew('Gravel Goats', 'gravel-goats', 'JOINAAA1', $cap1);
+        [, $gc2] = $this->makeCrew('Mud Movers', 'mud-movers', 'JOINBBB1', $cap2);
+
+        // weiteres Mitglied in Crew 1
+        $m = $this->createUser('member1');
+        $crew1Id = (int)$this->pdo->query("SELECT id FROM game_crew WHERE slug = 'gravel-goats'")->fetchColumn();
+        $this->pdo->prepare('INSERT INTO game_crew_member (user_id, crew_id, role) VALUES (?, ?, "member")')
+            ->execute([$m, $crew1Id]);
+
+        $e1 = $this->makeEdge(5001, 50, 51);
+        $e2 = $this->makeEdge(5002, 52, 53);
+        $e3 = $this->makeEdge(5003, 54, 55);
+
+        $upd = $this->pdo->prepare('UPDATE game_edge SET owner_claimant_id = ? WHERE id = ?');
+        $upd->execute([$gc1, $e1]);
+        $upd->execute([$gc1, $e2]);
+        $upd->execute([$gc2, $e3]);
+        $this->pdo->prepare('UPDATE game_edge SET discoverer_claimant_id = ? WHERE id = ?')->execute([$gc1, $e1]);
+
+        $board = $this->service->crewLeaderboard(10);
+
+        $this->assertCount(2, $board);
+        $this->assertSame('gravel-goats', $board[0]['slug']);
+        $this->assertSame(2, $board[0]['held_edges']);
+        $this->assertSame(2, $board[0]['members']);
+        $this->assertSame(1, $board[0]['pioneered']);
+        $this->assertSame('captain1', $board[0]['captain_handle']);
+        $this->assertSame('mud-movers', $board[1]['slug']);
+        $this->assertSame(1, $board[1]['held_edges']);
+    }
+
+    public function testCrewLeaderboardIncludesCrewsWithoutTerritory(): void
+    {
+        $cap = $this->createUser('lonelycap');
+        $this->makeCrew('Empty Crew', 'empty-crew', 'JOINCCC1', $cap);
+
+        $board = $this->service->crewLeaderboard(10);
+
+        $this->assertCount(1, $board);
+        $this->assertSame('empty-crew', $board[0]['slug']);
+        $this->assertSame(0, $board[0]['held_edges']);
+    }
+
     public function testHealthMetricsCounts(): void
     {
         $now = $this->now('2026-06-20T10:00:00Z');

@@ -99,7 +99,12 @@ final class GameController
             return null;
         }
         $uid = (int)($u->internal_id ?? 0);
-        return $uid > 0 ? $this->repo->findRiderClaimantId($uid) : null;
+        // Stufe 2: effektiver Claimant (Crew, wenn Mitglied, sonst Rider) —
+        // konsistent mit dem Besitz, den der EdgeRecalculator über den
+        // effektiven Claimant berechnet. Sonst gälten nach Crew-Beitritt die
+        // eigenen (jetzt crew-eigenen) Kanten als fremd: owner_is_me=false und
+        // der mine=1-Filter würde sie ausblenden.
+        return $uid > 0 ? $this->repo->effectiveClaimantId($uid) : null;
     }
 
     private function userId(Request $req): int

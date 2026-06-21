@@ -537,6 +537,7 @@ $router->post('/admin/game/ingest',                    fn($r) => $webGameAdmin->
 $router->post('/admin/game/ingest/{route_id}',         fn($r) => $webGameAdmin->reingest($r),    [$csrf]);
 $router->get ('/admin/game/moderation',                fn($r) => $webGameAdmin->moderation($r));
 $router->get ('/admin/game/players',                   fn($r) => $webGameAdmin->players($r));
+$router->get ('/admin/game/crews',                     fn($r) => $webGameAdmin->crews($r));
 $router->get ('/admin/game/map',                       fn($r) => $webGameAdmin->map($r));
 $router->get ('/admin/game/edges.geojson',             fn($r) => $webGameAdmin->edgesGeoJson($r));
 $router->get ('/admin/game/edge',                      fn($r) => $webGameEdge->show($r));
