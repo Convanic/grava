@@ -109,7 +109,9 @@ final class GameReadService
         }
         $dt = new DateTimeImmutable((string)$row['last_pass_at'], new DateTimeZone('UTC'));
         $ageDays = ($now->getTimestamp() - $dt->getTimestamp()) / 86400.0;
-        return GameMath::presenceWeight($ageDays, $this->config->int('presence_window_days'));
+        // min(1.0, …): future-dated last_pass (Clock-Skew) → ageDays < 0 →
+        // presenceWeight > 1.0. Freshness ∈ [0,1] kappen (kosmetisch, iOS #3).
+        return min(1.0, GameMath::presenceWeight($ageDays, $this->config->int('presence_window_days')));
     }
 
     /** @return array{total:float,pioneer:float,popularity:float,curation:float} */

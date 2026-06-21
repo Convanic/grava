@@ -82,4 +82,14 @@ final class GameReadServiceTest extends IntegrationTestCase
         $e = $this->read->edgesInBbox('9.6,47.1,9.7,47.2', null, $later, 100)[0];
         $this->assertEqualsWithDelta(0.5, $e['freshness'], 0.02);
     }
+
+    public function testFreshnessCappedAtOneForFuturePass(): void
+    {
+        // Lesen 10 Tage VOR dem (gespeicherten) last_pass → ageDays < 0 →
+        // presenceWeight > 1.0. Server muss kosmetisch auf 1.0 kappen (iOS #3).
+        $before = new DateTimeImmutable('2026-06-10T08:00:00Z', new DateTimeZone('UTC'));
+        $e = $this->read->edgesInBbox('9.6,47.1,9.7,47.2', null, $before, 100)[0];
+        $this->assertLessThanOrEqual(1.0, $e['freshness']);
+        $this->assertSame(1.0, $e['freshness']);
+    }
 }

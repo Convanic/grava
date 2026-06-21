@@ -124,10 +124,13 @@ final class EdgeRecalculator
 
         $freshness = 0.0;
         if ($newOwner !== null && isset($lastPassByClaimant[$newOwner])) {
-            $freshness = GameMath::presenceWeight(
+            // min(1.0, …): bei in der Zukunft liegendem last_pass (Client-/
+            // Server-Clock-Skew) wäre ageDays < 0 und presenceWeight > 1.0.
+            // Freshness ist per Definition ∈ [0,1], daher kappen.
+            $freshness = min(1.0, GameMath::presenceWeight(
                 $this->ageDays($lastPassByClaimant[$newOwner], $now),
                 $windowDays,
-            );
+            ));
         }
 
         $this->repo->updateEdgeCached(
