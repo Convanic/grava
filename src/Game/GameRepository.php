@@ -334,7 +334,8 @@ final class GameRepository
         $this->pdo->exec(
             'UPDATE game_edge SET
                 owner_claimant_id = NULL, owner_since = NULL,
-                value_cached = 0, freshness_cached = 0, last_pass_at = NULL'
+                value_cached = 0, freshness_cached = 0, last_pass_at = NULL,
+                traffic_factor_cached = 1.0, traffic_pass_count = 0, traffic_observations = 0'
         );
     }
 
@@ -348,7 +349,8 @@ final class GameRepository
         $this->pdo->prepare(
             "UPDATE game_edge SET
                 owner_claimant_id = NULL, owner_since = NULL,
-                value_cached = 0, freshness_cached = 0, last_pass_at = NULL
+                value_cached = 0, freshness_cached = 0, last_pass_at = NULL,
+                traffic_factor_cached = 1.0, traffic_pass_count = 0, traffic_observations = 0
              WHERE id IN ($in)"
         )->execute(array_values($edgeIds));
     }
@@ -360,6 +362,9 @@ final class GameRepository
         float $value,
         float $freshness,
         ?string $lastPassAt,
+        float $trafficFactor = 1.0,
+        int $trafficPassCount = 0,
+        int $trafficObservations = 0,
     ): void {
         $this->pdo->prepare(
             'UPDATE game_edge SET
@@ -367,9 +372,50 @@ final class GameRepository
                 owner_since = COALESCE(?, owner_since),
                 value_cached = ?,
                 freshness_cached = ?,
-                last_pass_at = ?
+                last_pass_at = ?,
+                traffic_factor_cached = ?,
+                traffic_pass_count = ?,
+                traffic_observations = ?
              WHERE id = ?'
-        )->execute([$ownerClaimantId, $ownerSince, $value, $freshness, $lastPassAt, $edgeId]);
+        )->execute([
+            $ownerClaimantId, $ownerSince, $value, $freshness, $lastPassAt,
+            $trafficFactor, $trafficPassCount, $trafficObservations, $edgeId,
+        ]);
+    }
+
+    /**
+     * Trägt die map-gematchten Vorbeifahrten einer Fahrt auf einer Kante ein
+     * (Quelle der Wahrheit für den Verkehrs-Faktor). Idempotent über den
+     * PK (edge_id, route_id) — Re-Ingest derselben Route überschreibt den
+     * Zähler statt zu addieren.
+     */
+    public function upsertEdgeTraffic(int $edgeId, int $routeId, int $passCount): void
+    {
+        $this->pdo->prepare(
+            'INSERT INTO game_edge_traffic (edge_id, route_id, pass_count)
+             VALUES (?, ?, ?)
+             ON DUPLICATE KEY UPDATE pass_count = VALUES(pass_count)'
+        )->execute([$edgeId, $routeId, $passCount]);
+    }
+
+    /**
+     * Aggregat über alle Fahrten: Summe Vorbeifahrten + Anzahl Beobachtungen
+     * (distinct Fahrten mit Radar) auf der Kante.
+     *
+     * @return array{pass_count:int, observations:int}
+     */
+    public function trafficAggregateForEdge(int $edgeId): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT COALESCE(SUM(pass_count), 0) AS pass_count, COUNT(*) AS observations
+               FROM game_edge_traffic WHERE edge_id = ?'
+        );
+        $stmt->execute([$edgeId]);
+        $r = $stmt->fetch(PDO::FETCH_ASSOC) ?: ['pass_count' => 0, 'observations' => 0];
+        return [
+            'pass_count'   => (int)$r['pass_count'],
+            'observations' => (int)$r['observations'],
+        ];
     }
 
     /** @return array{user_id:int,public_id:string}|null */

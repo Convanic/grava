@@ -618,6 +618,20 @@ final class RouteRepository
     }
 
     /**
+     * Setzt das Radar-Ride-Aggregat (Vorbeifahrten/km) einer Route. `null`
+     * löscht den Wert (Fahrt ohne Radar / Fremd-GPX).
+     */
+    public function updateTrafficPassesPerKm(int $routeId, ?float $passesPerKm): void
+    {
+        $stmt = Db::pdo()->prepare(
+            'UPDATE routes SET traffic_passes_per_km = ? WHERE id = ?'
+        );
+        $stmt->bindValue(1, $passesPerKm, $passesPerKm === null ? PDO::PARAM_NULL : PDO::PARAM_STR);
+        $stmt->bindValue(2, $routeId, PDO::PARAM_INT);
+        $stmt->execute();
+    }
+
+    /**
      * @return list<string>
      */
     public function listTags(int $routeId): array
@@ -645,6 +659,7 @@ final class RouteRepository
                     r.head_version_id,
                     r.distance_m,
                     r.elevation_gain_m,
+                    r.traffic_passes_per_km,
                     r.point_count,
                     r.bbox_min_lat,
                     r.bbox_min_lon,
@@ -683,6 +698,8 @@ final class RouteRepository
             'stats'             => [
                 'distance_m'        => $row['distance_m']       === null ? null : (int)$row['distance_m'],
                 'elevation_gain_m'  => $row['elevation_gain_m'] === null ? null : (int)$row['elevation_gain_m'],
+                'traffic_passes_per_km' => !array_key_exists('traffic_passes_per_km', $row) || $row['traffic_passes_per_km'] === null
+                    ? null : round((float)$row['traffic_passes_per_km'], 2),
                 'point_count'       => $row['point_count']      === null ? null : (int)$row['point_count'],
                 'started_at'        => $row['head_started_at']  === null ? null : self::isoUtc((string)$row['head_started_at']),
                 'ended_at'          => $row['head_ended_at']    === null ? null : self::isoUtc((string)$row['head_ended_at']),

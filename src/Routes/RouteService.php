@@ -87,6 +87,12 @@ final class RouteService
         $parsed = $this->parser->parse($payload);
         $stats  = $this->stats->compute($parsed);
 
+        // Radar-Verkehr aus dem GPX (RADAR_TRAFFIC_BACKEND.md). GeoJSON trägt
+        // keine Radar-Daten → neutrale, leere Daten.
+        $radar = $parsed->sourceFormat === 'gpx'
+            ? RadarTrafficParser::parse($payload)
+            : RadarTrafficData::empty();
+
         $existing = null;
         if ($clientRouteUuid !== null && $clientRouteUuid !== '') {
             $existing = $this->routes->findByClientUuid($userId, $clientRouteUuid);
@@ -147,6 +153,8 @@ final class RouteService
             // GeoJSON-Re-Upload soll bestehende Hinweise also nicht löschen.
             if ($parsed->sourceFormat === 'gpx') {
                 $this->hints?->syncFromPayload($routeId, $payload);
+                // Ride-Aggregat für die Routen-Anzeige (ohne Map-Matching).
+                $this->routes->updateTrafficPassesPerKm($routeId, $radar->passesPerKm);
             }
 
             if (!$isNew) {
@@ -179,7 +187,7 @@ final class RouteService
         // späterer POST /game/ingest/{route_id} holt es nach.
         if ($this->game !== null) {
             try {
-                $this->game->ingest($routeId, $userId, $parsed, $parsed->startedAt !== null, null);
+                $this->game->ingest($routeId, $userId, $parsed, $parsed->startedAt !== null, null, $radar);
             } catch (Throwable $e) {
                 error_log('RouteService: Spiel-Ingestion fehlgeschlagen (pending): ' . $e->getMessage());
             }

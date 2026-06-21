@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace App\Game;
 
 use App\Routes\ParsedRoute;
+use App\Routes\RadarTrafficData;
 use App\Support\Clock;
 use DateTimeImmutable;
 use PDO;
@@ -38,6 +39,7 @@ final class GameIngestionService
         ParsedRoute $route,
         bool $sourceHasMotion,
         ?DateTimeImmutable $now = null,
+        ?RadarTrafficData $radar = null,
     ): array {
         $now ??= Clock::nowUtc();
         $summary = [
@@ -66,6 +68,7 @@ final class GameIngestionService
         $requireMotion = $this->config->bool('auth_require_motion');
 
         $touched = [];
+        $edgeGeoms = []; // [edgeId => list<[lon,lat]>] für das Radar-Map-Matching
         $this->pdo->beginTransaction();
         try {
             foreach ($segments as $seg) {
@@ -109,6 +112,15 @@ final class GameIngestionService
                     $summary['skipped_day_cap']++;
                 }
                 $touched[$edgeId] = true;
+                $edgeGeoms[$edgeId] = $geom;
+            }
+
+            // Radar-Verkehr: Vorbeifahrten den befahrenen Kanten zuordnen.
+            // Eine Fahrt mit aktivem Radar erzeugt für JEDE befahrene Kante
+            // eine Beobachtung (pass_count ggf. 0 = leise) — Quelle der
+            // Wahrheit ist game_edge_traffic, der Faktor entsteht im Recompute.
+            if ($radar !== null && $radar->hasRadar() && $edgeGeoms !== []) {
+                $this->recordTraffic($routeId, $radar, $edgeGeoms);
             }
 
             foreach (array_keys($touched) as $edgeId) {
@@ -152,5 +164,95 @@ final class GameIngestionService
         $lons = array_map(static fn($c) => (float)$c[0], $geom);
         $lats = array_map(static fn($c) => (float)$c[1], $geom);
         return [min($lats), min($lons), max($lats), max($lons)];
+    }
+
+    /**
+     * Ordnet jede Vorbeifahrt der nächstgelegenen befahrenen Kante zu (innerhalb
+     * der Toleranz) und schreibt pro Kante eine game_edge_traffic-Zeile — auch
+     * für Kanten mit 0 zugeordneten Pässen (leise Beobachtung).
+     *
+     * @param array<int,list<array{0:float,1:float}>> $edgeGeoms [edgeId => [lon,lat]…]
+     */
+    private function recordTraffic(int $routeId, RadarTrafficData $radar, array $edgeGeoms): void
+    {
+        $maxDist = $this->config->float('traffic_match_max_dist_m');
+        $passCounts = array_fill_keys(array_keys($edgeGeoms), 0);
+
+        foreach ($radar->passes as [$plat, $plon]) {
+            $bestEdge = null;
+            $bestDist = INF;
+            foreach ($edgeGeoms as $edgeId => $geom) {
+                $d = self::pointToPolylineMeters($plat, $plon, $geom);
+                if ($d < $bestDist) {
+                    $bestDist = $d;
+                    $bestEdge = $edgeId;
+                }
+            }
+            if ($bestEdge !== null && $bestDist <= $maxDist) {
+                $passCounts[$bestEdge]++;
+            }
+        }
+
+        foreach ($passCounts as $edgeId => $count) {
+            $this->repo->upsertEdgeTraffic((int)$edgeId, $routeId, $count);
+        }
+    }
+
+    /**
+     * Kürzeste Distanz (Meter) eines Punkts zu einem Polylinienzug. Lokale
+     * equirektanguläre Projektion — für die kleinen Distanzen (< ~100 m) beim
+     * Radar-Matching mehr als genau genug.
+     *
+     * @param list<array{0:float,1:float}> $geom Stützpunkte als [lon, lat]
+     */
+    private static function pointToPolylineMeters(float $lat, float $lon, array $geom): float
+    {
+        $n = count($geom);
+        if ($n === 0) {
+            return INF;
+        }
+        $mPerDegLat = 111320.0;
+        $mPerDegLon = 111320.0 * cos(deg2rad($lat));
+        $px = 0.0; // Referenzpunkt = der Pass selbst → (0,0)
+        $py = 0.0;
+        $project = static function (array $c) use ($lat, $lon, $mPerDegLat, $mPerDegLon): array {
+            return [
+                ((float)$c[0] - $lon) * $mPerDegLon, // x: lon-Differenz
+                ((float)$c[1] - $lat) * $mPerDegLat, // y: lat-Differenz
+            ];
+        };
+
+        if ($n === 1) {
+            [$x, $y] = $project($geom[0]);
+            return sqrt($x * $x + $y * $y);
+        }
+
+        $best = INF;
+        for ($i = 0; $i < $n - 1; $i++) {
+            [$ax, $ay] = $project($geom[$i]);
+            [$bx, $by] = $project($geom[$i + 1]);
+            $best = min($best, self::pointToSegmentMeters($px, $py, $ax, $ay, $bx, $by));
+        }
+        return $best;
+    }
+
+    private static function pointToSegmentMeters(
+        float $px, float $py, float $ax, float $ay, float $bx, float $by,
+    ): float {
+        $dx = $bx - $ax;
+        $dy = $by - $ay;
+        $lenSq = $dx * $dx + $dy * $dy;
+        if ($lenSq <= 0.0) {
+            $ex = $px - $ax;
+            $ey = $py - $ay;
+            return sqrt($ex * $ex + $ey * $ey);
+        }
+        $t = (($px - $ax) * $dx + ($py - $ay) * $dy) / $lenSq;
+        $t = max(0.0, min(1.0, $t));
+        $cx = $ax + $t * $dx;
+        $cy = $ay + $t * $dy;
+        $ex = $px - $cx;
+        $ey = $py - $cy;
+        return sqrt($ex * $ex + $ey * $ey);
     }
 }

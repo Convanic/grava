@@ -64,6 +64,8 @@ final class GameReadService
             'distinct_riders_total' => (int)$row['distinct_riders_total'],
             'pioneer_cohort'        => $cohort,
             'freshness'             => $base['freshness'],
+            'traffic_factor'        => $base['traffic_factor'],
+            'traffic_class'         => $base['traffic_class'],
             'geom'                  => $base['geom'],
         ];
     }
@@ -90,6 +92,9 @@ final class GameReadService
                 $owner = $info;
             }
         }
+        $observations  = (int)($row['traffic_observations'] ?? 0);
+        $trafficFactor = isset($row['traffic_factor_cached']) ? (float)$row['traffic_factor_cached'] : 1.0;
+
         return [
             'id'                    => (int)$row['id'],
             'geom'                  => json_decode((string)$row['geom_geojson'], true),
@@ -99,7 +104,30 @@ final class GameReadService
             'freshness'             => $this->freshnessNow($row, $now),
             'distinct_riders_total' => (int)$row['distinct_riders_total'],
             'surface_character'     => $row['surface_character'] !== null ? (string)$row['surface_character'] : null,
+            // Radar-Verkehr (additiv): Faktor + grobe Einstufung. Ohne Daten
+            // → factor 1.0 / class "unknown" (bricht den iOS-Decoder nicht).
+            'traffic_factor'        => round($trafficFactor, 3),
+            'traffic_class'         => self::trafficClass($observations, $trafficFactor),
         ];
+    }
+
+    /**
+     * Grobe Verkehrs-Einstufung für die App-Anzeige. Ohne Beobachtungen
+     * "unknown"; sonst aus dem Faktor abgeleitet (>1 = leiser/bonus,
+     * <1 = mehr Verkehr/malus).
+     */
+    private static function trafficClass(int $observations, float $factor): string
+    {
+        if ($observations <= 0) {
+            return 'unknown';
+        }
+        if ($factor >= 1.05) {
+            return 'quiet';
+        }
+        if ($factor <= 0.95) {
+            return 'busy';
+        }
+        return 'moderate';
     }
 
     private function freshnessNow(array $row, DateTimeImmutable $now): float

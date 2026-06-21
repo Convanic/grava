@@ -49,6 +49,42 @@ final class GameMath
     }
 
     /**
+     * Verkehrs-Faktor f_eff (RADAR_TRAFFIC_BACKEND.md §B3). Multipliziert
+     * am Ende den Kantenwert. **Keine Daten → exakt 1.0** (neutral).
+     *
+     *   t     = pass_count / max(km_summiert, ε)        # Vorbeifahrten/km
+     *   f     = clamp(1 + k·(t0 - t)/t0, f_min, f_max)
+     *   f_eff = 1 + (f - 1)·n / (n + n_prior)            # Shrinkage Richtung 1.0
+     *
+     * km_summiert = (edge_length_m / 1000) · observations (Expositions-km).
+     *
+     * @param int   $passCount     map-gematchte Vorbeifahrten auf der Kante
+     * @param int   $observations  distinct Fahrten mit Radar auf der Kante
+     * @param float $edgeLengthM   Länge der Kante in Metern
+     */
+    public static function trafficFactor(
+        int $passCount,
+        int $observations,
+        float $edgeLengthM,
+        float $t0,
+        float $k,
+        float $fMin,
+        float $fMax,
+        int $nPrior,
+    ): float {
+        if ($observations <= 0) {
+            return 1.0;
+        }
+        $eps = 1e-6;
+        $kmSummed = max(($edgeLengthM / 1000.0) * $observations, $eps);
+        $t  = $passCount / $kmSummed;
+        $t0 = $t0 <= 0.0 ? $eps : $t0;
+        $f  = 1.0 + $k * ($t0 - $t) / $t0;
+        $f  = max($fMin, min($fMax, $f));
+        return 1.0 + ($f - 1.0) * $observations / ($observations + max(0, $nPrior));
+    }
+
+    /**
      * Besitzer-Entscheidung mit Hysterese (Spec §5.2).
      * Gibt die claimant_id des neuen Besitzers zurueck.
      *

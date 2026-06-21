@@ -38,6 +38,14 @@ final class GameConfig
         'group_ride_bonus'          => '1.5',
         'group_ride_min_members'    => '3',
         'crew_max_members'          => '0',
+        // Radar-Verkehr (RADAR_TRAFFIC_BACKEND.md §B4).
+        'traffic_t0'                => '5.0',
+        'traffic_k'                 => '0.5',
+        'traffic_f_min'             => '0.7',
+        'traffic_f_max'             => '1.3',
+        'traffic_n_prior'           => '3',
+        'traffic_match_max_dist_m'  => '30',
+        'radar_min_closing_kmh'     => '15',
     ];
 
     public function __construct(private readonly PDO $pdo) {}

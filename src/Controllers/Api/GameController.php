@@ -10,6 +10,8 @@ use App\Game\GameRepository;
 use App\Http\Request;
 use App\Http\Response;
 use App\Routes\GeometryParser;
+use App\Routes\RadarTrafficData;
+use App\Routes\RadarTrafficParser;
 use App\Routes\RouteService;
 
 /**
@@ -88,7 +90,10 @@ final class GameController
         }
         $loaded = $this->routes->loadPayloadByPublicId($route['public_id']);
         $parsed = $this->parser->parse($loaded['payload']);
-        $summary = $this->ingest->ingest((int)$route['route_id'], $uid, $parsed, $parsed->startedAt !== null, null);
+        $radar = $parsed->sourceFormat === 'gpx'
+            ? RadarTrafficParser::parse($loaded['payload'])
+            : RadarTrafficData::empty();
+        $summary = $this->ingest->ingest((int)$route['route_id'], $uid, $parsed, $parsed->startedAt !== null, null, $radar);
         Response::json($summary);
     }
 

@@ -122,6 +122,23 @@ final class EdgeRecalculator
         $popularity = GameMath::popularity($n90, $this->config->float('popularity_c'));
         $value = GameMath::combineValue($pioneer, $popularity, 0.0);
 
+        // Radar-Verkehr (RADAR_TRAFFIC_BACKEND.md §B3): Faktor f_eff aus den
+        // map-gematchten Vorbeifahrten. Keine Daten → 1.0 (neutral). Der
+        // Faktor multipliziert den Wert am Ende; die Stufe-1-Kombination
+        // bleibt unverändert.
+        $traffic = $this->repo->trafficAggregateForEdge($edgeId);
+        $trafficFactor = GameMath::trafficFactor(
+            $traffic['pass_count'],
+            $traffic['observations'],
+            (float)$edge['length_m'],
+            $this->config->float('traffic_t0'),
+            $this->config->float('traffic_k'),
+            $this->config->float('traffic_f_min'),
+            $this->config->float('traffic_f_max'),
+            $this->config->int('traffic_n_prior'),
+        );
+        $value *= $trafficFactor;
+
         $freshness = 0.0;
         if ($newOwner !== null && isset($lastPassByClaimant[$newOwner])) {
             // min(1.0, …): bei in der Zukunft liegendem last_pass (Client-/
@@ -140,6 +157,9 @@ final class EdgeRecalculator
             $value,
             $freshness,
             $lastPassOverall,
+            $trafficFactor,
+            $traffic['pass_count'],
+            $traffic['observations'],
         );
     }
 
