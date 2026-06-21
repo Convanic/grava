@@ -5,6 +5,8 @@ namespace App\Game\Crew;
 
 use App\Game\Admin\GameAuditService;
 use App\Game\EdgeRecalculator;
+use App\Game\Faction\FactionRepository;
+use App\Game\Faction\FactionService;
 use App\Game\GameConfig;
 use App\Game\GameRepository;
 use App\Support\Clock;
@@ -30,6 +32,8 @@ final class CrewService
         private readonly EdgeRecalculator $recalc,
         private readonly GameConfig $config,
         private readonly GameAuditService $audit,
+        // Stufe 3: optional — reichert das Crew-Payload um die Fraktion an.
+        private readonly ?FactionRepository $factions = null,
     ) {}
 
     /** @return array<string,mixed> */
@@ -236,10 +240,40 @@ final class CrewService
                 $members,
             ),
         ];
+
+        // Stufe 3: Fraktion + Cooldown-Status (additiv).
+        $payload['faction'] = null;
+        if ($this->factions !== null && $crew['faction_id'] !== null) {
+            $f = $this->factions->byId((int)$crew['faction_id']);
+            if ($f !== null) {
+                $payload['faction'] = ['key' => $f['key'], 'name' => $f['name'], 'color' => $f['color']];
+            }
+        }
+        $payload['faction_change_allowed_at'] = $this->factionChangeAllowedAt(
+            $crew['faction_joined_at'] !== null ? (string)$crew['faction_joined_at'] : null,
+        );
+
         if ($includeJoinCode) {
             $payload['join_code'] = (string)$crew['join_code'];
         }
         return $payload;
+    }
+
+    /**
+     * ISO-Zeitpunkt, ab dem ein Fraktionswechsel wieder erlaubt ist — null,
+     * wenn neutral/nie gewechselt ODER der Cooldown bereits abgelaufen ist
+     * (= sofort erlaubt).
+     */
+    private function factionChangeAllowedAt(?string $joinedAtMysql): ?string
+    {
+        $allowedAt = FactionService::changeAllowedAt(
+            $joinedAtMysql,
+            $this->config->int('faction_switch_cooldown_days'),
+        );
+        if ($allowedAt === null || $allowedAt <= Clock::nowUtc()) {
+            return null;
+        }
+        return Clock::toIso8601($allowedAt->format('Y-m-d H:i:s'));
     }
 
     private function validateName(string $name): string

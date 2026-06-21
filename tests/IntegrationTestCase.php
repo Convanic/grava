@@ -45,6 +45,19 @@ abstract class IntegrationTestCase extends TestCase
             $this->pdo->exec('TRUNCATE TABLE `' . $t . '`');
         }
         $this->pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
+
+        // Referenz-Seed (Stufe 3) nach dem TRUNCATE wiederherstellen — analog
+        // zum Migrations-Seed; ohne ihn schlügen Fraktions-Tests fehl.
+        try {
+            $this->pdo->exec(
+                "INSERT INTO game_faction (key_slug, name, color_hex) VALUES
+                    ('green', 'Grün', '#2EA043'),
+                    ('blue',  'Blau', '#1F6FEB')
+                 ON DUPLICATE KEY UPDATE key_slug = key_slug"
+            );
+        } catch (\PDOException) {
+            // Tabelle existiert (noch) nicht — Schema vor Migration 0019.
+        }
     }
 
     // ---------------------------------------------------------------

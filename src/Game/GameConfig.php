@@ -46,6 +46,9 @@ final class GameConfig
         'traffic_n_prior'           => '3',
         'traffic_match_max_dist_m'  => '30',
         'radar_min_closing_kmh'     => '15',
+        // Stufe 3 (Fraktionen, GAME_STAGE3_BACKEND.md §6).
+        'faction_switch_cooldown_days' => '30',
+        'faction_map_grid'             => '0.05',
     ];
 
     public function __construct(private readonly PDO $pdo) {}

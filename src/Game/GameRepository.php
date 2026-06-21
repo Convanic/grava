@@ -541,16 +541,18 @@ final class GameRepository
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
-    /** @return array{claimant_id:int,type:string,handle:?string,name:?string}|null */
+    /** @return array{claimant_id:int,type:string,handle:?string,name:?string,faction?:array{key:string,color:string}}|null */
     public function claimantInfo(int $claimantId): ?array
     {
         $stmt = $this->pdo->prepare(
             'SELECT c.id, c.type,
                     u.public_handle AS rider_handle, u.display_name AS rider_name,
-                    cr.slug AS crew_slug, cr.name AS crew_name
+                    cr.slug AS crew_slug, cr.name AS crew_name,
+                    f.key_slug AS faction_key, f.color_hex AS faction_color
                FROM game_claimant c
                LEFT JOIN users u      ON u.id = c.user_id
                LEFT JOIN game_crew cr ON cr.claimant_id = c.id
+               LEFT JOIN game_faction f ON f.id = cr.faction_id
               WHERE c.id = ?'
         );
         $stmt->execute([$claimantId]);
@@ -560,12 +562,21 @@ final class GameRepository
         }
         $type = (string)$r['type'];
         if ($type === 'group') {
-            return [
+            $info = [
                 'claimant_id' => (int)$r['id'],
                 'type'        => 'group',
                 'handle'      => $r['crew_slug'] !== null ? (string)$r['crew_slug'] : null,
                 'name'        => $r['crew_name'] !== null ? (string)$r['crew_name'] : null,
             ];
+            // Stufe 3: Fraktions-Tönung der Kante (additiv), wenn die
+            // Besitzer-Crew einer Fraktion angehört.
+            if ($r['faction_key'] !== null) {
+                $info['faction'] = [
+                    'key'   => (string)$r['faction_key'],
+                    'color' => (string)$r['faction_color'],
+                ];
+            }
+            return $info;
         }
         return [
             'claimant_id' => (int)$r['id'],

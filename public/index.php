@@ -319,12 +319,19 @@ $apiHeatmap  = new HeatmapController($heatmapServ);
 $apiHeatmapLines = new HeatmapLinesController($heatmapLines);
 $apiReferral = new ReferralController($referrals);
 $apiGame = new GameController($gameRead, $gameRepo, $gameIngest, $gameConfig, $routeService, new GeometryParser());
-$gameCrewRepo = new \App\Game\Crew\CrewRepository(Db::pdo());
+$gameCrewRepo    = new \App\Game\Crew\CrewRepository(Db::pdo());
+$gameFactionRepo = new \App\Game\Faction\FactionRepository(Db::pdo());
 $gameCrewSvc  = new \App\Game\Crew\CrewService(
     Db::pdo(), $gameCrewRepo, $gameRepo, $gameRecalc, $gameConfig,
     new \App\Game\Admin\GameAuditService(Db::pdo()),
+    $gameFactionRepo,
 );
 $apiCrew = new \App\Controllers\Api\CrewController($gameCrewSvc);
+$gameFactionSvc = new \App\Game\Faction\FactionService(
+    Db::pdo(), $gameCrewRepo, $gameFactionRepo, $gameCrewSvc, $gameConfig,
+    new \App\Game\Admin\GameAuditService(Db::pdo()),
+);
+$apiFaction = new \App\Controllers\Api\FactionController($gameFactionSvc);
 $webAuth    = new AuthPagesController($auth, $cookieAuth, $webSession, $rate, $basePath . '/views');
 $webHome    = new DashboardController($webSession, $auth, $basePath . '/views');
 $webRefresh = new WebRefreshController($cookieAuth, $webSession);
@@ -476,6 +483,11 @@ $router->post("{$apiBase}/game/crews/join",        fn($r) => $apiCrew->join($r),
 $router->post("{$apiBase}/game/crews/leave",       fn($r) => $apiCrew->leave($r),    [$requireBearer]);
 $router->post("{$apiBase}/game/crews/transfer",    fn($r) => $apiCrew->transfer($r), [$requireBearer]);
 $router->post("{$apiBase}/game/crews",             fn($r) => $apiCrew->create($r),   [$requireBearer]);
+// ---- Game (Stufe 3 — Fraktionen) ----
+$router->get   ("{$apiBase}/game/factions/map",          fn($r) => $apiFaction->map($r),       [$optionalBearer]);
+$router->get   ("{$apiBase}/game/factions",              fn($r) => $apiFaction->standings($r));
+$router->post  ("{$apiBase}/game/crews/{slug}/faction",  fn($r) => $apiFaction->set($r),       [$requireBearer]);
+$router->delete("{$apiBase}/game/crews/{slug}/faction",  fn($r) => $apiFaction->clear($r),     [$requireBearer]);
 $router->get ("{$apiBase}/game/crews/{slug}",      fn($r) => $apiCrew->show($r),     [$requireBearer]);
 
 // ---- Web pages ----
