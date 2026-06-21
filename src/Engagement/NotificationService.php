@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace App\Engagement;
 
 use App\Database\Db;
+use App\Push\PushService;
 use PDO;
 
 /**
@@ -23,6 +24,10 @@ use PDO;
  */
 final class NotificationService
 {
+    public function __construct(
+        private readonly ?PushService $push = null,
+    ) {}
+
     public function notify(
         int $recipientId,
         int $actorId,
@@ -36,15 +41,24 @@ final class NotificationService
         if (RouteVisibility::isBlockedEither($recipientId, $actorId)) {
             return; // geblockt → keine Notification
         }
+        $notificationId = 0;
         try {
-            Db::pdo()->prepare(
+            $pdo = Db::pdo();
+            $pdo->prepare(
                 'INSERT INTO notifications (user_id, actor_id, type, subject_type, subject_id)
                  VALUES (?, ?, ?, ?, ?)'
             )->execute([$recipientId, $actorId, $type, $subjectType, $subjectId]);
+            $notificationId = (int)$pdo->lastInsertId();
         } catch (\PDOException $e) {
             if (!str_contains($e->getMessage(), '1146')) {
                 throw $e;
             }
+            return; // Tabelle fehlt → kein Push
+        }
+
+        // Push (best effort) — Fehler dürfen die Aktion nie scheitern lassen.
+        if ($this->push !== null && $notificationId > 0) {
+            $this->push->dispatch($notificationId, $recipientId, $actorId, $type, $subjectType, $subjectId);
         }
     }
 

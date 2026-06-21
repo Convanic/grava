@@ -35,6 +35,7 @@ use App\Controllers\Api\HeatmapLinesController;
 use App\Controllers\Api\IntegrationsController;
 use App\Controllers\Api\LikeController;
 use App\Controllers\Api\NotificationController;
+use App\Controllers\Api\PushDeviceController;
 use App\Controllers\Api\ProfileController;
 use App\Controllers\Api\ReferralController;
 use App\Controllers\Api\SocialController;
@@ -60,6 +61,10 @@ use App\Discovery\ProfileService;
 use App\Engagement\CommentService;
 use App\Engagement\LikeService;
 use App\Engagement\NotificationService;
+use App\Push\ApnsConfig;
+use App\Push\ApnsHttpClient;
+use App\Push\PushDeviceRepository;
+use App\Push\PushService;
 use App\Heatmap\HeatmapService;
 use App\Heatmap\HeatmapLinesService;
 use App\Heatmap\RouteSurfaceService;
@@ -276,7 +281,27 @@ $csrf            = new Csrf();
 
 $discovery     = new DiscoveryService($routeRepo);
 $profileServ   = new ProfileService($discovery, $routeRepo);
-$notifServ     = new NotificationService();
+
+// Push (APNs). Key wird aus APNS_KEY_PATH (rel. zum Projekt oder absolut)
+// gelesen; ohne vollständige Konfiguration ist Push schlicht deaktiviert
+// (ApnsConfig::usable() == false) und Notifications laufen ohne Versand.
+$apnsKeyPath = (string)($config->get('APNS_KEY_PATH', '') ?? '');
+$apnsKeyPem  = '';
+if ($apnsKeyPath !== '') {
+    $apnsKeyAbs = str_starts_with($apnsKeyPath, '/') ? $apnsKeyPath : $basePath . '/' . $apnsKeyPath;
+    $apnsKeyPem = (string)(@file_get_contents($apnsKeyAbs) ?: '');
+}
+$apnsConfig  = new ApnsConfig(
+    enabled:  $config->bool('APNS_ENABLED', false),
+    keyId:    (string)($config->get('APNS_KEY_ID', '') ?? ''),
+    teamId:   (string)($config->get('APNS_TEAM_ID', '98JR57G9M7') ?? ''),
+    bundleId: (string)($config->get('APNS_BUNDLE_ID', 'world.grava.app') ?? ''),
+    keyPem:   $apnsKeyPem,
+);
+$pushDevices = new PushDeviceRepository();
+$pushServ    = new PushService($pushDevices, new ApnsHttpClient($apnsConfig));
+
+$notifServ     = new NotificationService($pushServ);
 $followServ    = new FollowService($notifServ);
 $blockServ     = new BlockService();
 $feedServ      = new FeedService($routeRepo, $discovery);
@@ -316,6 +341,7 @@ $apiFeed     = new FeedController($feedServ);
 $apiLike     = new LikeController($likeServ);
 $apiComment  = new CommentController($commentServ, $rate);
 $apiNotif    = new NotificationController($notifServ);
+$apiPushDev  = new PushDeviceController($pushDevices);
 $apiAvatar   = new AvatarController($avatarServ);
 $apiIntegr   = new IntegrationsController($stravaServ);
 $apiHeatmap  = new HeatmapController($heatmapServ);
@@ -455,6 +481,11 @@ $router->get("{$apiBase}/notifications",                          fn($r) => $api
 $router->get("{$apiBase}/notifications/unread-count",             fn($r) => $apiNotif->unreadCount($r), [$requireBearer]);
 $router->post("{$apiBase}/notifications/read",                    fn($r) => $apiNotif->markAll($r),     [$requireBearer]);
 $router->post("{$apiBase}/notifications/{nid}/read",              fn($r) => $apiNotif->markOne($r),     [$requireBearer]);
+
+// ---- Push-Geräte (APNs) ----
+// Token-Registrierung/-Abmeldung, auth-required. Upsert auf Token.
+$router->post("{$apiBase}/notifications/devices",                 fn($r) => $apiPushDev->register($r),   [$requireBearer]);
+$router->delete("{$apiBase}/notifications/devices/{token}",       fn($r) => $apiPushDev->unregister($r), [$requireBearer]);
 
 // ---- Avatare (M4d) ----
 // Upload/Delete auth-required (+verifiziert für Upload). Serving ist
