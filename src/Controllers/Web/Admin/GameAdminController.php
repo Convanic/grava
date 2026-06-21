@@ -205,6 +205,18 @@ final class GameAdminController
         ]);
     }
 
+    public function player(Request $req): void
+    {
+        [$user] = $this->requireAdmin();
+        $q = trim((string)($req->query['q'] ?? ''));
+        $this->view->render('admin/game/player', [
+            '_title' => 'Game · Spieler-Detail', '_authedUser' => $user, '_layoutWide' => true,
+            'flash' => $this->takeFlash(),
+            'q' => $q,
+            'detail' => $q !== '' ? $this->admin->playerDetail($q) : null,
+        ]);
+    }
+
     /** Regions-Übersichtskarte (Leaflet). Daten kommen per GeoJSON-Endpunkt. */
     public function map(Request $req): void
     {

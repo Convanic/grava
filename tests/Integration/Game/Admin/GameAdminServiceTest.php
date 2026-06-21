@@ -144,6 +144,57 @@ final class GameAdminServiceTest extends IntegrationTestCase
         $this->assertSame(0, $board[0]['held_edges']);
     }
 
+    public function testPlayerDetailSplitsSoloVsCrewHeldEdges(): void
+    {
+        $now = $this->now('2026-06-20T10:00:00Z');
+        $today = $now->format('Y-m-d');
+
+        $cap = $this->createUser('crewcaptain');
+        [, $groupClaimant] = $this->makeCrew('Test Crew', 'test-crew', 'JOINXYZ1', $cap);
+        $crewId = (int)$this->pdo->query("SELECT id FROM game_crew WHERE slug = 'test-crew'")->fetchColumn();
+
+        $rider = $this->createUser('mixedrider');
+        $riderClaimant = $this->repo->riderClaimantId($rider);
+        $this->pdo->prepare('INSERT INTO game_crew_member (user_id, crew_id, role) VALUES (?, ?, "member")')
+            ->execute([$rider, $crewId]);
+
+        $e1 = $this->makeEdge(7001, 70, 71); // von der Crew gehalten
+        $e2 = $this->makeEdge(7002, 72, 73); // solo (Rest aus Vor-Beitritt)
+        $e3 = $this->makeEdge(7003, 74, 75); // frei (niemand)
+
+        foreach ([$e1, $e2, $e3] as $edgeId) {
+            $this->repo->insertPassIfAbsent($edgeId, $riderClaimant, $rider, 200, $today, $today . ' 08:00:00.000');
+        }
+
+        $upd = $this->pdo->prepare('UPDATE game_edge SET owner_claimant_id = ? WHERE id = ?');
+        $upd->execute([$groupClaimant, $e1]);
+        $upd->execute([$riderClaimant, $e2]);
+
+        $detail = $this->service->playerDetail('mixedrider', $now);
+
+        $this->assertNotNull($detail);
+        $this->assertTrue($detail['is_crew_member']);
+        $this->assertSame('test-crew', $detail['crew']['slug']);
+        $this->assertSame($groupClaimant, $detail['effective_claimant_id']);
+
+        $this->assertCount(1, $detail['routes']);
+        $r = $detail['routes'][0];
+        $this->assertSame(200, $r['route_id']);
+        $this->assertSame(3, $r['pass_edges']);
+        $this->assertSame(3, $r['in_window_edges']);
+        $this->assertSame(1, $r['held_solo']);
+        $this->assertSame(1, $r['held_crew']);
+        $this->assertSame(0, $r['held_other']);
+
+        $this->assertSame(3, $detail['totals']['pass_edges']);
+        $this->assertSame(1, $detail['totals']['held_crew']);
+    }
+
+    public function testPlayerDetailReturnsNullForUnknown(): void
+    {
+        $this->assertNull($this->service->playerDetail('nobody@example.invalid'));
+    }
+
     public function testHealthMetricsCounts(): void
     {
         $now = $this->now('2026-06-20T10:00:00Z');

@@ -137,6 +137,155 @@ final class GameAdminService
         return $out;
     }
 
+    /**
+     * Spieler-Detail: Welche Strecken eines Users fliessen wie in die Wertung
+     * ein — solo (Rider-Claimant) oder Crew (Group-Claimant)? Auflösung des
+     * Users per E-Mail ODER public_handle.
+     *
+     * Pro Strecke: Anzahl der vom User befahrenen Kanten, davon im
+     * Präsenz-Fenster, und wie viele davon aktuell vom Solo-, Crew- oder einem
+     * fremden Claimant gehalten werden. So ist sofort sichtbar, was für die
+     * Crew zählt und was (noch) solo bzw. abgelaufen ist.
+     *
+     * @return array<string,mixed>|null null, wenn kein User gefunden wurde.
+     */
+    public function playerDetail(string $query, ?DateTimeImmutable $now = null): ?array
+    {
+        $query = trim($query);
+        if ($query === '') {
+            return null;
+        }
+        $now ??= new DateTimeImmutable('now', new DateTimeZone('UTC'));
+
+        $u = $this->pdo->prepare(
+            'SELECT id, email, public_handle, display_name, status
+               FROM users WHERE email = ? OR public_handle = ? LIMIT 1'
+        );
+        $u->execute([$query, $query]);
+        $user = $u->fetch(PDO::FETCH_ASSOC);
+        if ($user === false) {
+            return null;
+        }
+        $uid   = (int)$user['id'];
+        $rider = $this->repo->findRiderClaimantId($uid) ?? 0;
+
+        $cs = $this->pdo->prepare(
+            'SELECT gc.id AS crew_id, gc.name, gc.slug, gc.claimant_id, m.role
+               FROM game_crew_member m JOIN game_crew gc ON gc.id = m.crew_id
+              WHERE m.user_id = ? LIMIT 1'
+        );
+        $cs->execute([$uid]);
+        $crewRow = $cs->fetch(PDO::FETCH_ASSOC) ?: null;
+        $crewClaimant = $crewRow !== null ? (int)$crewRow['claimant_id'] : 0;
+        $effective    = $crewClaimant !== 0 ? $crewClaimant : $rider;
+
+        $windowDays = $this->config->int('presence_window_days');
+        $since = $now->modify("-{$windowDays} days")->format('Y-m-d');
+
+        // Gewertete Strecken (über die Passes des Users). Die Owner-Zuordnung je
+        // Kante entscheidet, ob sie aktuell solo/crew/fremd gehalten wird.
+        $scoredSql =
+            'SELECT pe.route_id, r.public_id, r.title,
+                    ROUND(r.distance_m/1000, 1) AS km,
+                    pe.pass_edges, pe.last_ride, pe.in_window_edges,
+                    pe.held_solo, pe.held_crew, pe.held_other
+               FROM (
+                 SELECT x.route_id,
+                        COUNT(*)            AS pass_edges,
+                        MAX(x.last_ride)    AS last_ride,
+                        SUM(x.in_window)    AS in_window_edges,
+                        SUM(CASE WHEN e.owner_claimant_id = ' . $rider . ' THEN 1 ELSE 0 END) AS held_solo,
+                        SUM(CASE WHEN ' . $crewClaimant . ' <> 0 AND e.owner_claimant_id = ' . $crewClaimant . ' THEN 1 ELSE 0 END) AS held_crew,
+                        SUM(CASE WHEN e.owner_claimant_id IS NOT NULL
+                                  AND e.owner_claimant_id <> ' . $rider . '
+                                  AND (' . $crewClaimant . ' = 0 OR e.owner_claimant_id <> ' . $crewClaimant . ') THEN 1 ELSE 0 END) AS held_other
+                   FROM (
+                     SELECT p.route_id, p.edge_id,
+                            MAX(p.ridden_on) AS last_ride,
+                            MAX(CASE WHEN p.ridden_on >= ? THEN 1 ELSE 0 END) AS in_window
+                       FROM game_edge_pass p
+                      WHERE p.user_id = ' . $uid . ' AND p.invalidated_at IS NULL
+                      GROUP BY p.route_id, p.edge_id
+                   ) x
+                   JOIN game_edge e ON e.id = x.edge_id
+                  GROUP BY x.route_id
+               ) pe
+               LEFT JOIN routes r ON r.id = pe.route_id
+              ORDER BY pe.last_ride DESC, pe.route_id ASC';
+        $st = $this->pdo->prepare($scoredSql);
+        $st->execute([$since]);
+
+        $routes = [];
+        $totals = ['pass_edges' => 0, 'in_window_edges' => 0, 'held_solo' => 0, 'held_crew' => 0, 'held_other' => 0];
+        foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $row = [
+                'route_id'        => (int)$r['route_id'],
+                'public_id'       => $r['public_id'] !== null ? (string)$r['public_id'] : null,
+                'title'           => $r['title'] !== null ? (string)$r['title'] : null,
+                'km'              => $r['km'] !== null ? (float)$r['km'] : null,
+                'pass_edges'      => (int)$r['pass_edges'],
+                'in_window_edges' => (int)$r['in_window_edges'],
+                'held_solo'       => (int)$r['held_solo'],
+                'held_crew'       => (int)$r['held_crew'],
+                'held_other'      => (int)$r['held_other'],
+                'last_ride'       => $r['last_ride'] !== null ? (string)$r['last_ride'] : null,
+            ];
+            foreach ($totals as $k => $_) {
+                $totals[$k] += $row[$k];
+            }
+            $routes[] = $row;
+        }
+
+        // Hochgeladene Routen ohne (gültige) Passes des Users → nicht in Wertung.
+        $un = $this->pdo->prepare(
+            'SELECT r.id, r.public_id, r.title, ROUND(r.distance_m/1000,1) AS km,
+                    r.visibility, r.source, r.created_at
+               FROM routes r
+              WHERE r.user_id = ? AND r.deleted_at IS NULL
+                AND NOT EXISTS (
+                    SELECT 1 FROM game_edge_pass p
+                     WHERE p.route_id = r.id AND p.user_id = r.user_id AND p.invalidated_at IS NULL
+                )
+              ORDER BY r.created_at DESC'
+        );
+        $un->execute([$uid]);
+        $unscored = [];
+        foreach ($un->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $unscored[] = [
+                'public_id'  => (string)$r['public_id'],
+                'title'      => (string)$r['title'],
+                'km'         => $r['km'] !== null ? (float)$r['km'] : null,
+                'visibility' => (string)$r['visibility'],
+                'source'     => (string)$r['source'],
+                'created_at' => (string)$r['created_at'],
+            ];
+        }
+
+        return [
+            'user' => [
+                'id'           => $uid,
+                'email'        => (string)$user['email'],
+                'handle'       => $user['public_handle'] !== null ? (string)$user['public_handle'] : null,
+                'display_name' => $user['display_name'] !== null ? (string)$user['display_name'] : null,
+                'status'       => (string)$user['status'],
+            ],
+            'rider_claimant_id'     => $rider,
+            'crew'                  => $crewRow !== null ? [
+                'crew_id'     => (int)$crewRow['crew_id'],
+                'name'        => (string)$crewRow['name'],
+                'slug'        => (string)$crewRow['slug'],
+                'claimant_id' => $crewClaimant,
+                'role'        => (string)$crewRow['role'],
+            ] : null,
+            'effective_claimant_id' => $effective,
+            'is_crew_member'        => $crewClaimant !== 0,
+            'presence_window_days'  => $windowDays,
+            'totals'                => $totals,
+            'routes'                => $routes,
+            'unscored_routes'       => $unscored,
+        ];
+    }
+
     /** @return array<string,mixed>|null Inspector-Aggregat einer Kante. */
     public function edgeInspector(int $edgeId, ?DateTimeImmutable $now = null): ?array
     {

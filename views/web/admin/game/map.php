@@ -15,6 +15,7 @@ $_pageScripts = [
     <a href="/admin/game/ingest">Ingest</a>
     <a href="/admin/game/moderation">Moderation</a>
     <a href="/admin/game/players">Spieler</a>
+    <a href="/admin/game/player">Spieler-Detail</a>
     <a href="/admin/game/crews">Crews</a>
     <a href="/admin/game/edge">Inspector</a>
     <a href="/admin/game/map"><strong>Karte</strong></a>
