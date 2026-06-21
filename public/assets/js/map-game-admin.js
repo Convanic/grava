@@ -2,7 +2,7 @@
  * map-game-admin.js — Regions-Übersichtskarte des Game-Admin-Dashboards.
  *
  * Lädt Kanten als GeoJSON BBox-getrieben (`data-edges-url?bbox=…`) und färbt
- * sie nach Wert / Frische / Owner ein. Klick auf eine Kante öffnet den
+ * sie nach Wert / Frische / Owner (Fahrer) / Crew / Fraktion ein. Klick auf eine Kante öffnet den
  * Inspector (`data-edge-base` + id). CSP-konform: externes 'self'-Script,
  * same-origin-Fetch, keine Inline-Handler.
  */
@@ -24,8 +24,8 @@
   var VALUE_COLORS = ['#dcfce7', '#86efac', '#4ade80', '#22c55e', '#15803d'];
   var FRESH_COLORS = ['#b91c1c', '#f97316', '#eab308', '#84cc16', '#15803d'];
   var FRESH_LABELS = ['sehr alt', 'alt', 'mittel', 'frisch', 'sehr frisch'];
-  // Kategoriale Owner-Palette (10 gut unterscheidbare Töne).
-  var OWNER_COLORS = [
+  // Kategoriale Palette (10 gut unterscheidbare Töne) für Owner/Crew.
+  var CATEGORY_COLORS = [
     '#2563eb', '#dc2626', '#16a34a', '#d97706', '#7c3aed',
     '#db2777', '#0891b2', '#65a30d', '#ea580c', '#4f46e5'
   ];
@@ -42,16 +42,21 @@
   function colorForFreshness(f) {
     return FRESH_COLORS[clampIdx(Math.round((f || 0) * 4))];
   }
-  function colorForOwner(id) {
+  function colorForCategory(id) {
     if (id === null || typeof id === 'undefined') {
       return NO_OWNER;
     }
-    return OWNER_COLORS[Math.abs(id) % OWNER_COLORS.length];
+    return CATEGORY_COLORS[Math.abs(id) % CATEGORY_COLORS.length];
+  }
+  function colorForFaction(hex) {
+    return hex ? hex : NO_OWNER;
   }
 
   function colorFor(p) {
     if (state.mode === 'freshness') { return colorForFreshness(p.freshness); }
-    if (state.mode === 'owner') { return colorForOwner(p.owner_id); }
+    if (state.mode === 'owner') { return colorForCategory(p.rider_id); }
+    if (state.mode === 'crew') { return colorForCategory(p.crew_id); }
+    if (state.mode === 'faction') { return colorForFaction(p.faction_color); }
     return colorForValue(p.value);
   }
 
@@ -71,6 +76,9 @@
     var lines = [];
     lines.push('Kante <strong>#' + esc(p.id) + '</strong>');
     lines.push('Owner: ' + (p.owner_handle ? '@' + esc(p.owner_handle) : '—'));
+    lines.push('Erstfahrer: ' + (p.rider_handle ? '@' + esc(p.rider_handle) : '—'));
+    lines.push('Crew: ' + (p.crew_name ? esc(p.crew_name) : '—'));
+    lines.push('Fraktion: ' + (p.faction_key ? esc(p.faction_key) : '—'));
     lines.push('Wert: <strong>' + esc((p.value || 0).toFixed ? p.value.toFixed(1) : p.value) + '</strong>');
     lines.push('Frische: ' + esc((typeof p.freshness === 'number' ? p.freshness.toFixed(2) : p.freshness)));
     lines.push('Fahrer: ' + esc(p.riders || 0) + ' · ' + esc(p.length_m || 0) + ' m');
@@ -170,10 +178,21 @@
       legend.appendChild(title);
       FRESH_COLORS.forEach(function (c, i) { legend.appendChild(legendItem(c, FRESH_LABELS[i])); });
     } else if (state.mode === 'owner') {
-      title.textContent = 'Owner:';
+      title.textContent = 'Owner (Fahrer):';
       legend.appendChild(title);
-      legend.appendChild(legendItem(OWNER_COLORS[0], 'Besitzer (Farbe je ID)'));
-      legend.appendChild(legendItem(NO_OWNER, 'herrenlos'));
+      legend.appendChild(legendItem(CATEGORY_COLORS[0], 'Farbe je Fahrer'));
+      legend.appendChild(legendItem(NO_OWNER, 'niemand'));
+    } else if (state.mode === 'crew') {
+      title.textContent = 'Crew:';
+      legend.appendChild(title);
+      legend.appendChild(legendItem(CATEGORY_COLORS[0], 'Farbe je Crew'));
+      legend.appendChild(legendItem(NO_OWNER, 'solo / keine Crew'));
+    } else if (state.mode === 'faction') {
+      title.textContent = 'Fraktion:';
+      legend.appendChild(title);
+      legend.appendChild(legendItem('#2EA043', 'Grün'));
+      legend.appendChild(legendItem('#1F6FEB', 'Blau'));
+      legend.appendChild(legendItem(NO_OWNER, 'keine Fraktion'));
     } else {
       title.textContent = 'Wert (rel. zum Ausschnitt):';
       legend.appendChild(title);

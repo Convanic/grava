@@ -259,14 +259,23 @@ final class GameAdminController
                 'type' => 'Feature',
                 'geometry' => $geom,
                 'properties' => [
-                    'id'           => (int)$r['id'],
-                    'owner_id'     => $r['owner_claimant_id'] !== null ? (int)$r['owner_claimant_id'] : null,
-                    'owner_handle' => $r['owner_handle'] !== null ? (string)$r['owner_handle'] : null,
-                    'value'        => round($value, 2),
-                    'freshness'    => round((float)$r['freshness_cached'], 3),
-                    'riders'       => (int)$r['distinct_riders_total'],
-                    'length_m'     => round((float)$r['length_m'], 1),
-                    'surface'      => $r['surface_character'] !== null ? (string)$r['surface_character'] : null,
+                    'id'            => (int)$r['id'],
+                    'owner_id'      => $r['owner_claimant_id'] !== null ? (int)$r['owner_claimant_id'] : null,
+                    'owner_handle'  => $r['owner_handle'] !== null ? (string)$r['owner_handle'] : null,
+                    // Owner-Modus: der Mensch, der die Kante zuerst erradelt hat.
+                    'rider_id'      => $r['rider_user_id'] !== null ? (int)$r['rider_user_id'] : null,
+                    'rider_handle'  => $r['rider_handle'] !== null ? (string)$r['rider_handle'] : null,
+                    // Crew-Modus: besitzende Crew (nur wenn Owner eine Gruppe ist).
+                    'crew_id'       => $r['crew_id'] !== null ? (int)$r['crew_id'] : null,
+                    'crew_name'     => $r['crew_name'] !== null ? (string)$r['crew_name'] : null,
+                    // Fraktions-Modus: Fraktion der besitzenden Crew.
+                    'faction_key'   => $r['faction_key'] !== null ? (string)$r['faction_key'] : null,
+                    'faction_color' => $r['faction_color'] !== null ? (string)$r['faction_color'] : null,
+                    'value'         => round($value, 2),
+                    'freshness'     => round((float)$r['freshness_cached'], 3),
+                    'riders'        => (int)$r['distinct_riders_total'],
+                    'length_m'      => round((float)$r['length_m'], 1),
+                    'surface'       => $r['surface_character'] !== null ? (string)$r['surface_character'] : null,
                 ],
             ];
         }

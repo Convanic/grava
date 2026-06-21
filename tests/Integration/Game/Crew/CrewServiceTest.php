@@ -112,6 +112,40 @@ final class CrewServiceTest extends IntegrationTestCase
         $this->assertSame(1, $this->repo->meStats($rider)['pioneered'], 'Nach leave zurück zum Rider.');
     }
 
+    public function testMapEdgeExposesRiderAndCrewFields(): void
+    {
+        $edge = $this->makeEdge();
+        $u1 = $this->createUser('mapper');
+        $rider = $this->repo->riderClaimantId($u1);
+        $now = $this->now('2026-06-20T12:00:00Z');
+        $this->repo->insertPassIfAbsent($edge, $rider, $u1, 1, '2026-06-20', '2026-06-20 08:00:00.000');
+        $this->repo->refreshEdgeDiscovery($edge);
+        $this->recalc->recalculate($edge, $now);
+
+        $rows = $this->repo->edgesGeoForMap(9.0, 47.0, 10.0, 48.0, 100);
+        $row = null;
+        foreach ($rows as $r) {
+            if ((int)$r['id'] === $edge) { $row = $r; break; }
+        }
+        $this->assertNotNull($row, 'Kante muss in der Map-Query auftauchen.');
+        $this->assertSame('rider', $row['owner_type']);
+        $this->assertSame($u1, (int)$row['rider_user_id'], 'Erstfahrer = erradelnder User.');
+        $this->assertNull($row['crew_id'], 'Solo-Kante hat keine Crew.');
+        $this->assertNull($row['faction_key']);
+
+        $crew = $this->svc->create($u1, 'Owls', $now);
+        $rows2 = $this->repo->edgesGeoForMap(9.0, 47.0, 10.0, 48.0, 100);
+        $row2 = null;
+        foreach ($rows2 as $r) {
+            if ((int)$r['id'] === $edge) { $row2 = $r; break; }
+        }
+        $this->assertNotNull($row2);
+        $this->assertSame('group', $row2['owner_type'], 'Nach Crew-Beitritt gehört die Kante der Gruppe.');
+        $this->assertSame($crew['id'], (int)$row2['crew_id']);
+        $this->assertSame('Owls', $row2['crew_name']);
+        $this->assertSame($u1, (int)$row2['rider_user_id'], 'Erstfahrer bleibt der Mensch.');
+    }
+
     public function testCaptainMustTransferBeforeLeaving(): void
     {
         $cap = $this->createUser('captain');
