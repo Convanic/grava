@@ -35,6 +35,9 @@ final class GameConfig
         'auth_max_speed_kmh'        => '80',
         'mod_max_new_edges_per_min' => '30',
         'mod_max_passes_per_day'    => '200',
+        'group_ride_bonus'          => '1.5',
+        'group_ride_min_members'    => '3',
+        'crew_max_members'          => '0',
     ];
 
     public function __construct(private readonly PDO $pdo) {}

@@ -41,6 +41,89 @@ final class GameRepository
         return $id === false ? null : (int)$id;
     }
 
+    /**
+     * Effektiver Claimant je user_id (Stufe 2): Crew-Group-Claimant falls Mitglied,
+     * sonst der Rider-Claimant. Legt KEINE Claimants an (Lesepfad-sicher).
+     *
+     * @param list<int> $userIds
+     * @return array<int,array{claimant_id:int,is_group:bool}>
+     */
+    public function effectiveClaimantMap(array $userIds): array
+    {
+        $userIds = array_values(array_unique(array_map('intval', $userIds)));
+        if ($userIds === []) {
+            return [];
+        }
+        $ph = implode(',', array_fill(0, count($userIds), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT rc.user_id AS user_id,
+                    rc.id      AS rider_claimant_id,
+                    gc.claimant_id AS group_claimant_id
+               FROM game_claimant rc
+               LEFT JOIN game_crew_member m ON m.user_id = rc.user_id
+               LEFT JOIN game_crew gc       ON gc.id = m.crew_id
+              WHERE rc.type = 'rider' AND rc.user_id IN ($ph)"
+        );
+        $stmt->execute($userIds);
+        $out = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $uid = (int)$r['user_id'];
+            if ($r['group_claimant_id'] !== null) {
+                $out[$uid] = ['claimant_id' => (int)$r['group_claimant_id'], 'is_group' => true];
+            } else {
+                $out[$uid] = ['claimant_id' => (int)$r['rider_claimant_id'], 'is_group' => false];
+            }
+        }
+        return $out;
+    }
+
+    /** Effektiver Claimant eines Users (legt Rider bei Bedarf an — für Schreib-/Endpunkt-Pfad). */
+    public function effectiveClaimantId(int $userId): int
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT gc.claimant_id
+               FROM game_crew_member m
+               JOIN game_crew gc ON gc.id = m.crew_id
+              WHERE m.user_id = ?'
+        );
+        $stmt->execute([$userId]);
+        $gid = $stmt->fetchColumn();
+        if ($gid !== false) {
+            return (int)$gid;
+        }
+        return $this->riderClaimantId($userId);
+    }
+
+    /**
+     * @return list<int> Kanten-IDs, auf denen der User im Fenster (seit $sinceDate)
+     *                   gültige Pässe hat. Für den synchronen Teil-Recompute bei
+     *                   Mitgliedschaftsänderung (Spec §4.4).
+     */
+    public function affectedEdgeIdsForUser(int $userId, string $sinceDate): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT DISTINCT edge_id FROM game_edge_pass
+              WHERE user_id = ? AND invalidated_at IS NULL AND ridden_on >= ?
+              ORDER BY edge_id'
+        );
+        $stmt->execute([$userId, $sinceDate]);
+        return array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
+    }
+
+    /**
+     * @return list<int> Kanten, die aktuell von $claimantId gehalten werden.
+     *                   Safety-Net bei Crew-Auflösung (Owner muss weg vom
+     *                   Group-Claimant, bevor er gelöscht wird).
+     */
+    public function edgeIdsOwnedByClaimant(int $claimantId): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT id FROM game_edge WHERE owner_claimant_id = ? ORDER BY id'
+        );
+        $stmt->execute([$claimantId]);
+        return array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
+    }
+
     public function upsertNode(int $osmNodeId, float $lat, float $lon): int
     {
         $this->pdo->prepare(
@@ -123,12 +206,12 @@ final class GameRepository
     }
 
     /**
-     * @return list<array{claimant_id:int,user_id:int,ridden_at:string}>
+     * @return list<array{claimant_id:int,user_id:int,ridden_on:string,ridden_at:string}>
      */
     public function passesForEdge(int $edgeId): array
     {
         $stmt = $this->pdo->prepare(
-            'SELECT claimant_id, user_id, ridden_at FROM game_edge_pass
+            'SELECT claimant_id, user_id, ridden_on, ridden_at FROM game_edge_pass
               WHERE edge_id = ? AND invalidated_at IS NULL'
         );
         $stmt->execute([$edgeId]);
@@ -137,6 +220,7 @@ final class GameRepository
             $out[] = [
                 'claimant_id' => (int)$r['claimant_id'],
                 'user_id'     => (int)$r['user_id'],
+                'ridden_on'   => (string)$r['ridden_on'],
                 'ridden_at'   => (string)$r['ridden_at'],
             ];
         }
@@ -411,13 +495,16 @@ final class GameRepository
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
-    /** @return array{claimant_id:int,type:string,handle:?string}|null */
+    /** @return array{claimant_id:int,type:string,handle:?string,name:?string}|null */
     public function claimantInfo(int $claimantId): ?array
     {
         $stmt = $this->pdo->prepare(
-            'SELECT c.id, c.type, u.public_handle AS handle
+            'SELECT c.id, c.type,
+                    u.public_handle AS rider_handle, u.display_name AS rider_name,
+                    cr.slug AS crew_slug, cr.name AS crew_name
                FROM game_claimant c
-               LEFT JOIN users u ON u.id = c.user_id
+               LEFT JOIN users u      ON u.id = c.user_id
+               LEFT JOIN game_crew cr ON cr.claimant_id = c.id
               WHERE c.id = ?'
         );
         $stmt->execute([$claimantId]);
@@ -425,10 +512,20 @@ final class GameRepository
         if ($r === false) {
             return null;
         }
+        $type = (string)$r['type'];
+        if ($type === 'group') {
+            return [
+                'claimant_id' => (int)$r['id'],
+                'type'        => 'group',
+                'handle'      => $r['crew_slug'] !== null ? (string)$r['crew_slug'] : null,
+                'name'        => $r['crew_name'] !== null ? (string)$r['crew_name'] : null,
+            ];
+        }
         return [
             'claimant_id' => (int)$r['id'],
-            'type'        => (string)$r['type'],
-            'handle'      => $r['handle'] !== null ? (string)$r['handle'] : null,
+            'type'        => $type,
+            'handle'      => $r['rider_handle'] !== null ? (string)$r['rider_handle'] : null,
+            'name'        => $r['rider_name'] !== null ? (string)$r['rider_name'] : null,
         ];
     }
 

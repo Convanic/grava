@@ -32,19 +32,54 @@ final class EdgeRecalculator
         $windowDays = $this->config->int('presence_window_days');
         $passes = $this->repo->passesForEdge($edgeId);
 
-        $presence = [];
+        // Stufe 2: effektiver Claimant je user_id (Crew-Group-Claimant, sonst Rider).
+        // Besitz wird nach dem effektiven Claimant gruppiert — nicht nach dem
+        // (historisch gestempelten) game_edge_pass.claimant_id.
+        $userIds = [];
+        foreach ($passes as $p) {
+            $userIds[] = $p['user_id'];
+        }
+        $effMap = $this->repo->effectiveClaimantMap($userIds);
+
+        $bonus      = $this->config->float('group_ride_bonus');
+        $minMembers = $this->config->int('group_ride_min_members');
+
+        // Tages-Aggregation je (effektiver Claimant, ridden_on): Summe Gewicht + distinct Mitglieder.
+        $dayWeight  = [];   // [cid][ridden_on] => float
+        $dayMembers = [];   // [cid][ridden_on] => array<int,true>
+        $isGroup    = [];   // [cid] => bool
         $lastPassByClaimant = [];
         $lastPassOverall = null;
         foreach ($passes as $p) {
-            $cid = $p['claimant_id'];
-            $ageDays = $this->ageDays($p['ridden_at'], $now);
-            $presence[$cid] = ($presence[$cid] ?? 0.0) + GameMath::presenceWeight($ageDays, $windowDays);
+            $uid = $p['user_id'];
+            $eff = $effMap[$uid] ?? ['claimant_id' => $p['claimant_id'], 'is_group' => false];
+            $cid = $eff['claimant_id'];
+            $isGroup[$cid] = $eff['is_group'];
+            $on = $p['ridden_on'];
+            $w = GameMath::presenceWeight($this->ageDays($p['ridden_at'], $now), $windowDays);
+            $dayWeight[$cid][$on] = ($dayWeight[$cid][$on] ?? 0.0) + $w;
+            $dayMembers[$cid][$on][$uid] = true;
             if (!isset($lastPassByClaimant[$cid]) || $p['ridden_at'] > $lastPassByClaimant[$cid]) {
                 $lastPassByClaimant[$cid] = $p['ridden_at'];
             }
             if ($lastPassOverall === null || $p['ridden_at'] > $lastPassOverall) {
                 $lastPassOverall = $p['ridden_at'];
             }
+        }
+
+        // Präsenz je Claimant; Gruppenfahrt-Bonus als Tagesfaktor (nur Group-Claimants,
+        // ab group_ride_min_members verschiedenen Mitgliedern am selben Tag).
+        $presence = [];
+        foreach ($dayWeight as $cid => $byDay) {
+            $sum = 0.0;
+            foreach ($byDay as $on => $w) {
+                $members = count($dayMembers[$cid][$on]);
+                if (($isGroup[$cid] ?? false) && $bonus !== 1.0 && $members >= $minMembers) {
+                    $w *= $bonus;
+                }
+                $sum += $w;
+            }
+            $presence[(int)$cid] = $sum;
         }
 
         $challenger = null;

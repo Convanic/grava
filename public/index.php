@@ -318,6 +318,12 @@ $apiHeatmap  = new HeatmapController($heatmapServ);
 $apiHeatmapLines = new HeatmapLinesController($heatmapLines);
 $apiReferral = new ReferralController($referrals);
 $apiGame = new GameController($gameRead, $gameRepo, $gameIngest, $gameConfig, $routeService, new GeometryParser());
+$gameCrewRepo = new \App\Game\Crew\CrewRepository(Db::pdo());
+$gameCrewSvc  = new \App\Game\Crew\CrewService(
+    Db::pdo(), $gameCrewRepo, $gameRepo, $gameRecalc, $gameConfig,
+    new \App\Game\Admin\GameAuditService(Db::pdo()),
+);
+$apiCrew = new \App\Controllers\Api\CrewController($gameCrewSvc);
 $webAuth    = new AuthPagesController($auth, $cookieAuth, $webSession, $rate, $basePath . '/views');
 $webHome    = new DashboardController($webSession, $auth, $basePath . '/views');
 $webRefresh = new WebRefreshController($cookieAuth, $webSession);
@@ -464,6 +470,12 @@ $router->get("{$apiBase}/game/edges/{id}",         fn($r) => $apiGame->edge($r),
 $router->get("{$apiBase}/game/me",                 fn($r) => $apiGame->me($r),       [$requireBearer]);
 $router->get("{$apiBase}/game/config",             fn($r) => $apiGame->config($r),   [$requireBearer]);
 $router->post("{$apiBase}/game/ingest/{route_id}", fn($r) => $apiGame->reingest($r), [$requireBearer]);
+$router->get ("{$apiBase}/game/crews/me",          fn($r) => $apiCrew->me($r),       [$requireBearer]);
+$router->post("{$apiBase}/game/crews/join",        fn($r) => $apiCrew->join($r),     [$requireBearer]);
+$router->post("{$apiBase}/game/crews/leave",       fn($r) => $apiCrew->leave($r),    [$requireBearer]);
+$router->post("{$apiBase}/game/crews/transfer",    fn($r) => $apiCrew->transfer($r), [$requireBearer]);
+$router->post("{$apiBase}/game/crews",             fn($r) => $apiCrew->create($r),   [$requireBearer]);
+$router->get ("{$apiBase}/game/crews/{slug}",      fn($r) => $apiCrew->show($r),     [$requireBearer]);
 
 // ---- Web pages ----
 $router->get('/',                  fn($r) => Response::redirect('/dashboard'));

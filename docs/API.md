@@ -469,6 +469,21 @@ für die Farbe; `surface` ist ein OSM/Valhalla-Fallback. Ungültige `bbox` ⇒ `
 - `GET /api/v1/game/config` — aktuelle `game_config`-Werte. Bearer.
 - `POST /api/v1/game/ingest/{route_id}` — Re-Run der Ingestion (idempotent), nur Owner. `{route_id}` ist die **öffentliche Route-ID (UUID)**, konsistent mit `GET /routes/{id}` (intern-numerische ID wird rückwärtskompatibel ebenfalls akzeptiert). Antwort: Match-/Pass-/Skip-Zähler.
 
+Das `owner`-Objekt der Kanten enthält `{ claimant_id, type, handle, name }`. `type` ∈ `rider | group`. Für `rider` ist `handle` = `public_handle`, `name` = Anzeigename; für `group` (Crew, Stufe 2) ist `handle` = Crew-Slug, `name` = Crew-Name. `name` ist **additiv** und kann `null` sein.
+
+### 5.15 Game (Stufe 2 — Crews)
+
+Crews sind neutrale Gruppen (Claimant-Typ `group`). Tritt ein Fahrer einer Crew bei, zählt seine Präsenz (im 90-Tage-Fenster) ab sofort für die Crew (effektiver Claimant) — Austritt fällt zurück auf den Solo-Fahrer. Genau eine Crew pro Fahrer. Alle Endpunkte: Bearer.
+
+- `POST /api/v1/game/crews` — `{ "name": "..." }` → legt Crew an, Ersteller wird `captain`. Eine evtl. bestehende Mitgliedschaft wird zuvor verlassen (Captain-Regel gilt). Antwort `201`: Crew-Objekt inkl. `join_code`.
+- `GET /api/v1/game/crews/{slug}` — öffentliches Crew-Profil (Name, Slug, `member_count`, gehaltene Kanten/Länge, Captain) ohne `join_code`.
+- `POST /api/v1/game/crews/join` — `{ "join_code": "ABCD2345" }` → beitreten (verlässt alte Crew zuerst). `crew_max_members` (0 = unbegrenzt) wird geprüft → `409 crew_full`.
+- `POST /api/v1/game/crews/leave` — aktuelle Crew verlassen. Antwort `{ left, dissolved }`. Captain mit verbleibenden Mitgliedern → `409 captain_must_transfer`. Captain als letztes Mitglied → Crew wird aufgelöst.
+- `POST /api/v1/game/crews/transfer` — `{ "user_id": 123 }` → Captain überträgt die Captain-Rolle an ein Mitglied (nur Captain). Kein Recompute.
+- `GET /api/v1/game/crews/me` — `{ "crew": {…}|null }`. Eigene Crew inkl. Mitglieder; `join_code` nur, wenn man Captain ist.
+
+Mitgliedschaftsänderungen (create/join/leave) rechnen die betroffenen Fenster-Kanten des Users synchron neu. Gruppenfahrt-Bonus: fahren ≥ `group_ride_min_members` verschiedene Mitglieder dieselbe Kante am selben Tag, wird der Crew-Tagesbeitrag mit `group_ride_bonus` multipliziert.
+
 Ingestion läuft automatisch nicht-blockierend nach jedem Route-Upload. Voller Recompute: `php public/index.php game:recompute`.
 
 **Admin-Dashboard:** `/admin/*` ist NUR unter `admin.grava.world` erreichbar (auf der Hauptdomain → 404); die `/api/v1/game/*`-Endpunkte sind davon unverändert. Hinweis: Spielwerte (Besitzer/Wert/Frische) können sich durch Admin-Aktionen (Pass-Invalidierung, Ban, Recompute) **rückwirkend** ändern — Clients sollten gecachte Kanten nicht als unveränderlich behandeln. Setup: siehe `backend/GAME_DASHBOARD_SETUP.md`.

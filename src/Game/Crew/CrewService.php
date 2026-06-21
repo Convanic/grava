@@ -1,0 +1,313 @@
+<?php
+declare(strict_types=1);
+
+namespace App\Game\Crew;
+
+use App\Game\Admin\GameAuditService;
+use App\Game\EdgeRecalculator;
+use App\Game\GameConfig;
+use App\Game\GameRepository;
+use App\Support\Clock;
+use DateTimeImmutable;
+use PDO;
+
+/**
+ * Crew-Geschäftslogik (Stufe 2): create/join/leave/transfer + Profil/me.
+ *
+ * Mitgliedschaftsänderungen lösen einen synchronen Teil-Recompute der
+ * Fenster-Kanten des Users aus (Spec §4.4) — die Präsenz wandert über den
+ * effektiven Claimant auf die Crew bzw. zurück auf den Rider. Captain-Regel
+ * und FK-sichere Auflösung gemäß Spec §5.1.
+ */
+final class CrewService
+{
+    private const JOIN_CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // ohne 0/O/1/I/L
+
+    public function __construct(
+        private readonly PDO $pdo,
+        private readonly CrewRepository $crews,
+        private readonly GameRepository $game,
+        private readonly EdgeRecalculator $recalc,
+        private readonly GameConfig $config,
+        private readonly GameAuditService $audit,
+    ) {}
+
+    /** @return array<string,mixed> */
+    public function create(int $userId, string $name, ?DateTimeImmutable $now = null): array
+    {
+        $name = $this->validateName($name);
+        $now ??= Clock::nowUtc();
+
+        return $this->transactional(function () use ($userId, $name, $now): array {
+            if ($this->crews->membershipOf($userId) !== null) {
+                $this->leaveInternal($userId, $now); // Captain-Regel greift hier
+            }
+            $slug     = $this->uniqueSlug($name);
+            $joinCode = $this->uniqueJoinCode();
+            $claimant = $this->crews->createGroupClaimant();
+            $crewId   = $this->crews->createCrew($claimant, $name, $slug, $userId, $joinCode);
+            $this->crews->addMember($userId, $crewId, 'captain');
+
+            $this->recomputeUserEdges($userId, $now);
+            $this->audit->record($userId, 'crew_create', $slug);
+            return $this->crewPayload($crewId, true);
+        });
+    }
+
+    /** @return array<string,mixed> */
+    public function join(int $userId, string $joinCode, ?DateTimeImmutable $now = null): array
+    {
+        $joinCode = strtoupper(trim($joinCode));
+        if ($joinCode === '') {
+            throw CrewException::validation('join_code erforderlich.');
+        }
+        $now ??= Clock::nowUtc();
+
+        return $this->transactional(function () use ($userId, $joinCode, $now): array {
+            $crew = $this->crews->crewByJoinCode($joinCode);
+            if ($crew === null) {
+                throw CrewException::notFound('Ungültiger Einladungscode.');
+            }
+            $crewId  = (int)$crew['id'];
+            $current = $this->crews->membershipOf($userId);
+            if ($current !== null && $current['crew_id'] === $crewId) {
+                return $this->crewPayload($crewId, $current['role'] === 'captain');
+            }
+            if ($current !== null) {
+                $this->leaveInternal($userId, $now); // Captain-Regel greift hier
+            }
+            $max = $this->config->int('crew_max_members');
+            if ($max > 0 && $this->crews->memberCount($crewId) >= $max) {
+                throw CrewException::full();
+            }
+            $this->crews->addMember($userId, $crewId, 'member');
+
+            $this->recomputeUserEdges($userId, $now);
+            $this->audit->record($userId, 'crew_join', (string)$crew['slug']);
+            return $this->crewPayload($crewId, false);
+        });
+    }
+
+    /** @return array{left:bool,dissolved:bool} */
+    public function leave(int $userId, ?DateTimeImmutable $now = null): array
+    {
+        $now ??= Clock::nowUtc();
+        return $this->transactional(fn (): array => $this->leaveInternal($userId, $now));
+    }
+
+    /** @return array<string,mixed> Crew-Payload nach der Übertragung (Aufrufer ist nun Member). */
+    public function transfer(int $captainUserId, int $targetUserId): array
+    {
+        return $this->transactional(function () use ($captainUserId, $targetUserId): array {
+            $membership = $this->crews->membershipOf($captainUserId);
+            if ($membership === null) {
+                throw CrewException::notMember();
+            }
+            if ($membership['role'] !== 'captain') {
+                throw CrewException::forbidden('Nur der Captain kann die Rolle übertragen.');
+            }
+            if ($targetUserId === $captainUserId) {
+                throw CrewException::validation('Captain-Rolle kann nicht an sich selbst übertragen werden.');
+            }
+            $target = $this->crews->membershipOf($targetUserId);
+            if ($target === null || $target['crew_id'] !== $membership['crew_id']) {
+                throw CrewException::validation('Ziel muss Mitglied derselben Crew sein.');
+            }
+            $crewId = $membership['crew_id'];
+            $this->crews->setRole($captainUserId, 'member');
+            $this->crews->setRole($targetUserId, 'captain');
+            $this->crews->setOwnerUser($crewId, $targetUserId);
+
+            $crew = $this->crews->crewById($crewId);
+            $this->audit->record($captainUserId, 'crew_transfer', (string)($crew['slug'] ?? ''), ['to' => $targetUserId]);
+            return $this->crewPayload($crewId, false);
+        });
+    }
+
+    /** @return array<string,mixed>|null Eigene Crew (mit join_code, wenn Captain) oder null. */
+    public function me(int $userId): ?array
+    {
+        $m = $this->crews->membershipOf($userId);
+        if ($m === null) {
+            return null;
+        }
+        return $this->crewPayload($m['crew_id'], $m['role'] === 'captain');
+    }
+
+    /** @return array<string,mixed>|null Öffentliches Crew-Profil (ohne join_code). */
+    public function profile(string $slug): ?array
+    {
+        $crew = $this->crews->crewBySlug(trim($slug));
+        if ($crew === null) {
+            return null;
+        }
+        return $this->crewPayload((int)$crew['id'], false);
+    }
+
+    // ----------------------------------------------------------------
+    // intern
+    // ----------------------------------------------------------------
+
+    /** @return array{left:bool,dissolved:bool} */
+    private function leaveInternal(int $userId, DateTimeImmutable $now): array
+    {
+        $membership = $this->crews->membershipOf($userId);
+        if ($membership === null) {
+            throw CrewException::notMember();
+        }
+        $crewId = $membership['crew_id'];
+        $count  = $this->crews->memberCount($crewId);
+        if ($membership['role'] === 'captain' && $count > 1) {
+            throw CrewException::captainMustTransfer();
+        }
+        $dissolving = $count === 1;
+        $crew       = $this->crews->crewById($crewId);
+        $groupClaimant = (int)($crew['claimant_id'] ?? 0);
+
+        // Kanten, die neu zu rechnen sind: die Fenster-Kanten des Users plus —
+        // bei Auflösung — alle vom Group-Claimant gehaltenen Kanten (Safety-Net,
+        // damit der Owner garantiert weg ist, bevor wir den Claimant löschen).
+        $extra = $dissolving ? $this->game->edgeIdsOwnedByClaimant($groupClaimant) : [];
+
+        $this->crews->removeMember($userId);
+        $this->recomputeUserEdges($userId, $now, $extra);
+
+        if ($dissolving) {
+            $this->crews->deleteCrew($crewId);          // CASCADE räumt Member
+            $this->crews->deleteClaimant($groupClaimant);
+        }
+        $this->audit->record($userId, 'crew_leave', (string)($crew['slug'] ?? ''), ['dissolved' => $dissolving]);
+        return ['left' => true, 'dissolved' => $dissolving];
+    }
+
+    /**
+     * Rechnet die im Fenster betroffenen Kanten des Users (+ optional extra)
+     * synchron neu. Kein Cache-Reset → Hysterese bleibt korrekt.
+     *
+     * @param list<int> $extraEdgeIds
+     */
+    private function recomputeUserEdges(int $userId, DateTimeImmutable $now, array $extraEdgeIds = []): void
+    {
+        $window = $this->config->int('presence_window_days');
+        $since  = $now->modify("-{$window} days")->format('Y-m-d');
+        $ids    = $this->game->affectedEdgeIdsForUser($userId, $since);
+        $ids    = array_values(array_unique(array_merge($ids, $extraEdgeIds)));
+        sort($ids);
+        foreach ($ids as $edgeId) {
+            $this->recalc->recalculate($edgeId, $now);
+        }
+    }
+
+    /** @return array<string,mixed> */
+    private function crewPayload(int $crewId, bool $includeJoinCode): array
+    {
+        $crew    = $this->crews->crewById($crewId);
+        if ($crew === null) {
+            throw CrewException::notFound();
+        }
+        $members = $this->crews->members($crewId);
+        $stats   = $this->game->meStats((int)$crew['claimant_id']);
+
+        $captain = null;
+        foreach ($members as $m) {
+            if ($m['role'] === 'captain') {
+                $captain = ['user_id' => $m['user_id'], 'handle' => $m['handle'], 'name' => $m['name']];
+                break;
+            }
+        }
+
+        $payload = [
+            'id'              => (int)$crew['id'],
+            'name'            => (string)$crew['name'],
+            'slug'            => (string)$crew['slug'],
+            'claimant_id'     => (int)$crew['claimant_id'],
+            'member_count'    => count($members),
+            'captain'         => $captain,
+            'held_edges'      => $stats['held'],
+            'pioneered_edges' => $stats['pioneered'],
+            'held_length_m'   => $stats['held_length_m'],
+            'members'         => array_map(
+                static fn (array $m): array => [
+                    'user_id' => $m['user_id'],
+                    'role'    => $m['role'],
+                    'handle'  => $m['handle'],
+                    'name'    => $m['name'],
+                ],
+                $members,
+            ),
+        ];
+        if ($includeJoinCode) {
+            $payload['join_code'] = (string)$crew['join_code'];
+        }
+        return $payload;
+    }
+
+    private function validateName(string $name): string
+    {
+        $name = trim(preg_replace('/\s+/u', ' ', $name) ?? '');
+        $len  = function_exists('mb_strlen') ? mb_strlen($name) : strlen($name);
+        if ($name === '') {
+            throw CrewException::validation('Crew-Name erforderlich.');
+        }
+        if ($len > 40) {
+            throw CrewException::validation('Crew-Name darf höchstens 40 Zeichen lang sein.');
+        }
+        return $name;
+    }
+
+    private function uniqueSlug(string $name): string
+    {
+        $base = strtolower($name);
+        $base = preg_replace('/[^a-z0-9]+/', '-', $base) ?? '';
+        $base = trim($base, '-');
+        if (strlen($base) < 3) {
+            $base = 'crew-' . substr(bin2hex(random_bytes(4)), 0, 6);
+        }
+        $base = substr($base, 0, 40);
+        $slug = $base;
+        $i = 1;
+        while ($this->crews->slugExists($slug)) {
+            $i++;
+            $suffix = '-' . $i;
+            $slug = substr($base, 0, 40 - strlen($suffix)) . $suffix;
+        }
+        return $slug;
+    }
+
+    private function uniqueJoinCode(): string
+    {
+        do {
+            $code = '';
+            $max  = strlen(self::JOIN_CODE_ALPHABET) - 1;
+            for ($i = 0; $i < 8; $i++) {
+                $code .= self::JOIN_CODE_ALPHABET[random_int(0, $max)];
+            }
+        } while ($this->crews->joinCodeExists($code));
+        return $code;
+    }
+
+    /**
+     * @template T
+     * @param callable():T $fn
+     * @return T
+     */
+    private function transactional(callable $fn): mixed
+    {
+        $own = !$this->pdo->inTransaction();
+        if ($own) {
+            $this->pdo->beginTransaction();
+        }
+        try {
+            $result = $fn();
+            if ($own) {
+                $this->pdo->commit();
+            }
+            return $result;
+        } catch (\Throwable $e) {
+            if ($own && $this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
+            }
+            throw $e;
+        }
+    }
+}
