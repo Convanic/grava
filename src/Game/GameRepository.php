@@ -365,6 +365,7 @@ final class GameRepository
         float $trafficFactor = 1.0,
         int $trafficPassCount = 0,
         int $trafficObservations = 0,
+        ?int $discovererClaimantId = null,
     ): void {
         $this->pdo->prepare(
             'UPDATE game_edge SET
@@ -375,11 +376,13 @@ final class GameRepository
                 last_pass_at = ?,
                 traffic_factor_cached = ?,
                 traffic_pass_count = ?,
-                traffic_observations = ?
+                traffic_observations = ?,
+                discoverer_claimant_id = ?
              WHERE id = ?'
         )->execute([
             $ownerClaimantId, $ownerSince, $value, $freshness, $lastPassAt,
-            $trafficFactor, $trafficPassCount, $trafficObservations, $edgeId,
+            $trafficFactor, $trafficPassCount, $trafficObservations,
+            $discovererClaimantId, $edgeId,
         ]);
     }
 

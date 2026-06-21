@@ -50,6 +50,14 @@ final class EdgeRecalculator
         $isGroup    = [];   // [cid] => bool
         $lastPassByClaimant = [];
         $lastPassOverall = null;
+        // Entdecker (Pionier) = effektiver Claimant des Users mit dem
+        // FRÜHESTEN Pass. Wichtig: über den effektiven Claimant (Crew), nicht
+        // den historisch gestempelten game_edge_pass.claimant_id — sonst zählt
+        // meStats() für eine Crew 0 pionierte Kanten, obwohl ihre Mitglieder
+        // die Kanten entdeckt haben (gleiche Logik wie beim Besitz).
+        $discovererClaimant = null;
+        $firstPassAt = null;
+        $firstUser = null;
         foreach ($passes as $p) {
             $uid = $p['user_id'];
             $eff = $effMap[$uid] ?? ['claimant_id' => $p['claimant_id'], 'is_group' => false];
@@ -64,6 +72,16 @@ final class EdgeRecalculator
             }
             if ($lastPassOverall === null || $p['ridden_at'] > $lastPassOverall) {
                 $lastPassOverall = $p['ridden_at'];
+            }
+            // frühester Pass (Tie-Break: kleinste user_id) → konsistent mit
+            // discovered_at = MIN(ridden_at) aus refreshEdgeDiscovery.
+            if ($firstPassAt === null
+                || $p['ridden_at'] < $firstPassAt
+                || ($p['ridden_at'] === $firstPassAt && $uid < $firstUser)
+            ) {
+                $firstPassAt = $p['ridden_at'];
+                $firstUser = $uid;
+                $discovererClaimant = $cid;
             }
         }
 
@@ -160,6 +178,7 @@ final class EdgeRecalculator
             $trafficFactor,
             $traffic['pass_count'],
             $traffic['observations'],
+            $discovererClaimant,
         );
     }
 

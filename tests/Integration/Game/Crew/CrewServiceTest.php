@@ -90,6 +90,28 @@ final class CrewServiceTest extends IntegrationTestCase
         $this->assertNull($this->crews->crewBySlug('owls'), 'Letztes Mitglied -> Crew aufgelöst.');
     }
 
+    public function testPioneerCreditMovesToCrewAndBack(): void
+    {
+        $edge = $this->makeEdge();
+        $u1 = $this->createUser('rider');
+        $rider = $this->repo->riderClaimantId($u1);
+        $now = $this->now('2026-06-20T12:00:00Z');
+        $this->repo->insertPassIfAbsent($edge, $rider, $u1, 1, '2026-06-20', '2026-06-20 08:00:00.000');
+        $this->repo->refreshEdgeDiscovery($edge);
+        $this->recalc->recalculate($edge, $now);
+        $this->assertSame(1, $this->repo->meStats($rider)['pioneered'], 'Solo: Rider pioniert.');
+
+        $crew  = $this->svc->create($u1, 'Owls', $now);
+        $group = (int)$crew['claimant_id'];
+        // Pionier-Kredit folgt dem Besitz zur Crew (nicht 0!).
+        $this->assertSame(1, $this->repo->meStats($group)['pioneered'], 'Crew pioniert nach Beitritt.');
+        $this->assertSame(1, $this->repo->meStats($group)['held']);
+        $this->assertSame(0, $this->repo->meStats($rider)['pioneered']);
+
+        $this->svc->leave($u1, $now);
+        $this->assertSame(1, $this->repo->meStats($rider)['pioneered'], 'Nach leave zurück zum Rider.');
+    }
+
     public function testCaptainMustTransferBeforeLeaving(): void
     {
         $cap = $this->createUser('captain');
