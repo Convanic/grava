@@ -138,6 +138,9 @@ set_exception_handler(function (\Throwable $e) use ($isProd, $basePath): void {
     // Notnagel: ein letzter direkter Schreibversuch ins File. Hier darf
     // das @ bleiben, weil wir bereits in einem Exception-Handler stehen
     // und einen weiteren Crash hier nicht mehr aufkommen wollen.
+    // Verzeichnis bei Bedarf anlegen, sonst schlägt file_put_contents still
+    // fehl und /internal/logtail sieht nie ein Logfile.
+    @mkdir($basePath . '/storage/logs', 0775, true);
     @file_put_contents(
         $basePath . '/storage/logs/php.log',
         sprintf("[%s] %s in %s:%d\n%s\n", gmdate('Y-m-d H:i:s'), $e->getMessage(), $e->getFile(), $e->getLine(), $e->getTraceAsString()),

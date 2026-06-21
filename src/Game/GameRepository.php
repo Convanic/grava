@@ -521,6 +521,9 @@ final class GameRepository
         ?float $maxLat,
         int $limit,
     ): array {
+        // Erst-Fahrer (Entdecker-Mensch) je Kante set-basiert per Window-Funktion
+        // statt zweier korrelierter Subqueries pro Zeile — portabel (MySQL 8 /
+        // MariaDB 10.2+) und ohne Per-Kante-Filesort über alle Kanten.
         $sql = 'SELECT e.id, e.geom_geojson, e.length_m, e.surface_character,
                        e.owner_claimant_id, c.type AS owner_type,
                        u.public_handle AS owner_handle,
@@ -528,18 +531,21 @@ final class GameRepository
                        f.id AS faction_id, f.key_slug AS faction_key, f.color_hex AS faction_color,
                        e.value_cached, e.freshness_cached, e.distinct_riders_total,
                        e.min_lat, e.min_lon, e.max_lat, e.max_lon,
-                       (SELECT p.user_id FROM game_edge_pass p
-                          WHERE p.edge_id = e.id AND p.invalidated_at IS NULL
-                          ORDER BY p.ridden_at ASC, p.id ASC LIMIT 1) AS rider_user_id,
-                       (SELECT ru.public_handle FROM game_edge_pass p2
-                          JOIN users ru ON ru.id = p2.user_id
-                          WHERE p2.edge_id = e.id AND p2.invalidated_at IS NULL
-                          ORDER BY p2.ridden_at ASC, p2.id ASC LIMIT 1) AS rider_handle
+                       fr.user_id AS rider_user_id, ru.public_handle AS rider_handle
                   FROM game_edge e
                   LEFT JOIN game_claimant c ON c.id = e.owner_claimant_id
                   LEFT JOIN users u ON u.id = c.user_id
                   LEFT JOIN game_crew cr ON cr.claimant_id = e.owner_claimant_id
-                  LEFT JOIN game_faction f ON f.id = cr.faction_id';
+                  LEFT JOIN game_faction f ON f.id = cr.faction_id
+                  LEFT JOIN (
+                      SELECT edge_id, user_id FROM (
+                          SELECT edge_id, user_id,
+                                 ROW_NUMBER() OVER (PARTITION BY edge_id ORDER BY ridden_at ASC, id ASC) AS rn
+                            FROM game_edge_pass
+                           WHERE invalidated_at IS NULL
+                      ) ranked WHERE ranked.rn = 1
+                  ) fr ON fr.edge_id = e.id
+                  LEFT JOIN users ru ON ru.id = fr.user_id';
         $params = [];
         $hasBbox = $minLon !== null && $minLat !== null && $maxLon !== null && $maxLat !== null;
         if ($hasBbox) {
