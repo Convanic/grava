@@ -158,7 +158,44 @@ final class GeometryParser
             sourceFormat: 'gpx',
             startedAt: $startedAt,
             endedAt: $endedAt,
+            elevationGainOverrideM: self::readElevationGainOverride($xml),
         );
+    }
+
+    /**
+     * Liest die optionale `<ge:elevationGain>`-Extension (exakter, i. d. R.
+     * barometrischer Gesamtanstieg des iOS-Clients). Namespace wie bei
+     * {@see SurfaceTrack} (`ge:surfaceScore`). Defensiv: ein kaputter Payload
+     * darf hier nicht crashen — bei jedem Zweifel `null` (→ Berechnung aus
+     * `<ele>`). Sitzt typischerweise in `<metadata>` oder `<trk>`, daher
+     * positionsunabhängige XPath-Suche.
+     */
+    private static function readElevationGainOverride(string $gpx): ?float
+    {
+        $prev = libxml_use_internal_errors(true);
+        libxml_clear_errors();
+        try {
+            $xml = simplexml_load_string($gpx);
+        } catch (\Throwable) {
+            $xml = false;
+        } finally {
+            libxml_clear_errors();
+            libxml_use_internal_errors($prev);
+        }
+        if (!$xml instanceof \SimpleXMLElement) {
+            return null;
+        }
+        $xml->registerXPathNamespace('ge', 'https://gravelexplorer.benx.de/gpx/v1');
+        $nodes = $xml->xpath('//ge:elevationGain');
+        if ($nodes === false || $nodes === null || $nodes === []) {
+            return null;
+        }
+        $raw = trim((string)$nodes[0]);
+        if ($raw === '' || !is_numeric($raw)) {
+            return null;
+        }
+        $val = (float)$raw;
+        return $val >= 0.0 ? $val : null;
     }
 
     private function parseGeoJson(string $json): ParsedRoute

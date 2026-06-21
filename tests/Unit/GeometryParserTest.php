@@ -79,4 +79,34 @@ final class GeometryParserTest extends TestCase
         $this->assertSame('2026-05-01T07:30:00+00:00', $parsed->startedAt->format('c'));
         $this->assertSame('2026-05-01T07:30:20+00:00', $parsed->endedAt->format('c'));
     }
+
+    public function testReadsElevationGainExtension(): void
+    {
+        $gpx = '<?xml version="1.0" encoding="UTF-8"?>'
+             . '<gpx version="1.1" xmlns="http://www.topografix.com/GPX/1/1" '
+             . 'xmlns:ge="https://gravelexplorer.benx.de/gpx/v1">'
+             . '<metadata><extensions><ge:elevationGain>437</ge:elevationGain></extensions></metadata>'
+             . '<trk><trkseg>'
+             . '<trkpt lat="48.0" lon="12.0"><ele>100</ele></trkpt>'
+             . '<trkpt lat="48.001" lon="12.001"><ele>110</ele></trkpt>'
+             . '</trkseg></trk></gpx>';
+
+        $parsed = $this->parser->parse($gpx);
+
+        $this->assertSame(437.0, $parsed->elevationGainOverrideM);
+    }
+
+    public function testNoElevationGainExtensionLeavesOverrideNull(): void
+    {
+        $gpx = '<?xml version="1.0" encoding="UTF-8"?>'
+             . '<gpx version="1.1" xmlns="http://www.topografix.com/GPX/1/1">'
+             . '<trk><trkseg>'
+             . '<trkpt lat="48.0" lon="12.0"><ele>100</ele></trkpt>'
+             . '<trkpt lat="48.001" lon="12.001"><ele>110</ele></trkpt>'
+             . '</trkseg></trk></gpx>';
+
+        $parsed = $this->parser->parse($gpx);
+
+        $this->assertNull($parsed->elevationGainOverrideM);
+    }
 }

@@ -192,7 +192,8 @@ $routeRepo    = new RouteRepository();
 // M8: Wegpunkt-Hinweise — parst <wpt>-Hinweise aus dem GPX-Payload beim
 // Upload und liefert sie für Route-JSON + GeoJSON-Antworten.
 $routeHints   = new RouteHintService(new RouteHintParser(), new RouteHintRepository());
-$routeService = new RouteService($routeRepo, $routeStorage, new GeometryParser(), new GeometryStats(), $routeHints, $gameEnabled ? $gameIngest : null);
+$elevationThresholdM = (float)($config->get('ROUTE_ELEVATION_THRESHOLD_M', GeometryStats::DEFAULT_ELEVATION_HYSTERESIS_M) ?? GeometryStats::DEFAULT_ELEVATION_HYSTERESIS_M);
+$routeService = new RouteService($routeRepo, $routeStorage, new GeometryParser(), new GeometryStats($elevationThresholdM), $routeHints, $gameEnabled ? $gameIngest : null);
 $shareTokens  = new ShareTokenService($routeRepo);
 // GeoJSON-Konverter für die Web-Karten (eigener Parser, zustandslos).
 // SurfaceTrack färbt GPX-Tracks mit <ge:surfaceScore> ein.

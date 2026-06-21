@@ -31,12 +31,25 @@ final class GeometryStats
     private const EARTH_RADIUS_M = 6_371_000.0;
 
     /**
-     * Hysterese in Metern: Höhenänderungen unterhalb dieses Wertes
-     * gelten als Rauschen und werden nicht in den Höhenmeter-Counter
-     * gezählt. Realität: konsumierter GPS-Höhensensor hat üblicherweise
-     * 1-3 m Streuung pro Sample. 2 m ist ein gutartiger Default.
+     * Default-Hysterese in Metern, falls keine Konfiguration übergeben wird.
+     * GPS-`<ele>` rauscht stärker als ein Barometer (typ. 1–3 m pro Sample),
+     * daher 3 m als gutartiger Default; via Konstruktor (Config
+     * `ROUTE_ELEVATION_THRESHOLD_M`) nachtunbar.
      */
-    private const ELEVATION_HYSTERESIS_M = 2.0;
+    public const DEFAULT_ELEVATION_HYSTERESIS_M = 3.0;
+
+    /**
+     * Hysterese in Metern: Höhenänderungen unterhalb dieses Wertes gelten als
+     * Rauschen und zählen nicht in den Höhenmeter-Counter.
+     */
+    private readonly float $elevationHysteresisM;
+
+    public function __construct(?float $elevationHysteresisM = null)
+    {
+        $v = $elevationHysteresisM ?? self::DEFAULT_ELEVATION_HYSTERESIS_M;
+        // Negative/0 wären sinnlos (jede Schwankung zählte) → auf Default fallen.
+        $this->elevationHysteresisM = $v > 0.0 ? $v : self::DEFAULT_ELEVATION_HYSTERESIS_M;
+    }
 
     public function compute(ParsedRoute $route): RouteStats
     {
@@ -80,7 +93,7 @@ final class GeometryStats
 
                 if ($referenceElevation !== null && $p->elevationM !== null) {
                     $delta = $p->elevationM - $referenceElevation;
-                    if (abs($delta) >= self::ELEVATION_HYSTERESIS_M) {
+                    if (abs($delta) >= $this->elevationHysteresisM) {
                         if ($delta > 0) {
                             $elevationGainM += $delta;
                         }
@@ -99,10 +112,16 @@ final class GeometryStats
         $centroidLat = $sumLat / $n;
         $centroidLon = $sumLon / $n;
 
+        // §3: exakten Wert aus <ge:elevationGain> bevorzugen, falls vorhanden;
+        // sonst den aus <ele> per Hysterese berechneten Anstieg verwenden.
+        $gain = $route->elevationGainOverrideM !== null
+            ? $route->elevationGainOverrideM
+            : $elevationGainM;
+
         return new RouteStats(
             pointCount: $n,
             distanceM: (int)round($distanceM),
-            elevationGainM: (int)round($elevationGainM),
+            elevationGainM: (int)round($gain),
             bboxMinLat: $minLat,
             bboxMinLon: $minLon,
             bboxMaxLat: $maxLat,

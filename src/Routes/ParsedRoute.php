@@ -21,12 +21,17 @@ final class ParsedRoute
     /**
      * @param list<ParsedPoint>      $points
      * @param 'gpx'|'geojson'        $sourceFormat
+     * @param ?float                 $elevationGainOverrideM Exakter Gesamtanstieg
+     *        aus einer `<ge:elevationGain>`-Extension (z. B. barometrisch vom
+     *        iOS-Client). Wenn gesetzt, bevorzugt {@see GeometryStats} ihn
+     *        gegenüber dem aus `<ele>` berechneten Wert.
      */
     public function __construct(
         public readonly array $points,
         public readonly string $sourceFormat,
         public readonly ?DateTimeImmutable $startedAt = null,
         public readonly ?DateTimeImmutable $endedAt = null,
+        public readonly ?float $elevationGainOverrideM = null,
     ) {
     }
 
