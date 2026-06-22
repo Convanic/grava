@@ -43,15 +43,29 @@ final class HeatmapService
             // ST_Latitude/ST_Longitude sind SRS-bewusst (Centroid ist
             // POINT(lon,lat) mit SRID 4326). Wir runden auf das Grid und
             // gruppieren. cell_key wird aus den gerundeten Werten gebaut.
+            //
+            // Privacy (§17): Routen, deren Centroid in der eigenen Privatzone
+            // des Eigentümers liegt, fließen NICHT in die öffentliche Heatmap
+            // ein (LEFT JOIN + Haversine-Ausschluss). Distanz in Metern.
             $sql = "
                 INSERT INTO heatmap_cells (cell_key, lat, lon, weight, updated_at)
                 SELECT CONCAT(blat, ':', blon) AS cell_key, blat, blon, COUNT(*) AS weight, ?
                 FROM (
                     SELECT
-                        ROUND(ST_Latitude(centroid)  / {$grid}) * {$grid} AS blat,
-                        ROUND(ST_Longitude(centroid) / {$grid}) * {$grid} AS blon
-                    FROM routes
-                    WHERE visibility = 'public' AND deleted_at IS NULL
+                        ROUND(ST_Latitude(r.centroid)  / {$grid}) * {$grid} AS blat,
+                        ROUND(ST_Longitude(r.centroid) / {$grid}) * {$grid} AS blon
+                    FROM routes r
+                    LEFT JOIN user_privacy_zone z
+                           ON z.user_id = r.user_id AND z.enabled = 1
+                    WHERE r.visibility = 'public' AND r.deleted_at IS NULL
+                      AND (
+                        z.user_id IS NULL
+                        OR (6371000 * 2 * ASIN(SQRT(
+                              POW(SIN(RADIANS(ST_Latitude(r.centroid) - z.lat) / 2), 2)
+                            + COS(RADIANS(z.lat)) * COS(RADIANS(ST_Latitude(r.centroid)))
+                              * POW(SIN(RADIANS(ST_Longitude(r.centroid) - z.lon) / 2), 2)
+                           ))) > z.radius_m
+                      )
                 ) t
                 GROUP BY blat, blon
             ";

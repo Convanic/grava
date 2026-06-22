@@ -6,6 +6,8 @@ namespace App\Controllers\Web;
 use App\Http\GeoJsonResponse;
 use App\Http\Request;
 use App\Http\Response;
+use App\Privacy\PrivacyZoneRepository;
+use App\Privacy\RoutePrivacyTrimmer;
 use App\Routes\RouteGeoJson;
 use App\Routes\RouteInsights;
 use App\Routes\RouteService;
@@ -31,6 +33,8 @@ final class PublicSharePageController
         private readonly ?RouteService $routes = null,
         private readonly ?RouteGeoJson $geo = null,
         private readonly ?RouteInsights $insights = null,
+        private readonly ?PrivacyZoneRepository $privacyZones = null,
+        private readonly ?RoutePrivacyTrimmer $trimmer = null,
     ) {
         $this->view = new WebView($viewsPath);
     }
@@ -87,6 +91,14 @@ final class PublicSharePageController
             );
         } catch (\Throwable) {
             GeoJsonResponse::error(404);
+        }
+        // Privacy: geteilte Tracks werden an Fremde (hier immer anonyme
+        // Besucher) innerhalb der Eigentümer-Zone getrimmt (§17 Punkt 2).
+        if ($this->privacyZones !== null && $this->trimmer !== null) {
+            $owner = $this->privacyZones->ownerZoneForRoute((string)$route['id']);
+            if ($owner !== null) {
+                $fc = $this->trimmer->trim($fc, $owner['zone']);
+            }
         }
         GeoJsonResponse::emit($fc);
     }

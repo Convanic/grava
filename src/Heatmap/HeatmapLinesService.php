@@ -4,6 +4,8 @@ declare(strict_types=1);
 namespace App\Heatmap;
 
 use App\Database\Db;
+use App\Privacy\PrivacyZone;
+use App\Privacy\PrivacyZoneRepository;
 use App\Routes\GeometryParser;
 use App\Routes\RouteService;
 use App\Routes\SurfaceTrack;
@@ -33,6 +35,7 @@ final class HeatmapLinesService
         private readonly int $minRoutes = 1,
         private readonly int $resampleM = 20,
         private readonly int $maxPointsPerRequest = 15000,
+        private readonly ?PrivacyZoneRepository $privacyZones = null,
     ) {}
 
     /**
@@ -46,18 +49,23 @@ final class HeatmapLinesService
             throw new \RuntimeException('HeatmapLinesService::rebuild() benötigt valhalla/routes/parser/surface.');
         }
         $pdo = Db::pdo();
-        $publicIds = $pdo
-            ->query("SELECT public_id FROM routes WHERE visibility='public' AND deleted_at IS NULL")
-            ->fetchAll(PDO::FETCH_COLUMN);
+        // user_id mitziehen, um Track-Punkte in der Privatzone des Eigentümers
+        // auszuklammern (§17 Punkt 3). Zonen einmalig als Map laden.
+        $rowsR = $pdo
+            ->query("SELECT public_id, user_id FROM routes WHERE visibility='public' AND deleted_at IS NULL")
+            ->fetchAll(PDO::FETCH_ASSOC);
+        $zonesByUser = $this->privacyZones?->enabledZonesByUser() ?? [];
 
         $acc = [];
         $matched = 0;
         $skipped = 0;
 
-        foreach ($publicIds as $pid) {
+        foreach ($rowsR as $r) {
+            $pid = (string)$r['public_id'];
+            $zone = $zonesByUser[(int)$r['user_id']] ?? null;
             try {
-                $loaded = $this->routes->loadPayloadByPublicId((string)$pid);
-                $this->accumulateOne($acc, $loaded['payload'], $matched, $skipped);
+                $loaded = $this->routes->loadPayloadByPublicId($pid);
+                $this->accumulateOne($acc, $loaded['payload'], $matched, $skipped, $zone);
             } catch (\Throwable) {
                 $skipped++;
             }
@@ -67,7 +75,7 @@ final class HeatmapLinesService
         $this->write($rows);
 
         return [
-            'routes'  => count($publicIds),
+            'routes'  => count($rowsR),
             'matched' => $matched,
             'skipped' => $skipped,
             'edges'   => count($rows),
@@ -279,23 +287,66 @@ final class HeatmapLinesService
      *
      * @param array<string,array<string,mixed>> $acc by-ref Akkumulator
      */
-    private function accumulateOne(array &$acc, string $payload, int &$matched, int &$skipped): void
+    private function accumulateOne(array &$acc, string $payload, int &$matched, int &$skipped, ?PrivacyZone $zone = null): void
     {
         $points = $this->extractPoints($payload);
         if (count($points) < 2) {
             $skipped++;
             return;
         }
-        $points = $this->downsample($points);
-        $match  = $this->valhalla->matchTrace(
-            array_map(static fn($p) => ['lat' => $p['lat'], 'lon' => $p['lon']], $points)
-        );
-        if ($match === null) {
+
+        // Privacy: Track-Punkte in der Eigentümer-Zone entfernen und den Track
+        // in zusammenhängende Läufe AUSSERHALB der Zone zerlegen, damit
+        // Valhalla nicht quer durch das Zuhause snappt.
+        $runs = $this->splitOutsideZone($points, $zone);
+        if ($runs === []) {
             $skipped++;
             return;
         }
-        $this->accumulate($acc, $points, $match);
-        $matched++;
+
+        $anyMatched = false;
+        foreach ($runs as $run) {
+            $run   = $this->downsample($run);
+            $match = $this->valhalla->matchTrace(
+                array_map(static fn($p) => ['lat' => $p['lat'], 'lon' => $p['lon']], $run)
+            );
+            if ($match === null) {
+                continue;
+            }
+            $this->accumulate($acc, $run, $match);
+            $anyMatched = true;
+        }
+        $anyMatched ? $matched++ : $skipped++;
+    }
+
+    /**
+     * Zerlegt eine Punktfolge in zusammenhängende Läufe außerhalb der Zone
+     * (Läufe < 2 Punkte verworfen). Ohne Zone: ein Lauf = ganze Folge.
+     *
+     * @param list<array{lat:float,lon:float}> $points
+     * @return list<list<array{lat:float,lon:float}>>
+     */
+    private function splitOutsideZone(array $points, ?PrivacyZone $zone): array
+    {
+        if ($zone === null) {
+            return [$points];
+        }
+        $runs = [];
+        $current = [];
+        foreach ($points as $p) {
+            if ($zone->containsPoint((float)$p['lat'], (float)$p['lon'])) {
+                if (count($current) >= 2) {
+                    $runs[] = $current;
+                }
+                $current = [];
+                continue;
+            }
+            $current[] = $p;
+        }
+        if (count($current) >= 2) {
+            $runs[] = $current;
+        }
+        return $runs;
     }
 
     /**

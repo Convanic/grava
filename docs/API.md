@@ -190,6 +190,9 @@ Legende Auth: **—** = kein Token · **Bearer** = Access-Token nötig ·
 | PATCH | `/users/me` | Bearer | `display_name` ändern |
 | DELETE | `/users/me` | Bearer | Konto löschen (Body: `password`) |
 | PATCH | `/users/me/handle` | Bearer+Verified | `public_handle` **einmalig** setzen |
+| GET | `/me/privacy-zone` | Bearer | Eigene Privatzone (oder `{zone:null}`) |
+| PUT | `/me/privacy-zone` | Bearer | Privatzone setzen/ändern (rückwirkende Bereinigung) |
+| DELETE | `/me/privacy-zone` | Bearer | Privatzone entfernen (204) |
 
 **Register** — Request:
 ```json
@@ -469,6 +472,19 @@ für die Farbe; `surface` ist ein OSM/Valhalla-Fallback. Ungültige `bbox` ⇒ `
 - `GET /api/v1/game/config` — aktuelle `game_config`-Werte. Bearer.
 - `GET /api/v1/game/leaderboard?scope&window&metric` — Solo-/Spieler-Rangliste (S7, **OptionalBearer**). `scope` = `world` (anonym) \| `friends` (Bearer-Pflicht → sonst `401`; Follow-Graph inkl. self). `window` = `week` (7 T) \| `season` (90 T, Default) \| `all`. `metric` = `area` (Default, gehaltene Länge in m als Top-90-Tage-Präsenz-Beitragender) \| `pioneer` (Anzahl Kanten in der Erstbefahrer-Kohorte ≤10) \| `value` (Σ Kantenwert der gehaltenen Kanten) \| `distance` (gefahrene Distanz im Fenster). Antwort `{ "entries": [ { rank, handle, value, is_me } ], "me": { rank, value } | null }`. `entries` value-absteigend, Rang fortlaufend (Top 100), Tie deterministisch nach `user_id`. `me` auch außerhalb der Top-N (null, wenn ausgeloggt/ohne Daten). `area`/`value` sind 90-Tage-rollierend (Präsenz); `all` wird dafür wie `season` behandelt. Invalidierte Pässe ausgeschlossen. Reine Lese-Aggregation. (Region-Scope folgt später als `scope=region&bbox=…`.)
 - `POST /api/v1/game/ingest/{route_id}` — Re-Run der Ingestion (idempotent), nur Owner. `{route_id}` ist die **öffentliche Route-ID (UUID)**, konsistent mit `GET /routes/{id}` (intern-numerische ID wird rückwärtskompatibel ebenfalls akzeptiert). Antwort: Match-/Pass-/Skip-Zähler.
+
+### Privatzonen / Heimat-Schutz (§17, S8)
+
+Geofence-Zone zum Schutz der Heimat (oder anderer sensibler Orte) davor, über Revier-Gebiet, geteilte Tracks oder die Heatmap ableitbar zu werden. Reine Account-Operation — alle Endpunkte **Bearer** (ohne → `401`). `lat`/`lon` sind hochsensibel und werden **nur** an den Besitzer selbst zurückgegeben, niemals in fremden Antworten/Heatmap/Routen.
+
+- `GET /api/v1/me/privacy-zone` — `{ "zone": { "lat", "lon", "radius_m", "enabled" } }` oder `{ "zone": null }`, wenn nicht gesetzt.
+- `PUT /api/v1/me/privacy-zone` — Body `{ "lat", "lon", "radius_m"?, "enabled"? }`. `radius_m` wird server-seitig auf **200…2000** geklemmt (Default 500); `enabled` Default `true`. Antwort `200` mit der gespeicherten Zone. Löst bei aktiver Zone die **rückwirkende Bereinigung** aus: bestehende Pässe des Nutzers auf Kanten in der Zone werden invalidiert (`invalid_reason='privacy_zone'`) und die Kanten neu berechnet.
+- `DELETE /api/v1/me/privacy-zone` — entfernt die Zone (`204`). Hebt den Schutz **für die Zukunft** auf; bereits invalidierte Pässe bleiben invalidiert (**kein** Auto-Restore).
+
+**Enforcement (server-autoritativ):** Ein Punkt liegt in der Zone, wenn `haversine(point, center) <= radius_m` und `enabled`.
+1. **Ingestion (Revier):** Segmente in der Zone erzeugen keine Kanten/Pässe (konservativ: Polylinien-Abstand zum Zentrum). Wirkt **absolut**, auch für den Besitzer selbst (Reviere sind öffentlich). Skip-Zähler `skipped_privacy_zone` im Ingest-Summary.
+2. **Öffentliche Tracks:** Beim Ausliefern an Fremde (`/share/{token}/geojson`, `/u/{handle}/r/{id}/geojson`) werden Track-Punkte in der Eigentümer-Zone entfernt; die Linie wird bei Bedarf in mehrere LineStrings zerlegt (kein gerader Sprung über die Zone), `hints` in der Zone fallen weg. Der Eigentümer selbst sieht seine Route ungekürzt.
+3. **Heatmap:** Beiträge eines Nutzers innerhalb seiner eigenen Zone fließen nicht in die öffentliche Aggregation ein (Centroid-Zellen + Streckenlinien; greift beim Rebuild).
 
 Das `owner`-Objekt der Kanten enthält `{ claimant_id, type, handle, name }`. `type` ∈ `rider | group`. Für `rider` ist `handle` = `public_handle`, `name` = Anzeigename; für `group` (Crew, Stufe 2) ist `handle` = Crew-Slug, `name` = Crew-Name. `name` ist **additiv** und kann `null` sein.
 

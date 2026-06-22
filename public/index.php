@@ -210,15 +210,19 @@ $gameEnabled  = $config->bool('GAME_ENABLED', true);
 $gameConfig   = new GameConfig(Db::pdo());
 $gameRepo     = new GameRepository(Db::pdo());
 $gameRecalc   = new EdgeRecalculator($gameRepo, $gameConfig);
+// S8 Privatzonen (§17): Repository früh, da Ingestion + Heatmap es brauchen.
+$privacyZoneRepo    = new \App\Privacy\PrivacyZoneRepository(Db::pdo());
+$privacyTrimmer     = new \App\Privacy\RoutePrivacyTrimmer();
 $gameValhalla = new ValhallaClient(
     (string)($config->get('VALHALLA_BASE_URL', $config->get('VALHALLA_URL', 'http://localhost:8002')) ?? 'http://localhost:8002'),
     (string)($config->get('VALHALLA_COSTING', 'bicycle') ?? 'bicycle'),
 );
 $gameMatcher   = new ValhallaEdgeMatcher($gameValhalla);
 $gameTakeovers = new TerritoryTakeoverNotifier($gameRepo, $notifServ);
-$gameIngest    = new GameIngestionService($gameMatcher, $gameRepo, $gameRecalc, $gameConfig, Db::pdo(), $gameTakeovers);
+$gameIngest    = new GameIngestionService($gameMatcher, $gameRepo, $gameRecalc, $gameConfig, Db::pdo(), $gameTakeovers, $privacyZoneRepo);
 $gameRead      = new GameReadService($gameRepo, $gameConfig);
 $gameRecompute = new GameRecomputeService($gameRepo, $gameRecalc);
+$privacyZoneSvc = new \App\Privacy\PrivacyZoneService($privacyZoneRepo, $gameRepo, $gameRecalc, Db::pdo());
 
 // M2: Routes-Stack
 $routeStorage = new RouteStorage($config);
@@ -248,6 +252,8 @@ $heatmapLines = new HeatmapLinesService(
     new SurfaceTrack(),
     (int)($config->get('HEATMAP_LINES_MIN_ROUTES', 1) ?? 1),
     (int)($config->get('HEATMAP_LINES_RESAMPLE_M', 20) ?? 20),
+    15000,
+    $privacyZoneRepo,
 );
 
 // M9: Surface-Check — projiziert vorhandene Crowd-Belagsdaten (heatmap_edges)
@@ -355,6 +361,7 @@ $apiHeatmapLines = new HeatmapLinesController($heatmapLines);
 $apiReferral = new ReferralController($referrals);
 $apiGame = new GameController($gameRead, $gameRepo, $gameIngest, $gameConfig, $routeService, new GeometryParser());
 $apiPlayerBoard = new PlayerLeaderboardController(new PlayerLeaderboardService($gameRepo, $gameConfig));
+$apiPrivacyZone = new \App\Controllers\Api\PrivacyZoneController($privacyZoneSvc);
 $gameCrewRepo    = new \App\Game\Crew\CrewRepository(Db::pdo());
 $gameFactionRepo = new \App\Game\Faction\FactionRepository(Db::pdo());
 $gameCrewSvc  = new \App\Game\Crew\CrewService(
@@ -372,9 +379,9 @@ $webAuth    = new AuthPagesController($auth, $cookieAuth, $webSession, $rate, $b
 $webHome    = new DashboardController($webSession, $auth, $basePath . '/views');
 $webRefresh = new WebRefreshController($cookieAuth, $webSession);
 $webRoutes  = new RoutePagesController($webSession, $auth, $routeService, $shareTokens, $config, $routeGeoJson, $basePath . '/views', $routeInsights);
-$webShare   = new PublicSharePageController($shareTokens, $basePath . '/views', $routeService, $routeGeoJson, $routeInsights);
+$webShare   = new PublicSharePageController($shareTokens, $basePath . '/views', $routeService, $routeGeoJson, $routeInsights, $privacyZoneRepo, $privacyTrimmer);
 $webSetting = new SettingsPagesController($webSession, $auth, $basePath . '/views', $avatarServ);
-$webDiscover = new DiscoveryPagesController($webSession, $auth, $discovery, $profileServ, $feedServ, $basePath . '/views', $likeServ, $commentServ, $notifServ, $heatmapServ, $routeService, $routeGeoJson, $routeInsights);
+$webDiscover = new DiscoveryPagesController($webSession, $auth, $discovery, $profileServ, $feedServ, $basePath . '/views', $likeServ, $commentServ, $notifServ, $heatmapServ, $routeService, $routeGeoJson, $routeInsights, $privacyZoneRepo, $privacyTrimmer);
 $webSocial   = new SocialPagesController($webSession, $auth, $followServ, $blockServ);
 $webEngage   = new EngagementPagesController($webSession, $likeServ, $commentServ, $auth, $rate);
 $webStrava   = new StravaPagesController($webSession, $auth, $stravaServ, $basePath . '/views');
@@ -420,6 +427,11 @@ $router->delete("{$apiBase}/users/me",                    fn($r) => $apiUsers->d
 // statt PATCH /users/me, weil die Operation nicht idempotent ist
 // (One-Time-Lock) und einen klaren Konflikt-Code (409) braucht.
 $router->patch("{$apiBase}/users/me/handle",              fn($r) => $apiUsers->setHandle($r), [$requireBearer, $requireVerified]);
+
+// S8 Privatzonen / Heimat-Schutz (§17). Reine Account-Operation (Bearer).
+$router->get("{$apiBase}/me/privacy-zone",                fn($r) => $apiPrivacyZone->show($r),   [$requireBearer]);
+$router->put("{$apiBase}/me/privacy-zone",                fn($r) => $apiPrivacyZone->put($r),    [$requireBearer]);
+$router->delete("{$apiBase}/me/privacy-zone",             fn($r) => $apiPrivacyZone->delete($r), [$requireBearer]);
 
 // ---- Routes API (M2 Phase 4) ----
 // POST /routes ist sowohl Create als auch "Add Version" — Idempotenz

@@ -12,6 +12,8 @@ use App\Http\GeoJsonResponse;
 use App\Http\Middleware\Csrf;
 use App\Http\Request;
 use App\Http\Response;
+use App\Privacy\PrivacyZoneRepository;
+use App\Privacy\RoutePrivacyTrimmer;
 use App\Routes\RouteGeoJson;
 use App\Routes\RouteInsights;
 use App\Routes\RouteService;
@@ -44,6 +46,8 @@ final class DiscoveryPagesController
         private readonly ?RouteService $routesService = null,
         private readonly ?RouteGeoJson $geo = null,
         private readonly ?RouteInsights $insights = null,
+        private readonly ?PrivacyZoneRepository $privacyZones = null,
+        private readonly ?RoutePrivacyTrimmer $trimmer = null,
     ) {
         $this->view = new WebView($viewsPath);
     }
@@ -289,6 +293,14 @@ final class DiscoveryPagesController
             );
         } catch (\Throwable) {
             GeoJsonResponse::error(404);
+        }
+        // Privacy: an Fremde wird die Route innerhalb der Eigentümer-Zone
+        // getrimmt; der Eigentümer selbst sieht sie ungekürzt (§17 Punkt 2).
+        if ($this->privacyZones !== null && $this->trimmer !== null) {
+            $owner = $this->privacyZones->ownerZoneForRoute($routePid);
+            if ($owner !== null && $owner['owner_id'] !== $viewerId) {
+                $fc = $this->trimmer->trim($fc, $owner['zone']);
+            }
         }
         GeoJsonResponse::emit($fc);
     }

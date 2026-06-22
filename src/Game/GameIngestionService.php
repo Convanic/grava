@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace App\Game;
 
+use App\Privacy\PrivacyZoneRepository;
 use App\Routes\ParsedRoute;
 use App\Routes\RadarTrafficData;
 use App\Support\Clock;
@@ -27,12 +28,13 @@ final class GameIngestionService
         private readonly GameConfig $config,
         private readonly PDO $pdo,
         private readonly ?TerritoryTakeoverNotifier $takeovers = null,
+        private readonly ?PrivacyZoneRepository $privacyZones = null,
     ) {}
 
     /**
      * @return array{matched:int,passes_new:int,skipped_day_cap:int,
      *               skipped_auth_speed:int,skipped_auth_hacc:int,skipped_no_motion:int,
-     *               banned:bool}
+     *               skipped_privacy_zone:int,banned:bool}
      */
     public function ingest(
         int $routeId,
@@ -46,6 +48,7 @@ final class GameIngestionService
         $summary = [
             'matched' => 0, 'passes_new' => 0, 'skipped_day_cap' => 0,
             'skipped_auth_speed' => 0, 'skipped_auth_hacc' => 0, 'skipped_no_motion' => 0,
+            'skipped_privacy_zone' => 0,
             'banned' => false,
         ];
 
@@ -55,6 +58,11 @@ final class GameIngestionService
             return $summary;
         }
         $startedAt = microtime(true);
+
+        // Privacy: Privatzone des Fahrers (§17). Segmente in der Zone werden
+        // gar nicht erst zu Kanten/Pässen — wirkt absolut (auch für den
+        // Besitzer selbst), da Reviere öffentlich sind.
+        $privacyZone = $this->privacyZones?->enabledZoneForUser($userId);
 
         $segments = $this->matcher->match($route);
         $summary['matched'] = count($segments);
@@ -87,6 +95,10 @@ final class GameIngestionService
                 }
 
                 $geom = $seg->geometry;
+                if ($privacyZone !== null && $privacyZone->intersectsPolyline($geom)) {
+                    $summary['skipped_privacy_zone']++;
+                    continue;
+                }
                 $first = $geom[0];
                 $last = $geom[count($geom) - 1];
                 $aId = $this->repo->upsertNode($seg->nodeARef, (float)$first[1], (float)$first[0]);
@@ -155,7 +167,7 @@ final class GameIngestionService
         return $summary;
     }
 
-    /** @param array{matched:int,passes_new:int,skipped_day_cap:int,skipped_auth_speed:int,skipped_auth_hacc:int,skipped_no_motion:int,banned:bool} $summary */
+    /** @param array{matched:int,passes_new:int,skipped_day_cap:int,skipped_auth_speed:int,skipped_auth_hacc:int,skipped_no_motion:int,skipped_privacy_zone:int,banned:bool} $summary */
     private function logOk(int $routeId, int $userId, array $summary, float $startedAt): void
     {
         $this->repo->insertIngestLog(
@@ -165,10 +177,11 @@ final class GameIngestionService
             $summary['matched'],
             $summary['passes_new'],
             [
-                'day_cap'    => $summary['skipped_day_cap'],
-                'auth_speed' => $summary['skipped_auth_speed'],
-                'auth_hacc'  => $summary['skipped_auth_hacc'],
-                'no_motion'  => $summary['skipped_no_motion'],
+                'day_cap'      => $summary['skipped_day_cap'],
+                'auth_speed'   => $summary['skipped_auth_speed'],
+                'auth_hacc'    => $summary['skipped_auth_hacc'],
+                'no_motion'    => $summary['skipped_no_motion'],
+                'privacy_zone' => $summary['skipped_privacy_zone'],
             ],
             null,
             (int) round((microtime(true) - $startedAt) * 1000),
