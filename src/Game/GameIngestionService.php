@@ -26,6 +26,7 @@ final class GameIngestionService
         private readonly EdgeRecalculator $recalc,
         private readonly GameConfig $config,
         private readonly PDO $pdo,
+        private readonly ?TerritoryTakeoverNotifier $takeovers = null,
     ) {}
 
     /**
@@ -123,15 +124,31 @@ final class GameIngestionService
                 $this->recordTraffic($routeId, $radar, $edgeGeoms);
             }
 
-            foreach (array_keys($touched) as $edgeId) {
+            // Welle 2 territory_taken: Besitzer VOR dem Recompute merken.
+            $edgeIds = array_keys($touched);
+            $prevOwners = $this->takeovers !== null ? $this->repo->ownersForEdges($edgeIds) : [];
+
+            foreach ($edgeIds as $edgeId) {
                 $this->repo->refreshEdgeDiscovery($edgeId);
                 $this->recalc->recalculate($edgeId, $now);
             }
+
+            $newOwners = $this->takeovers !== null ? $this->repo->ownersForEdges($edgeIds) : [];
 
             $this->pdo->commit();
         } catch (Throwable $e) {
             $this->pdo->rollBack();
             throw $e;
+        }
+
+        // Übernahme-Benachrichtigungen NACH dem Commit (best effort: weder
+        // Notification-Insert noch APNs-Versand dürfen die Ingestion abbrechen).
+        if ($this->takeovers !== null) {
+            try {
+                $this->takeovers->notify($prevOwners, $newOwners, $userId);
+            } catch (Throwable $e) {
+                error_log('territory_taken: ' . $e->getMessage());
+            }
         }
 
         $this->logOk($routeId, $userId, $summary, $startedAt);

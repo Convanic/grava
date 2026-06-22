@@ -607,6 +607,57 @@ final class GameRepository
         ];
     }
 
+    /**
+     * Aktuelle Besitzer-Claimants einer Kantenmenge (für die
+     * territory_taken-Erkennung: Vorher/Nachher-Vergleich).
+     *
+     * @param list<int> $edgeIds
+     * @return array<int,?int> [edgeId => owner_claimant_id|null]
+     */
+    public function ownersForEdges(array $edgeIds): array
+    {
+        if ($edgeIds === []) {
+            return [];
+        }
+        $in = implode(',', array_fill(0, count($edgeIds), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT id, owner_claimant_id FROM game_edge WHERE id IN ($in)"
+        );
+        $stmt->execute(array_values($edgeIds));
+        $out = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $out[(int)$r['id']] = $r['owner_claimant_id'] !== null ? (int)$r['owner_claimant_id'] : null;
+        }
+        return $out;
+    }
+
+    /**
+     * Reale User hinter einem Claimant: bei Rider der eine User, bei einer
+     * Gruppe (Crew) alle Mitglieder. Für territory_taken-Empfänger.
+     *
+     * @return list<int>
+     */
+    public function usersForClaimant(int $claimantId): array
+    {
+        $stmt = $this->pdo->prepare('SELECT user_id, type FROM game_claimant WHERE id = ?');
+        $stmt->execute([$claimantId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($row === false) {
+            return [];
+        }
+        if ($row['user_id'] !== null) {
+            return [(int)$row['user_id']];
+        }
+        $stmt = $this->pdo->prepare(
+            'SELECT m.user_id
+               FROM game_crew cr
+               JOIN game_crew_member m ON m.crew_id = cr.id
+              WHERE cr.claimant_id = ?'
+        );
+        $stmt->execute([$claimantId]);
+        return array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
+    }
+
     /** @return array{held:int,pioneered:int,held_length_m:float} */
     public function meStats(int $claimantId): array
     {

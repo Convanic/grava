@@ -50,6 +50,7 @@ use App\Controllers\Web\AdminReferralPagesController;
 use App\Controllers\Web\RoutePagesController;
 use App\Controllers\Web\SettingsPagesController;
 use App\Controllers\Web\SurfaceCheckController;
+use App\Controllers\Web\LegalPagesController;
 use App\Controllers\Web\SocialPagesController;
 use App\Controllers\Web\WebRefreshController;
 use App\Http\Middleware\Csrf;
@@ -100,6 +101,7 @@ use App\Game\GameRepository;
 use App\Game\EdgeRecalculator;
 use App\Game\ValhallaEdgeMatcher;
 use App\Game\GameIngestionService;
+use App\Game\TerritoryTakeoverNotifier;
 use App\Game\GameReadService;
 use App\Game\GameRecomputeService;
 use App\Controllers\Api\GameController;
@@ -180,6 +182,27 @@ $auth       = new AuthService($config, $passwords, $tokens, $mailer, $referrals)
 $cookieAuth = new CookieAuth($config, $tokens);
 $webSession = new WebSession($config);
 
+// Push (APNs) + Notifications. Früh verdrahtet, weil sowohl die
+// Game-Ingestion (territory_taken) als auch die Engagement-Dienste
+// (follow/like/comment) den NotificationService brauchen. Ohne
+// APNS_*-Config ist Push deaktiviert (Notifications werden weiter erzeugt).
+$apnsKeyPath = (string)($config->get('APNS_KEY_PATH', '') ?? '');
+$apnsKeyPem  = '';
+if ($apnsKeyPath !== '') {
+    $apnsKeyAbs = str_starts_with($apnsKeyPath, '/') ? $apnsKeyPath : $basePath . '/' . $apnsKeyPath;
+    $apnsKeyPem = (string)(@file_get_contents($apnsKeyAbs) ?: '');
+}
+$apnsConfig  = new ApnsConfig(
+    enabled:  $config->bool('APNS_ENABLED', false),
+    keyId:    (string)($config->get('APNS_KEY_ID', '') ?? ''),
+    teamId:   (string)($config->get('APNS_TEAM_ID', '98JR57G9M7') ?? ''),
+    bundleId: (string)($config->get('APNS_BUNDLE_ID', 'world.grava.app') ?? ''),
+    keyPem:   $apnsKeyPem,
+);
+$pushDevices = new PushDeviceRepository();
+$pushServ    = new PushService($pushDevices, new ApnsHttpClient($apnsConfig));
+$notifServ   = new NotificationService($pushServ);
+
 // Stufe 1 Gamification. Lokaler Valhalla via VALHALLA_BASE_URL (Fallback VALHALLA_URL).
 $gameEnabled  = $config->bool('GAME_ENABLED', true);
 $gameConfig   = new GameConfig(Db::pdo());
@@ -190,7 +213,8 @@ $gameValhalla = new ValhallaClient(
     (string)($config->get('VALHALLA_COSTING', 'bicycle') ?? 'bicycle'),
 );
 $gameMatcher   = new ValhallaEdgeMatcher($gameValhalla);
-$gameIngest    = new GameIngestionService($gameMatcher, $gameRepo, $gameRecalc, $gameConfig, Db::pdo());
+$gameTakeovers = new TerritoryTakeoverNotifier($gameRepo, $notifServ);
+$gameIngest    = new GameIngestionService($gameMatcher, $gameRepo, $gameRecalc, $gameConfig, Db::pdo(), $gameTakeovers);
 $gameRead      = new GameReadService($gameRepo, $gameConfig);
 $gameRecompute = new GameRecomputeService($gameRepo, $gameRecalc);
 
@@ -281,27 +305,7 @@ $csrf            = new Csrf();
 
 $discovery     = new DiscoveryService($routeRepo);
 $profileServ   = new ProfileService($discovery, $routeRepo);
-
-// Push (APNs). Key wird aus APNS_KEY_PATH (rel. zum Projekt oder absolut)
-// gelesen; ohne vollständige Konfiguration ist Push schlicht deaktiviert
-// (ApnsConfig::usable() == false) und Notifications laufen ohne Versand.
-$apnsKeyPath = (string)($config->get('APNS_KEY_PATH', '') ?? '');
-$apnsKeyPem  = '';
-if ($apnsKeyPath !== '') {
-    $apnsKeyAbs = str_starts_with($apnsKeyPath, '/') ? $apnsKeyPath : $basePath . '/' . $apnsKeyPath;
-    $apnsKeyPem = (string)(@file_get_contents($apnsKeyAbs) ?: '');
-}
-$apnsConfig  = new ApnsConfig(
-    enabled:  $config->bool('APNS_ENABLED', false),
-    keyId:    (string)($config->get('APNS_KEY_ID', '') ?? ''),
-    teamId:   (string)($config->get('APNS_TEAM_ID', '98JR57G9M7') ?? ''),
-    bundleId: (string)($config->get('APNS_BUNDLE_ID', 'world.grava.app') ?? ''),
-    keyPem:   $apnsKeyPem,
-);
-$pushDevices = new PushDeviceRepository();
-$pushServ    = new PushService($pushDevices, new ApnsHttpClient($apnsConfig));
-
-$notifServ     = new NotificationService($pushServ);
+// $notifServ / $pushDevices wurden bereits oben (vor dem Game-Block) verdrahtet.
 $followServ    = new FollowService($notifServ);
 $blockServ     = new BlockService();
 $feedServ      = new FeedService($routeRepo, $discovery);
@@ -373,6 +377,7 @@ $webEngage   = new EngagementPagesController($webSession, $likeServ, $commentSer
 $webStrava   = new StravaPagesController($webSession, $auth, $stravaServ, $basePath . '/views');
 $webSurface  = new SurfaceCheckController($webSession, $auth, $routeSurface, $config, $basePath . '/views');
 $webReferral = new ReferralPagesController($config, $basePath . '/views');
+$webLegal    = new LegalPagesController($basePath . '/views');
 $webAdminRef = new AdminReferralPagesController($webSession, $auth, $referrals, $config, $basePath . '/views');
 
 // ---- Game-Admin-Dashboard (Stufe 1) — nur unter admin.grava.world erreichbar ----
@@ -536,6 +541,9 @@ $router->post('/forgot-password',  fn($r) => $webAuth->doForgot($r),          [$
 $router->get('/reset-password',    fn($r) => $webAuth->showReset($r));
 $router->post('/reset-password',   fn($r) => $webAuth->doReset($r),           [$csrf]);
 $router->get('/verify-email',      fn($r) => $webAuth->showVerify($r));
+// Öffentliche Rechtsseiten (M5): anonym, kein Login, kein Redirect.
+$router->get('/privacy',           fn($r) => $webLegal->privacy($r));
+$router->get('/terms',             fn($r) => $webLegal->terms($r));
 $router->get('/dashboard',         fn($r) => $webHome->show($r));
 $router->post('/logout',           fn($r) => $webAuth->doLogout($r),          [$csrf]);
 // H5: Einziger Punkt, an dem ein Refresh-Token-Cookie konsumiert wird.

@@ -210,6 +210,23 @@ button.btn-secondary {
     color: var(--muted);
     padding: 24px;
 }
+.footer-links {
+    margin-top: 6px;
+    display: flex;
+    gap: 16px;
+    justify-content: center;
+    flex-wrap: wrap;
+    font-size: 13px;
+}
+
+/* Rechtsseiten: gut lesbarer Fließtext, mobil-tauglich. */
+.legal { max-width: 760px; }
+.legal h2 {
+    margin-top: 28px;
+    font-size: 18px;
+}
+.legal p, .legal li { line-height: 1.6; }
+.legal ul { padding-left: 20px; }
 
 code {
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;

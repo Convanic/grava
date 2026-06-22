@@ -60,6 +60,10 @@ $_pageScripts = $_pageScripts ?? [];
     </main>
     <footer class="site-footer">
         <small>&copy; <?= date('Y') ?> GRAVA</small>
+        <nav class="footer-links">
+            <a href="/privacy">Datenschutz</a>
+            <a href="/terms">Nutzungsbedingungen</a>
+        </nav>
     </footer>
     <?php foreach ($_pageScripts as $_src): ?>
     <script src="<?= htmlspecialchars((string)$_src, ENT_QUOTES, 'UTF-8') ?>"></script>
