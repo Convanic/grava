@@ -698,6 +698,9 @@ $router->post('/internal/cron/game-recompute', fn($r) => $runInternal($r, 'game:
 // Read-only Log-Tail für Diagnose ohne SSH (z. B. frischer PDO/SQLSTATE-Stacktrace).
 $router->get('/internal/logtail',  fn($r) => $runInternal($r, 'internal:logtail'));
 $router->post('/internal/logtail', fn($r) => $runInternal($r, 'internal:logtail'));
+// APNs-Diagnose: prüft Key-Lesbarkeit + JWT-Erzeugung ohne Secret-Ausgabe.
+$router->get('/internal/push/doctor',  fn($r) => $runInternal($r, 'internal:apns-check'));
+$router->post('/internal/push/doctor', fn($r) => $runInternal($r, 'internal:apns-check'));
 // Cutover-Hinweg (Modell A): Manifest der public Routen für den lokalen
 // Rebuild. Reines Lesen (kein Valhalla), daher auch auf PROD unbedenklich.
 $router->get('/internal/heatmap/manifest',  fn($r) => $runInternal($r, 'heatmap:manifest'));

@@ -61,6 +61,10 @@ final class Commands
             case 'logtail':
                 return $this->logTail($argv);
 
+            case 'internal:apns-check':
+            case 'apns-check':
+                return $this->apnsCheck();
+
             case 'help':
             default:
                 $this->help();
@@ -337,6 +341,65 @@ final class Commands
         }
         echo "Export: " . count($rows) . " Kanten -> {$out}\n";
         return 0;
+    }
+
+    /**
+     * APNs-Diagnose ohne SSH: prüft, ob der Server den .p8-Key tatsächlich
+     * lesen und daraus ein Provider-JWT erzeugen kann. Gibt NIEMALS den Key
+     * oder das JWT aus — nur Status-Flags. Pfad-Auflösung identisch zu
+     * public/index.php (absolut oder relativ zum Projekt).
+     */
+    private function apnsCheck(): int
+    {
+        $enabled  = $this->config->bool('APNS_ENABLED', false);
+        $keyId    = (string)($this->config->get('APNS_KEY_ID', '') ?? '');
+        $teamId   = (string)($this->config->get('APNS_TEAM_ID', '98JR57G9M7') ?? '');
+        $bundleId = (string)($this->config->get('APNS_BUNDLE_ID', 'world.grava.app') ?? '');
+        $keyPath  = (string)($this->config->get('APNS_KEY_PATH', '') ?? '');
+
+        $resolved = $keyPath === ''
+            ? ''
+            : (str_starts_with($keyPath, '/') ? $keyPath : $this->basePath . '/' . $keyPath);
+
+        $exists   = $resolved !== '' && @is_file($resolved);
+        $readable = $exists && @is_readable($resolved);
+        $size     = $readable ? (int)@filesize($resolved) : 0;
+        $pem      = $readable ? (string)(@file_get_contents($resolved) ?: '') : '';
+        $looksPem = $pem !== '' && str_contains($pem, 'BEGIN PRIVATE KEY');
+
+        $jwtOk = false;
+        $jwtErr = null;
+        if ($looksPem && $keyId !== '' && $teamId !== '') {
+            try {
+                \App\Push\ApnsJwt::provider($pem, $keyId, $teamId, time());
+                $jwtOk = true;
+            } catch (\Throwable $e) {
+                $jwtErr = $e->getMessage();
+            }
+        }
+
+        $usable = $enabled && $keyId !== '' && $teamId !== '' && $bundleId !== '' && $pem !== '';
+
+        echo json_encode([
+            'apns_enabled'   => $enabled,
+            'key_id_set'     => $keyId !== '',
+            'team_id'        => $teamId,
+            'bundle_id'      => $bundleId,
+            'key_path'       => $keyPath,
+            'resolved_path'  => $resolved,
+            'file_exists'    => $exists,
+            'is_readable'    => $readable,
+            'file_size'      => $size,
+            'looks_like_p8'  => $looksPem,
+            'jwt_mint_ok'    => $jwtOk,
+            'jwt_error'      => $jwtErr,
+            'config_usable'  => $usable,
+            'verdict'        => $usable && $jwtOk
+                ? 'OK — Push ist versandbereit.'
+                : 'NICHT versandbereit — siehe Flags.',
+        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        echo "\n";
+        return $usable && $jwtOk ? 0 : 1;
     }
 
     /**
