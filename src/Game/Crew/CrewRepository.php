@@ -157,4 +157,90 @@ final class CrewRepository
         $stmt->execute([$code]);
         return $stmt->fetchColumn() !== false;
     }
+
+    // ----------------------------------------------------------------
+    // Rangliste (Leaderboard) — reine Lese-Aggregationen
+    // ----------------------------------------------------------------
+
+    /**
+     * Aktuell von der Crew gehaltene Kanten.
+     * @return array<int,float> edge_id => length_m
+     */
+    public function crewOwnedEdges(int $claimantId): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT id, length_m FROM game_edge WHERE owner_claimant_id = ?'
+        );
+        $stmt->execute([$claimantId]);
+        $out = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $out[(int)$r['id']] = (float)$r['length_m'];
+        }
+        return $out;
+    }
+
+    /**
+     * Gültige Pässe der angegebenen User auf den angegebenen Kanten im Fenster
+     * (seit $sinceDate). Invalidierte ausgeschlossen.
+     *
+     * @param list<int> $edgeIds
+     * @param list<int> $userIds
+     * @return list<array{edge_id:int,user_id:int,ridden_at:string}>
+     */
+    public function passesOnEdgesForUsers(array $edgeIds, array $userIds, string $sinceDate): array
+    {
+        if ($edgeIds === [] || $userIds === []) {
+            return [];
+        }
+        $ePh = implode(',', array_fill(0, count($edgeIds), '?'));
+        $uPh = implode(',', array_fill(0, count($userIds), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT edge_id, user_id, ridden_at FROM game_edge_pass
+              WHERE edge_id IN ($ePh) AND user_id IN ($uPh)
+                AND invalidated_at IS NULL AND ridden_on >= ?"
+        );
+        $stmt->execute([...array_values($edgeIds), ...array_values($userIds), $sinceDate]);
+        $out = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $out[] = [
+                'edge_id'   => (int)$r['edge_id'],
+                'user_id'   => (int)$r['user_id'],
+                'ridden_at' => (string)$r['ridden_at'],
+            ];
+        }
+        return $out;
+    }
+
+    /**
+     * Aktivität der User im Fenster (seit $sinceDate), unabhängig vom Besitz:
+     * Distanz = Σ Kantenlänge über gültige Pässe, Fahrten = distinct route_id.
+     *
+     * @param list<int> $userIds
+     * @return array<int,array{rides:int,distance:float}>
+     */
+    public function activityForUsers(array $userIds, string $sinceDate): array
+    {
+        if ($userIds === []) {
+            return [];
+        }
+        $uPh = implode(',', array_fill(0, count($userIds), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT p.user_id,
+                    COUNT(DISTINCT p.route_id)      AS rides,
+                    COALESCE(SUM(e.length_m), 0)    AS distance
+               FROM game_edge_pass p
+               JOIN game_edge e ON e.id = p.edge_id
+              WHERE p.user_id IN ($uPh) AND p.invalidated_at IS NULL AND p.ridden_on >= ?
+              GROUP BY p.user_id"
+        );
+        $stmt->execute([...array_values($userIds), $sinceDate]);
+        $out = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $out[(int)$r['user_id']] = [
+                'rides'    => (int)$r['rides'],
+                'distance' => (float)$r['distance'],
+            ];
+        }
+        return $out;
+    }
 }

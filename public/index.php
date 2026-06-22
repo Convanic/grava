@@ -522,6 +522,7 @@ $router->get   ("{$apiBase}/game/factions/map",          fn($r) => $apiFaction->
 $router->get   ("{$apiBase}/game/factions",              fn($r) => $apiFaction->standings($r));
 $router->post  ("{$apiBase}/game/crews/{slug}/faction",  fn($r) => $apiFaction->set($r),       [$requireBearer]);
 $router->delete("{$apiBase}/game/crews/{slug}/faction",  fn($r) => $apiFaction->clear($r),     [$requireBearer]);
+$router->get ("{$apiBase}/game/crews/{slug}/leaderboard", fn($r) => $apiCrew->leaderboard($r), [$requireBearer]);
 $router->get ("{$apiBase}/game/crews/{slug}",      fn($r) => $apiCrew->show($r),     [$requireBearer]);
 
 // ---- Web pages ----

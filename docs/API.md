@@ -481,6 +481,7 @@ Crews sind neutrale Gruppen (Claimant-Typ `group`). Tritt ein Fahrer einer Crew 
 - `POST /api/v1/game/crews/leave` — aktuelle Crew verlassen. Antwort `{ left, dissolved }`. Captain mit verbleibenden Mitgliedern → `409 captain_must_transfer`. Captain als letztes Mitglied → Crew wird aufgelöst.
 - `POST /api/v1/game/crews/transfer` — `{ "user_id": 123 }` → Captain überträgt die Captain-Rolle an ein Mitglied (nur Captain). Kein Recompute.
 - `GET /api/v1/game/crews/me` — `{ "crew": {…}|null }`. Eigene Crew inkl. Mitglieder; `join_code` nur, wenn man Captain ist.
+- `GET /api/v1/game/crews/{slug}/leaderboard` — Rangliste, **nur Crew-Mitglieder** (sonst `403`). Antwort `{ "members": [ { handle, role, presence_contribution, held_edges, held_length_m, activity_distance_m, activity_rides } ] }`. `presence_contribution` = Σ 90-Tage-Präsenz des Mitglieds auf crew-eigenen Kanten; `held_*` = Kanten, auf denen das Mitglied größter Präsenz-Beitragender ist (deterministischer Tie-Break); `activity_*` = Fahrten/Distanz im 90-Tage-Fenster (besitzunabhängig). Invalidierte Pässe ausgeschlossen. Reine Lese-Aggregation.
 
 Mitgliedschaftsänderungen (create/join/leave) rechnen die betroffenen Fenster-Kanten des Users synchron neu. Gruppenfahrt-Bonus: fahren ≥ `group_ride_min_members` verschiedene Mitglieder dieselbe Kante am selben Tag, wird der Crew-Tagesbeitrag mit `group_ride_bonus` multipliziert.
 

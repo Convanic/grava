@@ -63,6 +63,13 @@ final class CrewController
         Response::json(['crew' => $this->crews->me($uid)]);
     }
 
+    public function leaderboard(Request $req): void
+    {
+        $uid  = $this->userId($req);
+        $slug = trim((string)($req->routeParams['slug'] ?? ''));
+        $this->run(fn () => Response::json($this->crews->leaderboard($slug, $uid)));
+    }
+
     /**
      * Führt eine schreibende Service-Aktion aus und mappt CrewException auf
      * die einheitliche Fehlerantwort. Response::json/-error beenden den

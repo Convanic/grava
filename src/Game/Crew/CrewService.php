@@ -8,9 +8,11 @@ use App\Game\EdgeRecalculator;
 use App\Game\Faction\FactionRepository;
 use App\Game\Faction\FactionService;
 use App\Game\GameConfig;
+use App\Game\GameMath;
 use App\Game\GameRepository;
 use App\Support\Clock;
 use DateTimeImmutable;
+use DateTimeZone;
 use PDO;
 
 /**
@@ -146,6 +148,90 @@ final class CrewService
             return null;
         }
         return $this->crewPayload((int)$crew['id'], false);
+    }
+
+    /**
+     * Crew-Rangliste (nur Mitglieder, siehe backend/CREW_LEADERBOARD_BACKEND.md):
+     * pro Mitglied Präsenz-Beitrag auf crew-eigenen Kanten, getragenes Gebiet
+     * (Kanten, wo es Top-Beitragender ist) und 90-Tage-Aktivität. Reine
+     * Lese-Aggregation; invalidierte Pässe ausgeschlossen.
+     *
+     * @return array{members:list<array<string,mixed>>}
+     */
+    public function leaderboard(string $slug, int $requesterUserId, ?DateTimeImmutable $now = null): array
+    {
+        $crew = $this->crews->crewBySlug(trim($slug));
+        if ($crew === null) {
+            throw CrewException::notFound();
+        }
+        $crewId = (int)$crew['id'];
+        $req = $this->crews->membershipOf($requesterUserId);
+        if ($req === null || $req['crew_id'] !== $crewId) {
+            throw CrewException::forbidden('Nur Crew-Mitglieder dürfen die Rangliste sehen.');
+        }
+
+        $now ??= Clock::nowUtc();
+        $window = $this->config->int('presence_window_days');
+        $since  = $now->modify("-{$window} days")->format('Y-m-d');
+        $claimantId = (int)$crew['claimant_id'];
+
+        $members = $this->crews->members($crewId);
+        $userIds = array_map(static fn (array $m): int => $m['user_id'], $members);
+
+        $contribution = array_fill_keys($userIds, 0.0);
+        $heldEdges    = array_fill_keys($userIds, 0);
+        $heldLength   = array_fill_keys($userIds, 0.0);
+
+        $ownedEdges = $this->crews->crewOwnedEdges($claimantId); // edge_id => length_m
+        if ($ownedEdges !== [] && $userIds !== []) {
+            $passes = $this->crews->passesOnEdgesForUsers(array_keys($ownedEdges), $userIds, $since);
+            $perEdgePerUser = []; // [edge_id][user_id] => gewichtete Präsenz
+            foreach ($passes as $p) {
+                $w = GameMath::presenceWeight($this->ageDays($p['ridden_at'], $now), $window);
+                $uid = $p['user_id'];
+                $contribution[$uid] = ($contribution[$uid] ?? 0.0) + $w;
+                $eid = $p['edge_id'];
+                $perEdgePerUser[$eid][$uid] = ($perEdgePerUser[$eid][$uid] ?? 0.0) + $w;
+            }
+            foreach ($perEdgePerUser as $eid => $byUser) {
+                ksort($byUser); // niedrigste user_id zuerst => deterministischer Tie-Break
+                $topUser = null;
+                $topW = -1.0;
+                foreach ($byUser as $uid => $w) {
+                    if ($w > $topW) {
+                        $topW = $w;
+                        $topUser = (int)$uid;
+                    }
+                }
+                if ($topUser !== null) {
+                    $heldEdges[$topUser] = ($heldEdges[$topUser] ?? 0) + 1;
+                    $heldLength[$topUser] = ($heldLength[$topUser] ?? 0.0) + $ownedEdges[$eid];
+                }
+            }
+        }
+
+        $activity = $this->crews->activityForUsers($userIds, $since);
+
+        $out = [];
+        foreach ($members as $m) {
+            $uid = $m['user_id'];
+            $out[] = [
+                'handle'                => $m['handle'],
+                'role'                  => $m['role'],
+                'presence_contribution' => round($contribution[$uid] ?? 0.0, 4),
+                'held_edges'            => $heldEdges[$uid] ?? 0,
+                'held_length_m'         => round($heldLength[$uid] ?? 0.0, 2),
+                'activity_distance_m'   => round($activity[$uid]['distance'] ?? 0.0, 2),
+                'activity_rides'        => $activity[$uid]['rides'] ?? 0,
+            ];
+        }
+        return ['members' => $out];
+    }
+
+    private function ageDays(string $mysqlDatetime, DateTimeImmutable $now): float
+    {
+        $dt = new DateTimeImmutable($mysqlDatetime, new DateTimeZone('UTC'));
+        return max(0.0, ($now->getTimestamp() - $dt->getTimestamp()) / 86400.0);
     }
 
     // ----------------------------------------------------------------
