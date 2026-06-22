@@ -679,4 +679,131 @@ final class GameRepository
             'held_length_m' => (float)$h['len'],
         ];
     }
+
+    // ----------------------------------------------------------------
+    // Spieler-Rangliste (S7) — reine Lese-Aggregationen
+    // ----------------------------------------------------------------
+
+    /**
+     * Gültige Pässe seit $sinceDate samt Kantenlänge/-wert — Basis für die
+     * Pro-Fahrer-Präsenz (area/value). Invalidierte ausgeschlossen.
+     *
+     * @return list<array{edge_id:int,user_id:int,ridden_at:string,length_m:float,value:float}>
+     */
+    public function passesWithEdgeSince(string $sinceDate): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT p.edge_id, p.user_id, p.ridden_at, e.length_m, e.value_cached
+               FROM game_edge_pass p
+               JOIN game_edge e ON e.id = p.edge_id
+              WHERE p.invalidated_at IS NULL AND p.ridden_on >= ?'
+        );
+        $stmt->execute([$sinceDate]);
+        $out = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $out[] = [
+                'edge_id'   => (int)$r['edge_id'],
+                'user_id'   => (int)$r['user_id'],
+                'ridden_at' => (string)$r['ridden_at'],
+                'length_m'  => (float)$r['length_m'],
+                'value'     => (float)$r['value_cached'],
+            ];
+        }
+        return $out;
+    }
+
+    /**
+     * Gefahrene Distanz je Fahrer (Σ Kantenlänge über gültige Pässe),
+     * optional auf ein Fenster begrenzt. Besitzunabhängig.
+     *
+     * @return array<int,float> user_id => distance_m
+     */
+    public function distanceByUserSince(?string $sinceDate): array
+    {
+        $sql = 'SELECT p.user_id, COALESCE(SUM(e.length_m),0) AS dist
+                  FROM game_edge_pass p
+                  JOIN game_edge e ON e.id = p.edge_id
+                 WHERE p.invalidated_at IS NULL';
+        $params = [];
+        if ($sinceDate !== null) {
+            $sql .= ' AND p.ridden_on >= ?';
+            $params[] = $sinceDate;
+        }
+        $sql .= ' GROUP BY p.user_id';
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($params);
+        $out = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $out[(int)$r['user_id']] = (float)$r['dist'];
+        }
+        return $out;
+    }
+
+    /**
+     * Pionier-Kohorten-Zähler je Fahrer: Anzahl Kanten, in deren erster
+     * Kohorte (erste ≤ $cohort Erstbefahrer nach first_ridden_at) der Fahrer
+     * steht. Optional auf Kanten begrenzt, deren Erstbefahrung DES FAHRERS
+     * im Fenster (seit $sinceDate) liegt. Invalidierte ausgeschlossen.
+     *
+     * @return array<int,int> user_id => count
+     */
+    public function pioneerCountByUserSince(?string $sinceDate, int $cohort = 10): array
+    {
+        $cohort = max(1, $cohort);
+        $sql =
+            "SELECT user_id, COUNT(*) AS cnt FROM (
+                SELECT edge_id, user_id, first_at,
+                       ROW_NUMBER() OVER (PARTITION BY edge_id ORDER BY first_at ASC, user_id ASC) AS rn
+                  FROM (
+                        SELECT edge_id, user_id, MIN(ridden_at) AS first_at
+                          FROM game_edge_pass
+                         WHERE invalidated_at IS NULL
+                         GROUP BY edge_id, user_id
+                       ) firsts
+             ) ranked
+             WHERE rn <= {$cohort}"
+            . ($sinceDate !== null ? ' AND first_at >= ?' : '')
+            . ' GROUP BY user_id';
+        $params = $sinceDate !== null ? [$sinceDate] : [];
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($params);
+        $out = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $out[(int)$r['user_id']] = (int)$r['cnt'];
+        }
+        return $out;
+    }
+
+    /**
+     * IDs der Fahrer, denen $userId folgt (Follow-Graph) — für scope=friends.
+     *
+     * @return list<int>
+     */
+    public function followeeIds(int $userId): array
+    {
+        $stmt = $this->pdo->prepare('SELECT followee_id FROM follows WHERE follower_id = ?');
+        $stmt->execute([$userId]);
+        return array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
+    }
+
+    /**
+     * Handles (public_handle) zu einer User-Menge.
+     *
+     * @param list<int> $userIds
+     * @return array<int,?string>
+     */
+    public function handlesFor(array $userIds): array
+    {
+        if ($userIds === []) {
+            return [];
+        }
+        $in = implode(',', array_fill(0, count($userIds), '?'));
+        $stmt = $this->pdo->prepare("SELECT id, public_handle FROM users WHERE id IN ($in)");
+        $stmt->execute(array_values($userIds));
+        $out = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $out[(int)$r['id']] = $r['public_handle'] !== null ? (string)$r['public_handle'] : null;
+        }
+        return $out;
+    }
 }

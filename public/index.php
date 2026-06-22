@@ -104,7 +104,9 @@ use App\Game\GameIngestionService;
 use App\Game\TerritoryTakeoverNotifier;
 use App\Game\GameReadService;
 use App\Game\GameRecomputeService;
+use App\Game\PlayerLeaderboardService;
 use App\Controllers\Api\GameController;
+use App\Controllers\Api\PlayerLeaderboardController;
 use App\Database\Db;
 
 $basePath = dirname(__DIR__);
@@ -352,6 +354,7 @@ $apiHeatmap  = new HeatmapController($heatmapServ);
 $apiHeatmapLines = new HeatmapLinesController($heatmapLines);
 $apiReferral = new ReferralController($referrals);
 $apiGame = new GameController($gameRead, $gameRepo, $gameIngest, $gameConfig, $routeService, new GeometryParser());
+$apiPlayerBoard = new PlayerLeaderboardController(new PlayerLeaderboardService($gameRepo, $gameConfig));
 $gameCrewRepo    = new \App\Game\Crew\CrewRepository(Db::pdo());
 $gameFactionRepo = new \App\Game\Faction\FactionRepository(Db::pdo());
 $gameCrewSvc  = new \App\Game\Crew\CrewService(
@@ -516,6 +519,8 @@ $router->get("{$apiBase}/game/edges",              fn($r) => $apiGame->edges($r)
 $router->get("{$apiBase}/game/edges/{id}",         fn($r) => $apiGame->edge($r),     [$optionalBearer]);
 $router->get("{$apiBase}/game/me",                 fn($r) => $apiGame->me($r),       [$requireBearer]);
 $router->get("{$apiBase}/game/config",             fn($r) => $apiGame->config($r),   [$requireBearer]);
+// Solo-/Spieler-Rangliste (S7): world anonym, friends/me brauchen Bearer.
+$router->get("{$apiBase}/game/leaderboard",        fn($r) => $apiPlayerBoard->index($r), [$optionalBearer]);
 $router->post("{$apiBase}/game/ingest/{route_id}", fn($r) => $apiGame->reingest($r), [$requireBearer]);
 $router->get ("{$apiBase}/game/crews/me",          fn($r) => $apiCrew->me($r),       [$requireBearer]);
 $router->post("{$apiBase}/game/crews/join",        fn($r) => $apiCrew->join($r),     [$requireBearer]);
