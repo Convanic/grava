@@ -370,6 +370,8 @@ Liste: `{ "comments": [ … ], "pagination": { … } }`.
 | GET | `/notifications/unread-count` | Bearer | `{ "count": 3 }` |
 | POST | `/notifications/read` | Bearer | Alle (oder `{ "ids":[…] }`) als gelesen |
 | POST | `/notifications/{nid}/read` | Bearer | Eine als gelesen (204) |
+| GET | `/notifications/preferences` | Bearer | Per-Typ-Push-Schalter |
+| PUT | `/notifications/preferences` | Bearer | Schalter setzen (Upsert) |
 
 Item:
 ```json
@@ -381,6 +383,8 @@ Item:
 ```
 `type` ∈ `follow | like | comment`. `route` ist `null` bei `follow` (oder
 gelöschter Route).
+
+**Per-Typ-Push-Präferenzen (S9):** steuern **nur** den APNs-Versand — der In-App-Eintrag (`GET /notifications`) und der Unread-Count bleiben immer erhalten, die Inbox wird nicht gefiltert. `GET /notifications/preferences` → `{ "preferences": { "follow": true, "like": true, "comment": true } }` (ohne gespeicherte Zeile alles `true`). `PUT` Body `{ "follow"?, "like"?, "comment"? }` (Booleans) → Upsert, fehlende Felder bleiben unverändert; Antwort `{ "preferences": {…} }` mit allen Feldern. Ist ein Typ `false`, wird beim Erzeugen einer `follow`/`like`/`comment`-Notification **keine** Push versendet. Forward-compat: neue Typen (`territory_taken`/`crew_invite`, Welle 2) lassen sich additiv ergänzen; noch nicht gegatete Typen pushen wie bisher.
 
 ### 5.10 Avatare (M4)
 

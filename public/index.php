@@ -203,7 +203,9 @@ $apnsConfig  = new ApnsConfig(
 );
 $pushDevices = new PushDeviceRepository();
 $pushServ    = new PushService($pushDevices, new ApnsHttpClient($apnsConfig));
-$notifServ   = new NotificationService($pushServ);
+// S9: Per-Typ-Push-Präferenzen — gaten den APNs-Versand (In-App bleibt).
+$notifPrefs  = new \App\Engagement\NotificationPreferenceRepository();
+$notifServ   = new NotificationService($pushServ, $notifPrefs);
 
 // Stufe 1 Gamification. Lokaler Valhalla via VALHALLA_BASE_URL (Fallback VALHALLA_URL).
 $gameEnabled  = $config->bool('GAME_ENABLED', true);
@@ -352,7 +354,7 @@ $apiSocial   = new SocialController($followServ, $blockServ);
 $apiFeed     = new FeedController($feedServ);
 $apiLike     = new LikeController($likeServ);
 $apiComment  = new CommentController($commentServ, $rate);
-$apiNotif    = new NotificationController($notifServ);
+$apiNotif    = new NotificationController($notifServ, $notifPrefs);
 $apiPushDev  = new PushDeviceController($pushDevices);
 $apiAvatar   = new AvatarController($avatarServ);
 $apiIntegr   = new IntegrationsController($stravaServ);
@@ -500,6 +502,9 @@ $router->delete("{$apiBase}/routes/{id}/comments/{cid}",          fn($r) => $api
 $router->get("{$apiBase}/notifications",                          fn($r) => $apiNotif->list($r),        [$requireBearer]);
 $router->get("{$apiBase}/notifications/unread-count",             fn($r) => $apiNotif->unreadCount($r), [$requireBearer]);
 $router->post("{$apiBase}/notifications/read",                    fn($r) => $apiNotif->markAll($r),     [$requireBearer]);
+// S9: Per-Typ-Push-Präferenzen (vor der {nid}-Route, sonst greift {nid}).
+$router->get("{$apiBase}/notifications/preferences",              fn($r) => $apiNotif->preferences($r),    [$requireBearer]);
+$router->put("{$apiBase}/notifications/preferences",              fn($r) => $apiNotif->setPreferences($r), [$requireBearer]);
 $router->post("{$apiBase}/notifications/{nid}/read",              fn($r) => $apiNotif->markOne($r),     [$requireBearer]);
 
 // ---- Push-Geräte (APNs) ----

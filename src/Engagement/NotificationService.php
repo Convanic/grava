@@ -26,6 +26,7 @@ final class NotificationService
 {
     public function __construct(
         private readonly ?PushService $push = null,
+        private readonly ?NotificationPreferenceRepository $prefs = null,
     ) {}
 
     public function notify(
@@ -57,7 +58,10 @@ final class NotificationService
         }
 
         // Push (best effort) — Fehler dürfen die Aktion nie scheitern lassen.
-        if ($this->push !== null && $notificationId > 0) {
+        // Per-Typ-Schalter (S9): ist der Typ beim Empfänger ausgeschaltet, wird
+        // KEINE Push versendet. Der In-App-Eintrag oben bleibt davon unberührt.
+        if ($this->push !== null && $notificationId > 0
+            && ($this->prefs === null || $this->prefs->isPushEnabled($recipientId, $type))) {
             $this->push->dispatch($notificationId, $recipientId, $actorId, $type, $subjectType, $subjectId);
         }
     }

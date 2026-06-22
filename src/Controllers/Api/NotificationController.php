@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace App\Controllers\Api;
 
+use App\Engagement\NotificationPreferenceRepository;
 use App\Engagement\NotificationService;
 use App\Http\Request;
 use App\Http\Response;
@@ -14,10 +15,15 @@ use App\Http\Response;
  *   GET  /api/v1/notifications/unread-count {count}
  *   POST /api/v1/notifications/read         markiert alle (oder {ids:[]})
  *   POST /api/v1/notifications/{nid}/read   markiert eine
+ *   GET  /api/v1/notifications/preferences  Per-Typ-Push-Schalter (S9)
+ *   PUT  /api/v1/notifications/preferences  Schalter setzen (Upsert)
  */
 final class NotificationController
 {
-    public function __construct(private readonly NotificationService $notifications) {}
+    public function __construct(
+        private readonly NotificationService $notifications,
+        private readonly ?NotificationPreferenceRepository $prefs = null,
+    ) {}
 
     public function list(Request $req): void
     {
@@ -60,5 +66,46 @@ final class NotificationController
         $nid    = (int)($req->routeParams['nid'] ?? 0);
         $this->notifications->markRead($userId, $nid);
         Response::noContent();
+    }
+
+    public function preferences(Request $req): void
+    {
+        $userId = (int)($req->user->internal_id ?? 0);
+        $prefs = $this->prefs !== null
+            ? $this->prefs->get($userId)
+            : ['follow' => true, 'like' => true, 'comment' => true];
+        Response::json(['preferences' => $prefs]);
+    }
+
+    public function setPreferences(Request $req): void
+    {
+        $userId = (int)($req->user->internal_id ?? 0);
+
+        // Nur bekannte Felder übernehmen; fehlende bleiben unverändert.
+        $patch = [];
+        foreach (NotificationPreferenceRepository::TYPES as $t) {
+            $v = $req->input($t);
+            if ($v !== null) {
+                $patch[$t] = self::asBool($v);
+            }
+        }
+        $prefs = $this->prefs !== null
+            ? $this->prefs->upsert($userId, $patch)
+            : ['follow' => true, 'like' => true, 'comment' => true];
+        Response::json(['preferences' => $prefs]);
+    }
+
+    private static function asBool(mixed $v): bool
+    {
+        if (is_bool($v)) {
+            return $v;
+        }
+        if (is_int($v)) {
+            return $v === 1;
+        }
+        if (is_string($v)) {
+            return in_array(strtolower(trim($v)), ['1', 'true', 'yes', 'on'], true);
+        }
+        return false;
     }
 }
