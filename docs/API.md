@@ -410,10 +410,15 @@ direkt als `URL` einer `AsyncImage`.
 
 Der **OAuth-Connect läuft über die Web-UI** (`/auth/strava/connect` →
 Strava → Callback), weil er an die Browser-Session gebunden ist. Die native App
-öffnet dazu die Web-Seite (z. B. `ASWebAuthenticationSession`).
+öffnet dazu die Web-Seite (z. B. `ASWebAuthenticationSession`). Angeforderter
+Scope: **`read,activity:read_all`** — `activity:read_all` ist nötig, um auch
+private Aktivitäten und deren GPS-Streams zu importieren.
 
-Status: `{ "connected": true, "athlete_id": "99000001", "scope": "read,activity:read", "connected_at": "…Z" }`.
-Import: `{ "imported": 3, "skipped": 1, "total": 4 }` (idempotent — re-import legt keine Duplikate an).
+Status: `{ "connected": true, "athlete_id": "99000001", "scope": "read,activity:read_all", "connected_at": "…Z", "configured": true, "fake_mode": false }`.
+- `configured` = Server hat Strava-Credentials (oder Fake aktiv).
+- `fake_mode` = `true`, wenn `STRAVA_CLIENT_ID` fehlt **oder** `STRAVA_FAKE=1`. Auf Prod muss `fake_mode=false` sein, sonst liefert der Import nur Demo-Daten statt echter Aktivitäten.
+
+Import: `{ "imported": 3, "skipped": 1, "total": 4 }` (idempotent — re-import legt keine Duplikate an). Holt die letzten 30 Aktivitäten mit GPS-Spur und legt sie als **private** Cloud-Routen an (`source: "strava"`).
 
 ### 5.12 Heatmap (M4)
 
@@ -472,7 +477,7 @@ für die Farbe; `surface` ist ein OSM/Valhalla-Fallback. Ungültige `bbox` ⇒ `
 
 - `GET /api/v1/game/edges?bbox=minLon,minLat,maxLon,maxLat[&mine=1]` — eingefärbte Kanten im Ausschnitt (OptionalBearer). Antwort: `{ "edges": [ { id, geom, owner, owner_is_me, value, freshness, distinct_riders_total, surface_character } ] }`.
 - `GET /api/v1/game/edges/{id}` — Detail inkl. `value` (total/pioneer/popularity/curation) + `pioneer_cohort` (≤10).
-- `GET /api/v1/game/me` — eigene Statistik (gehaltene Kanten, Erstbefahrungen, gehaltene Länge). Bearer.
+- `GET /api/v1/game/me` — eigene Statistik (gehaltene Kanten, Erstbefahrungen, gehaltene Länge). Bearer. Zählt über den **effektiven Claimant** (Crew, wenn Mitglied, sonst Rider) — identisch zur `owner_is_me`-Logik in `/game/edges`, damit `held_edges` mit den als eigene markierten Kanten übereinstimmt.
 - `GET /api/v1/game/config` — aktuelle `game_config`-Werte. Bearer.
 - `GET /api/v1/game/leaderboard?scope&window&metric` — Solo-/Spieler-Rangliste (S7, **OptionalBearer**). `scope` = `world` (anonym) \| `friends` (Bearer-Pflicht → sonst `401`; Follow-Graph inkl. self). `window` = `week` (7 T) \| `season` (90 T, Default) \| `all`. `metric` = `area` (Default, gehaltene Länge in m als Top-90-Tage-Präsenz-Beitragender) \| `pioneer` (Anzahl Kanten in der Erstbefahrer-Kohorte ≤10) \| `value` (Σ Kantenwert der gehaltenen Kanten) \| `distance` (gefahrene Distanz im Fenster). Antwort `{ "entries": [ { rank, handle, value, is_me } ], "me": { rank, value } | null }`. `entries` value-absteigend, Rang fortlaufend (Top 100), Tie deterministisch nach `user_id`. `me` auch außerhalb der Top-N (null, wenn ausgeloggt/ohne Daten). `area`/`value` sind 90-Tage-rollierend (Präsenz); `all` wird dafür wie `season` behandelt. Invalidierte Pässe ausgeschlossen. Reine Lese-Aggregation. (Region-Scope folgt später als `scope=region&bbox=…`.)
 - `POST /api/v1/game/ingest/{route_id}` — Re-Run der Ingestion (idempotent), nur Owner. `{route_id}` ist die **öffentliche Route-ID (UUID)**, konsistent mit `GET /routes/{id}` (intern-numerische ID wird rückwärtskompatibel ebenfalls akzeptiert). Antwort: Match-/Pass-/Skip-Zähler.

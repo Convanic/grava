@@ -17,26 +17,42 @@ use Tests\IntegrationTestCase;
 final class StravaImportTest extends IntegrationTestCase
 {
     private StravaService $strava;
+    private RouteService $routes;
+    private Crypto $crypto;
 
     protected function setUp(): void
     {
         parent::setUp();
         $config = Config::instance();
-        $routes = new RouteService(
+        $this->routes = new RouteService(
             new RouteRepository(),
             new RouteStorage($config),
             new GeometryParser(),
             new GeometryStats(),
         );
-        $crypto = new Crypto(base64_encode(str_repeat("\x07", 32)));
+        $this->crypto = new Crypto(base64_encode(str_repeat("\x07", 32)));
         $this->strava = new StravaService(
             new FakeStravaClient(),
-            $crypto,
-            $routes,
+            $this->crypto,
+            $this->routes,
             'fake-client-id',
             'http://localhost/auth/strava/callback',
             true,
             'http://localhost',
+        );
+    }
+
+    /** Service im ECHTEN Modus (fakeMode=false) — für die Authorize-URL. */
+    private function realModeService(): StravaService
+    {
+        return new StravaService(
+            new FakeStravaClient(),
+            $this->crypto,
+            $this->routes,
+            'real-client-id',
+            'https://grava.world/auth/strava/callback',
+            false,
+            'https://grava.world',
         );
     }
 
@@ -53,11 +69,39 @@ final class StravaImportTest extends IntegrationTestCase
         $this->assertFalse($this->strava->status($userId)['connected']);
     }
 
+    public function testAuthorizeUrlRequestsActivityReadAllScope(): void
+    {
+        $userId = $this->createUser();
+        $url = $this->realModeService()->authorizeUrl($userId);
+        parse_str((string)parse_url($url, PHP_URL_QUERY), $q);
+
+        $this->assertStringStartsWith('https://www.strava.com/oauth/authorize', $url);
+        $this->assertSame('read,activity:read_all', $q['scope'] ?? null,
+            'Privatе Aktivitäten + GPS-Streams brauchen activity:read_all.');
+    }
+
+    public function testStatusExposesModeFlags(): void
+    {
+        $userId = $this->createUser();
+        // Fake-Service: configured (Fake zählt als konfiguriert) + fake_mode=true.
+        $fake = $this->strava->status($userId);
+        $this->assertTrue($fake['configured']);
+        $this->assertTrue($fake['fake_mode']);
+        // Echter Modus: configured=true, fake_mode=false (so sieht man auf Prod,
+        // dass die echten Credentials greifen).
+        $real = $this->realModeService()->status($userId);
+        $this->assertTrue($real['configured']);
+        $this->assertFalse($real['fake_mode']);
+    }
+
     public function testConnectThenImport(): void
     {
         $userId = $this->createUser();
         $this->connect($userId);
-        $this->assertTrue($this->strava->status($userId)['connected']);
+        $status = $this->strava->status($userId);
+        $this->assertTrue($status['connected']);
+        $this->assertSame('read,activity:read_all', $status['scope'],
+            'Gewährter Scope wird gespeichert und im Status gemeldet.');
 
         // Activity 1 hat GPS -> importiert; Activity 2 (Indoor) -> skip.
         $res = $this->strava->import($userId);

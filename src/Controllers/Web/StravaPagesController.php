@@ -66,14 +66,20 @@ final class StravaPagesController
         $user  = $this->requireUser('/settings/integrations');
         $state = (string)($req->query['state'] ?? '');
         $code  = (string)($req->query['code'] ?? '');
+        $scope = (string)($req->query['scope'] ?? '');
         $err   = (string)($req->query['error'] ?? '');
         if ($err !== '') {
             $this->flash('Strava-Verbindung abgebrochen: ' . $err);
             Response::redirect('/settings/integrations');
         }
         try {
-            $this->strava->handleCallback($state, $code, (int)$user['internal_id']);
-            $this->flash('Strava verbunden. Du kannst jetzt Aktivitäten importieren.');
+            $this->strava->handleCallback($state, $code, (int)$user['internal_id'], $scope === '' ? null : $scope);
+            if ($scope !== '' && !str_contains($scope, 'activity:read_all')) {
+                $this->flash('Strava verbunden — aber ohne Zugriff auf private Aktivitäten. '
+                    . 'Für den vollständigen Import bitte erneut verbinden und „Alle Aktivitäten" erlauben.');
+            } else {
+                $this->flash('Strava verbunden. Du kannst jetzt Aktivitäten importieren.');
+            }
         } catch (StravaException $e) {
             $this->flash('Fehler: ' . $e->getMessage());
         }

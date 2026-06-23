@@ -24,7 +24,7 @@ final class FakeStravaClient implements StravaClient
             'expires_at'       => time() + 3600,
             'athlete_id'       => '99000001',
             'athlete_username' => 'fake_athlete',
-            'scope'            => 'read,activity:read',
+            'scope'            => 'read,activity:read_all',
         ];
     }
 

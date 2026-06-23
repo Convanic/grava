@@ -60,7 +60,10 @@ final class StravaService
             'redirect_uri'    => $this->redirectUri,
             'response_type'   => 'code',
             'approval_prompt' => 'auto',
-            'scope'           => 'read,activity:read',
+            // activity:read_all ist nötig, um auch PRIVATE Aktivitäten und
+            // deren GPS-Streams zu importieren (activity:read deckt nur
+            // öffentliche/Follower-sichtbare ab).
+            'scope'           => 'read,activity:read_all',
             'state'           => $state,
         ]);
         return 'https://www.strava.com/oauth/authorize?' . $params;
@@ -71,7 +74,7 @@ final class StravaService
      * und legt/aktualisiert die Connection (verschlüsselt). Liefert die
      * user_id für den Redirect.
      */
-    public function handleCallback(string $state, string $code, ?int $expectedUserId = null): int
+    public function handleCallback(string $state, string $code, ?int $expectedUserId = null, ?string $grantedScope = null): int
     {
         if ($state === '' || $code === '') {
             throw new StravaException('oauth_invalid', 'Ungültige OAuth-Antwort.', 400);
@@ -96,6 +99,12 @@ final class StravaService
         }
 
         $tokens = $this->client->exchangeCode($code);
+        // Strava liefert den TATSÄCHLICH gewährten Scope als Query-Param am
+        // Callback (der Token-Exchange selbst enthält ihn nicht). Diesen
+        // bevorzugen, damit der Status zeigt, ob activity:read_all erteilt wurde.
+        if ($grantedScope !== null && $grantedScope !== '') {
+            $tokens['scope'] = $grantedScope;
+        }
         $this->persistConnection($userId, $tokens);
         return $userId;
     }
@@ -175,20 +184,30 @@ final class StravaService
     }
 
     /**
-     * @return array{connected:bool, athlete_id:?string, scope:?string, connected_at:?string}
+     * @return array{connected:bool, athlete_id:?string, scope:?string,
+     *               connected_at:?string, configured:bool, fake_mode:bool}
      */
     public function status(int $userId): array
     {
+        // configured/fake_mode immer mitsenden: so ist von außen (z. B. via
+        // GET /integrations/strava) prüfbar, ob die Prod-Credentials gesetzt
+        // sind und der ECHTE Client läuft (fake_mode=false). fake_mode=true auf
+        // Prod = STRAVA_CLIENT_ID fehlt oder STRAVA_FAKE=1 → Import liefert nur
+        // Demo-Daten, KEINE echten Aktivitäten.
+        $base = [
+            'configured' => $this->isConfigured(),
+            'fake_mode'  => $this->fakeMode,
+        ];
         $conn = $this->connectionRow($userId);
         if ($conn === null) {
-            return ['connected' => false, 'athlete_id' => null, 'scope' => null, 'connected_at' => null];
+            return ['connected' => false, 'athlete_id' => null, 'scope' => null, 'connected_at' => null] + $base;
         }
         return [
             'connected'    => true,
             'athlete_id'   => (string)$conn['provider_user_id'],
             'scope'        => $conn['scope'] === null ? null : (string)$conn['scope'],
             'connected_at' => str_replace(' ', 'T', (string)$conn['created_at']) . 'Z',
-        ];
+        ] + $base;
     }
 
     // -----------------------------------------------------------------
