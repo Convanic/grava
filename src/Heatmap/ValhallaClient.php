@@ -59,6 +59,86 @@ final class ValhallaClient
         return self::parse($json);
     }
 
+    /** Die konfigurierte Basis-URL (für Diagnose/Anzeige im Admin-Dashboard). */
+    public function baseUrl(): string
+    {
+        return $this->baseUrl;
+    }
+
+    /**
+     * Health-Ping gegen `GET /status` (kurzer Timeout). Liefert ein flaches
+     * Status-Array für das Admin-Dashboard — wirft NIE (Unerreichbarkeit ist
+     * ein gültiges Ergebnis, kein Fehler).
+     *
+     * @return array{reachable:bool,base_url:string,version:?string,
+     *               tileset_last_modified:?string,latency_ms:?int,error:?string}
+     */
+    public function status(): array
+    {
+        $result = [
+            'reachable'             => false,
+            'base_url'              => $this->baseUrl,
+            'version'               => null,
+            'tileset_last_modified' => null,
+            'latency_ms'            => null,
+            'error'                 => null,
+        ];
+
+        $ch = curl_init(rtrim($this->baseUrl, '/') . '/status');
+        if ($ch === false) {
+            $result['error'] = 'curl_init fehlgeschlagen';
+            return $result;
+        }
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_HTTPGET        => true,
+            CURLOPT_TIMEOUT        => 5,
+            CURLOPT_CONNECTTIMEOUT => 3,
+        ]);
+        $start = microtime(true);
+        $resp = curl_exec($ch);
+        $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $err  = curl_error($ch);
+        curl_close($ch);
+        $result['latency_ms'] = (int)round((microtime(true) - $start) * 1000);
+
+        if ($resp === false || !is_string($resp)) {
+            $result['error'] = $err !== '' ? $err : 'keine Antwort';
+            return $result;
+        }
+        if ($code !== 200) {
+            $result['error'] = 'HTTP ' . $code;
+            return $result;
+        }
+        return array_merge($result, self::parseStatus($resp));
+    }
+
+    /**
+     * Parst eine `/status`-Antwort. Statisch + ohne I/O → testbar.
+     *
+     * @return array{reachable:bool,version:?string,tileset_last_modified:?string,error:?string}
+     */
+    public static function parseStatus(string $json): array
+    {
+        try {
+            $d = json_decode($json, true, flags: JSON_THROW_ON_ERROR);
+        } catch (\JsonException) {
+            return ['reachable' => false, 'version' => null, 'tileset_last_modified' => null, 'error' => 'ungültiges JSON'];
+        }
+        if (!is_array($d)) {
+            return ['reachable' => false, 'version' => null, 'tileset_last_modified' => null, 'error' => 'unerwartete Antwort'];
+        }
+        $ts = isset($d['tileset_last_modified']) && is_numeric($d['tileset_last_modified'])
+            ? (int)$d['tileset_last_modified']
+            : null;
+        return [
+            'reachable'             => true,
+            'version'               => isset($d['version']) && is_string($d['version']) ? $d['version'] : null,
+            'tileset_last_modified' => $ts !== null ? gmdate('Y-m-d\TH:i:s\Z', $ts) : null,
+            'error'                 => null,
+        ];
+    }
+
     /**
      * Parst eine `trace_attributes`-Antwort. Statisch + ohne I/O, damit
      * gegen eine Fixture testbar.

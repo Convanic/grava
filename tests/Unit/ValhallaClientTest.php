@@ -80,4 +80,50 @@ final class ValhallaClientTest extends TestCase
         $this->assertNull(ValhallaClient::parse('not json'));
         $this->assertNull(ValhallaClient::parse('{}'));
     }
+
+    public function testParseStatusReadsVersionAndTileset(): void
+    {
+        $json = '{"version":"3.5.1","tileset_last_modified":1781813950,'
+              . '"available_actions":["status","trace_attributes"]}';
+        $s = ValhallaClient::parseStatus($json);
+
+        $this->assertTrue($s['reachable']);
+        $this->assertSame('3.5.1', $s['version']);
+        // 1781813950 -> 2026-06-18T... (UTC, Sekunden-Präzision, mit Z).
+        $this->assertSame(gmdate('Y-m-d\TH:i:s\Z', 1781813950), $s['tileset_last_modified']);
+        $this->assertNull($s['error']);
+    }
+
+    public function testParseStatusHandlesMissingFields(): void
+    {
+        $s = ValhallaClient::parseStatus('{}');
+        $this->assertTrue($s['reachable']); // gültige JSON-Antwort => Dienst da
+        $this->assertNull($s['version']);
+        $this->assertNull($s['tileset_last_modified']);
+    }
+
+    public function testParseStatusRejectsGarbage(): void
+    {
+        $s = ValhallaClient::parseStatus('not json');
+        $this->assertFalse($s['reachable']);
+        $this->assertNotNull($s['error']);
+    }
+
+    public function testStatusAgainstUnreachableHostIsNotReachable(): void
+    {
+        // Nicht auflösbarer Host → kurzer Connect-Timeout, reachable=false,
+        // ohne Exception. base_url wird mitgeliefert.
+        $client = new ValhallaClient('http://valhalla.invalid:8002');
+        $s = $client->status();
+
+        $this->assertFalse($s['reachable']);
+        $this->assertSame('http://valhalla.invalid:8002', $s['base_url']);
+        $this->assertNotNull($s['error']);
+        $this->assertIsInt($s['latency_ms']);
+    }
+
+    public function testBaseUrlGetter(): void
+    {
+        $this->assertSame('http://localhost:8002', (new ValhallaClient('http://localhost:8002'))->baseUrl());
+    }
 }

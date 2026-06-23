@@ -16,6 +16,7 @@ use App\Game\GameIngestionService;
 use App\Game\GameMath;
 use App\Game\GameRecomputeService;
 use App\Game\GameRepository;
+use App\Heatmap\ValhallaClient;
 use App\Http\Middleware\Csrf;
 use App\Http\Request;
 use App\Http\Response;
@@ -42,6 +43,7 @@ final class GameAdminController
         private readonly GameIngestionService $ingest,
         private readonly RouteService $routes,
         private readonly GeometryParser $parser,
+        private readonly ValhallaClient $valhalla,
         string $viewsPath,
     ) {
         $this->view = new WebView($viewsPath);
@@ -55,6 +57,9 @@ final class GameAdminController
             'flash' => $this->takeFlash(),
             'metrics' => $this->admin->healthMetrics(),
             'ingestHealth' => $this->admin->ingestHealth(),
+            // Map-Matching-Abhängigkeit: ohne erreichbaren Valhalla schlägt die
+            // Game-Ingestion fehl (routing_unavailable). Ping mit kurzem Timeout.
+            'valhalla' => $this->valhalla->status(),
             'audits' => $this->audit->recent(15),
         ]);
     }

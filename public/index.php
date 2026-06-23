@@ -403,7 +403,7 @@ $gameUserFlag    = new \App\Game\Admin\GameUserFlagService(Db::pdo(), $gameAudit
 $webGameAdmin    = new \App\Controllers\Web\Admin\GameAdminController(
     $webSession, $auth, $adminGuard, $gameAdminSvc, $gameCfgAdmin, $gameConfig,
     $gameModeration, $gameRecompute, $gameAudit, $gameRepo, $gameIngest, $routeService,
-    new GeometryParser(), $basePath . '/views',
+    new GeometryParser(), $gameValhalla, $basePath . '/views',
 );
 $webGameEdge     = new \App\Controllers\Web\Admin\GameEdgeInspectorController(
     $webSession, $auth, $adminGuard, $gameAdminSvc, $gamePassAdmin, $gameUserFlag,
@@ -768,7 +768,7 @@ $router->post('/internal/heatmap/import', function (Request $r) use ($internalTo
 // backend/UNIVERSAL_LINKS.md.
 
 // Healthcheck
-$router->get('/healthz', function ($r) use ($basePath): void {
+$router->get('/healthz', function ($r) use ($basePath, $gameValhalla): void {
     // Build-/Versionsinfo aus der vom Deploy geschriebenen VERSION-Datei
     // (Projekt-Root). Erlaubt zu prüfen, welcher Commit produktiv liegt —
     // ohne .git auf dem Server. Fehlt die Datei (z. B. lokal), ist version null.
@@ -781,11 +781,32 @@ $router->get('/healthz', function ($r) use ($basePath): void {
             $version = is_array($decoded) ? $decoded : ['commit' => trim($raw)];
         }
     }
-    Response::json([
+
+    $body = [
         'status'  => 'ok',
         'time'    => gmdate('Y-m-d\TH:i:s\Z'),
         'version' => $version,
-    ]);
+    ];
+
+    // Opt-in Komponenten-Checks via ?check=valhalla (oder ?check=all). Der bare
+    // /healthz bleibt ein schlanker Liveness-Probe (kein externer Ping). Ist eine
+    // angeforderte Komponente unten, wird der Gesamtstatus "degraded" und der
+    // HTTP-Code 503 — so können Uptime-Monitore direkt darauf reagieren.
+    $check = strtolower((string)($r->query['check'] ?? ''));
+    $wants = $check === '' ? [] : array_map('trim', explode(',', $check));
+    $wantValhalla = in_array('valhalla', $wants, true) || in_array('all', $wants, true);
+
+    $httpStatus = 200;
+    if ($wantValhalla) {
+        $v = $gameValhalla->status();
+        $body['checks']['valhalla'] = $v;
+        if (!$v['reachable']) {
+            $body['status'] = 'degraded';
+            $httpStatus = 503;
+        }
+    }
+
+    Response::json($body, $httpStatus);
 });
 
 // ---- Host-aware Admin-Split: /admin/* nur unter admin.grava.world, sonst 404 ----
