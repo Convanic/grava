@@ -64,7 +64,11 @@ final class GameController
     public function me(Request $req): void
     {
         $uid = $this->userId($req);
-        $claimant = $this->repo->riderClaimantId($uid);
+        // Effektiver Claimant (Crew, wenn Mitglied, sonst Rider) — MUSS mit der
+        // Edge-Serialisierung (viewerClaimant) übereinstimmen. Sonst meldet ein
+        // Crew-Mitglied held_edges=0, obwohl seine Kanten als owner_is_me=true
+        // erscheinen (Besitz liegt nach Beitritt beim Group-Claimant).
+        $claimant = $this->repo->effectiveClaimantId($uid);
         Response::json($this->read->me($claimant));
     }
 
