@@ -1,0 +1,27 @@
+# Caddy vor Valhalla: HTTPS (Let's Encrypt automatisch) + Zugriffsschutz.
+#
+# Valhalla selbst hat KEINE Authentifizierung. Damit nicht das halbe Internet
+# unser Routing-Backend benutzt, lassen wir NUR Requests unter einem geheimen
+# Pfad-Praefix durch:  https://valhalla.grava.world/s/<SECRET>/trace_attributes
+# Caddy strippt den Praefix und leitet an Valhalla weiter. Alles andere -> 404.
+#
+# Der Prod-Backend setzt dazu nur:
+#   VALHALLA_BASE_URL=https://valhalla.grava.world/s/<SECRET>
+# (Der ValhallaClient haengt /trace_attributes bzw. /status selbst an.)
+#
+# Domain + Secret kommen aus .env.prod (siehe docker-compose.prod.yml).
+
+{$VALHALLA_DOMAIN} {
+	encode zstd gzip
+
+	@authed path /s/{$VALHALLA_PROXY_SECRET}/*
+	handle @authed {
+		uri strip_prefix /s/{$VALHALLA_PROXY_SECRET}
+		reverse_proxy valhalla:8002
+	}
+
+	# Alles ohne gueltigen Secret-Pfad sieht den Dienst gar nicht erst.
+	handle {
+		respond "Not found" 404
+	}
+}

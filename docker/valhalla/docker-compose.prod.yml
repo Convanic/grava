@@ -1,0 +1,71 @@
+# Valhalla DAUERHAFT auf einem eigenen Server (z. B. Hetzner Cloud / Dedicated).
+#
+# Zweck: feste, immer erreichbare URL fuer das Map-Matching-Precompute, damit
+# der Prod-Backend (grava.world) Valhalla NICHT mehr ueber einen wechselnden
+# trycloudflare-Quick-Tunnel ansprechen muss. Valhalla ist NIE im Live-Request-
+# Pfad — nur Game-Ingestion + Heatmap-Linien-Rebuild rufen es.
+#
+# Unterschiede zur lokalen docker-compose.yml:
+#  - Region = ganz Europa (gross! siehe DEPLOY_HETZNER.md fuer Sizing/Build).
+#  - Tiles in einem NAMED VOLUME (ueberlebt Container-Neubau/Updates).
+#  - Valhalla NICHT nach aussen gemappt; nur Caddy (TLS) ist oeffentlich.
+#  - Caddy terminiert HTTPS fuer valhalla.grava.world und schuetzt den Zugriff
+#    ueber einen geheimen Pfad-Praefix (/s/<SECRET>/...). Kein Backend-Code noetig.
+#
+# Start:  docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
+# Logs:   docker compose -f docker-compose.prod.yml logs -f valhalla
+# Status: curl https://valhalla.grava.world/s/$VALHALLA_PROXY_SECRET/status
+
+services:
+  valhalla:
+    image: ghcr.io/gis-ops/docker-valhalla/valhalla:latest
+    container_name: ge_valhalla
+    expose:
+      - "8002"
+    volumes:
+      - valhalla_tiles:/custom_files
+    environment:
+      # Ganz Europa. ~28-30 GB PBF; Tile-Build braucht viel RAM/Disk/Zeit.
+      # Erstbau kann mehrere Stunden dauern (siehe DEPLOY_HETZNER.md).
+      - tile_urls=${VALHALLA_TILE_URLS:-https://download.geofabrik.de/europe-latest.osm.pbf}
+      - serve_tiles=True
+      # Vorhandene Tiles weiterverwenden; PBF nur beim Erstbau ziehen.
+      - use_tiles_ignore_pbf=True
+      - force_rebuild=False
+      # Bewusst aus (wie lokal): Elevation/Admins/Timezones sind fuers
+      # Map-Matching (way_id/Geometrie/Surface) nicht noetig und sparen massiv
+      # RAM/Disk/Build-Zeit. build_admins=True crasht zudem bei Teil-Extrakten.
+      - build_elevation=False
+      - build_admins=False
+      - build_time_zones=False
+      - server_threads=${VALHALLA_THREADS:-4}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8002/status"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      # Erstbau dauert lange — erst danach wird "healthy" erwartet.
+      start_period: 6h
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: ge_valhalla_caddy
+    depends_on:
+      - valhalla
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      - VALHALLA_DOMAIN=${VALHALLA_DOMAIN:?set in .env.prod}
+      - VALHALLA_PROXY_SECRET=${VALHALLA_PROXY_SECRET:?set in .env.prod}
+    restart: unless-stopped
+
+volumes:
+  valhalla_tiles:
+  caddy_data:
+  caddy_config:
