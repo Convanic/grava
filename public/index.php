@@ -409,6 +409,10 @@ $webGameEdge     = new \App\Controllers\Web\Admin\GameEdgeInspectorController(
     $webSession, $auth, $adminGuard, $gameAdminSvc, $gamePassAdmin, $gameUserFlag,
     $gameRecalc, $gameRepo, $gameAudit, $basePath . '/views',
 );
+$routeAdminSvc   = new \App\Routes\RouteAdminService(Db::pdo());
+$webAdminUploads = new \App\Controllers\Web\Admin\AdminUploadsController(
+    $webSession, $auth, $adminGuard, $routeAdminSvc, $routeService, $basePath . '/views',
+);
 
 // ---- JSON API ----
 $router->post("{$apiBase}/auth/register",                fn($r) => $apiAuth->register($r));
@@ -605,6 +609,9 @@ $router->get ('/i/{code}',                               fn($r) => $webReferral-
 // ---- Admin-Auswertung Empfehlungen (M7) — ADMIN_EMAILS-Gate ----
 $router->get ('/admin/referrals',                        fn($r) => $webAdminRef->index($r));
 $router->get ('/admin/referrals.csv',                    fn($r) => $webAdminRef->csv($r));
+
+$router->get ('/admin/uploads',                          fn($r) => $webAdminUploads->index($r));
+$router->get ('/admin/uploads/{id}/download',            fn($r) => $webAdminUploads->download($r));
 
 // ---- Game-Admin-Dashboard (A–F) — ADMIN_EMAILS-Gate in den Controllern, Host-Gate vor dispatch ----
 $router->get ('/admin/game',                           fn($r) => $webGameAdmin->health($r));

@@ -10,6 +10,7 @@ $e = static fn($v): string => htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8');
     <a href="/admin/game">Health</a>
     <a href="/admin/game/config">Config</a>
     <a href="/admin/game/ingest">Ingest</a>
+    <a href="/admin/uploads">Uploads</a>
     <a href="/admin/game/moderation">Moderation</a>
     <a href="/admin/game/players">Spieler</a>
     <a href="/admin/game/player">Spieler-Detail</a>
