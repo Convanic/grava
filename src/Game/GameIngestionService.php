@@ -21,6 +21,19 @@ use Throwable;
  */
 final class GameIngestionService
 {
+    /**
+     * Routen-Quellen, die als authentisch gelten und den Motion-Authentizitäts-
+     * Filter (§ `auth_require_motion`) umgehen dürfen: Strava-/GPX-Importe haben
+     * keine Motion-Samples, gelten vorerst aber als „echt" und sollen Besitz
+     * beanspruchen können. (Cheat-Schutz folgt später.)
+     */
+    public const TRUSTED_SOURCES = ['strava', 'import'];
+
+    public static function isTrustedSource(?string $source): bool
+    {
+        return $source !== null && in_array($source, self::TRUSTED_SOURCES, true);
+    }
+
     public function __construct(
         private readonly EdgeMatcher $matcher,
         private readonly GameRepository $repo,
@@ -43,6 +56,7 @@ final class GameIngestionService
         bool $sourceHasMotion,
         ?DateTimeImmutable $now = null,
         ?RadarTrafficData $radar = null,
+        bool $bypassMotionAuth = false,
     ): array {
         $now ??= Clock::nowUtc();
         $summary = [
@@ -81,7 +95,11 @@ final class GameIngestionService
         $this->pdo->beginTransaction();
         try {
             foreach ($segments as $seg) {
-                if ($requireMotion && (!$sourceHasMotion || !$seg->hasMotion)) {
+                // Vertrauenswürdige Quellen (Strava-/GPX-Import) tragen keine
+                // Motion-/Surface-Samples, gelten aber vorerst als „echt" und
+                // sollen Besitz beanspruchen können — der Motion-Authentizitäts-
+                // Filter wird für sie übersprungen (Cheat-Schutz später).
+                if ($requireMotion && !$bypassMotionAuth && (!$sourceHasMotion || !$seg->hasMotion)) {
                     $summary['skipped_no_motion']++;
                     continue;
                 }

@@ -103,25 +103,25 @@ final class GameController
             Response::error('unprocessable_route', 'Route enthält keine verwertbare Geometrie: ' . $e->getMessage(), 422);
         }
 
-        // Importierte/bewegungslose Routen (z. B. Strava-/GPX-Import ohne
-        // Zeitstempel) können keine authentischen Pässe erzeugen. Ist Motion
-        // Pflicht, beantworten wir das bewusst sauber mit 422 — statt einen
-        // teuren Match zu fahren, der ohnehin 0 Pässe liefert (Anti-Cheat:
-        // fremde GPX/Strava-Importe dürfen kein Revier beanspruchen).
-        $hasMotion = $parsed->startedAt !== null;
-        if (!$hasMotion && $this->config->bool('auth_require_motion')) {
-            Response::error(
-                'route_not_gameable',
-                'Diese Route enthält keine Bewegungsdaten (z. B. importiert/Strava) und kann nicht ins Spiel aufgenommen werden.',
-                422,
-            );
-        }
+        // Strava-/GPX-Importe gelten vorerst als „echt": sie tragen keine
+        // Motion-/Surface-/Radar-Daten, sollen aber dennoch Besitz beanspruchen
+        // können. Für diese Quellen wird der Motion-Authentizitätsfilter
+        // umgangen (Day-Cap, Privatzonen, start_buffer_m, Wertlogik bleiben).
+        $trusted = GameIngestionService::isTrustedSource($route['source']);
 
         $radar = $parsed->sourceFormat === 'gpx'
             ? RadarTrafficParser::parse($loaded['payload'])
             : RadarTrafficData::empty();
         try {
-            $summary = $this->ingest->ingest((int)$route['route_id'], $uid, $parsed, $hasMotion, null, $radar);
+            $summary = $this->ingest->ingest(
+                (int)$route['route_id'],
+                $uid,
+                $parsed,
+                $parsed->startedAt !== null,
+                null,
+                $radar,
+                $trusted,
+            );
         } catch (MatchUnavailableException $e) {
             // Routing-Engine (Valhalla) nicht erreichbar/kein Match → kein 500,
             // sondern ein ehrliches 503: der Client darf später erneut.

@@ -187,7 +187,15 @@ final class RouteService
         // späterer POST /game/ingest/{route_id} holt es nach.
         if ($this->game !== null) {
             try {
-                $this->game->ingest($routeId, $userId, $parsed, $parsed->startedAt !== null, null, $radar);
+                $this->game->ingest(
+                    $routeId,
+                    $userId,
+                    $parsed,
+                    $parsed->startedAt !== null,
+                    null,
+                    $radar,
+                    \App\Game\GameIngestionService::isTrustedSource($source),
+                );
             } catch (Throwable $e) {
                 error_log('RouteService: Spiel-Ingestion fehlgeschlagen (pending): ' . $e->getMessage());
             }

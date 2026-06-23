@@ -136,7 +136,7 @@ final class GameAdminController
             $this->flash('Route nicht gefunden.');
             Response::redirect('/admin/game/ingest');
         }
-        $this->ingestRoute($adminId, $routeId, (int)$route['user_id'], (string)$route['public_id']);
+        $this->ingestRoute($adminId, $routeId, (int)$route['user_id'], (string)$route['public_id'], (string)$route['source']);
         Response::redirect('/admin/game/ingest');
     }
 
@@ -154,17 +154,25 @@ final class GameAdminController
             $this->flash("Keine Route gefunden für: {$input}");
             Response::redirect('/admin/game/ingest');
         }
-        $this->ingestRoute($adminId, (int)$route['route_id'], (int)$route['user_id'], (string)$route['public_id']);
+        $this->ingestRoute($adminId, (int)$route['route_id'], (int)$route['user_id'], (string)$route['public_id'], (string)$route['source']);
         Response::redirect('/admin/game/ingest');
     }
 
     /** Gemeinsame Ingest-Ausführung mit Audit + Flash (reingest + manuell). */
-    private function ingestRoute(int $adminId, int $routeId, int $userId, string $publicId): void
+    private function ingestRoute(int $adminId, int $routeId, int $userId, string $publicId, string $source = 'app'): void
     {
         try {
             $loaded = $this->routes->loadPayloadByPublicId($publicId);
             $parsed = $this->parser->parse($loaded['payload']);
-            $summary = $this->ingest->ingest($routeId, $userId, $parsed, $parsed->startedAt !== null, null);
+            $summary = $this->ingest->ingest(
+                $routeId,
+                $userId,
+                $parsed,
+                $parsed->startedAt !== null,
+                null,
+                null,
+                \App\Game\GameIngestionService::isTrustedSource($source),
+            );
             $this->audit->record($adminId, 'ingest_rerun', 'route:' . $routeId, $summary);
             $this->flash("Route {$routeId} ingestiert: {$summary['passes_new']} neue Pässe (gematcht: {$summary['matched']}).");
         } catch (Throwable $e) {

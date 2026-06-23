@@ -424,20 +424,24 @@ final class GameRepository
     /** @return array{user_id:int,public_id:string}|null */
     public function routeForIngest(int $routeId): ?array
     {
-        $stmt = $this->pdo->prepare('SELECT user_id, public_id FROM routes WHERE id = ?');
+        $stmt = $this->pdo->prepare('SELECT user_id, public_id, source FROM routes WHERE id = ?');
         $stmt->execute([$routeId]);
         $r = $stmt->fetch(PDO::FETCH_ASSOC);
         if ($r === false) {
             return null;
         }
-        return ['user_id' => (int)$r['user_id'], 'public_id' => (string)$r['public_id']];
+        return [
+            'user_id'   => (int)$r['user_id'],
+            'public_id' => (string)$r['public_id'],
+            'source'    => (string)($r['source'] ?? 'app'),
+        ];
     }
 
     /**
      * Löst eine Eingabe (interne Route-ID als Zahl ODER Public-ID/UUID) zu
      * Route auf. Für die manuelle Admin-Ingestion beliebiger Routen.
      *
-     * @return array{route_id:int,user_id:int,public_id:string}|null
+     * @return array{route_id:int,user_id:int,public_id:string,source:string}|null
      */
     public function resolveRouteForIngest(string $idOrPublicId): ?array
     {
@@ -446,10 +450,10 @@ final class GameRepository
             return null;
         }
         if (ctype_digit($idOrPublicId)) {
-            $stmt = $this->pdo->prepare('SELECT id, user_id, public_id FROM routes WHERE id = ?');
+            $stmt = $this->pdo->prepare('SELECT id, user_id, public_id, source FROM routes WHERE id = ?');
             $stmt->bindValue(1, (int)$idOrPublicId, PDO::PARAM_INT);
         } else {
-            $stmt = $this->pdo->prepare('SELECT id, user_id, public_id FROM routes WHERE public_id = ?');
+            $stmt = $this->pdo->prepare('SELECT id, user_id, public_id, source FROM routes WHERE public_id = ?');
             $stmt->bindValue(1, $idOrPublicId, PDO::PARAM_STR);
         }
         $stmt->execute();
@@ -461,6 +465,7 @@ final class GameRepository
             'route_id'  => (int)$r['id'],
             'user_id'   => (int)$r['user_id'],
             'public_id' => (string)$r['public_id'],
+            'source'    => (string)($r['source'] ?? 'app'),
         ];
     }
 

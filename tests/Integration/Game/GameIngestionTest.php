@@ -128,6 +128,36 @@ final class GameIngestionTest extends IntegrationTestCase
         $this->assertSame(1, $res['skipped_auth_hacc']);
     }
 
+    public function testTrustedSourceBypassesMotionAuthAndCreatesPasses(): void
+    {
+        // Importierte/Strava-Segmente: keine Motion-/Surface-Samples.
+        $seg = new MatchedSegment(
+            wayId: 1001, nodeARef: 10, nodeBRef: 11, lengthM: 120.0,
+            geometry: [[9.65, 47.12], [9.66, 47.13]], surface: null,
+            avgSpeedKmh: null, maxHaccM: null, hasMotion: false,
+            riddenAt: $this->now(),
+        );
+
+        // Ohne Bypass (z. B. App-Route ohne Motion) → übersprungen, kein Besitz.
+        $u1 = $this->createUser('armin');
+        $skipped = $this->service([$seg])->ingest(1, $u1, $this->parsedRoute(), false, $this->now());
+        $this->assertSame(1, $skipped['matched']);
+        $this->assertSame(0, $skipped['passes_new']);
+        $this->assertSame(1, $skipped['skipped_no_motion']);
+        $this->assertSame([], $this->repo->edgesInBbox(9.6, 47.1, 9.7, 47.2, null, 100));
+
+        // Mit Bypass (Strava/Import gilt als „echt") → Besitz-Pässe entstehen.
+        $u2 = $this->createUser('berta');
+        $res = $this->service([$seg])->ingest(2, $u2, $this->parsedRoute(), false, $this->now(), null, true);
+        $this->assertSame(1, $res['matched']);
+        $this->assertSame(1, $res['passes_new']);
+        $this->assertSame(0, $res['skipped_no_motion']);
+        $c2 = $this->repo->riderClaimantId($u2);
+        $edges = $this->repo->edgesInBbox(9.6, 47.1, 9.7, 47.2, null, 100);
+        $this->assertCount(1, $edges);
+        $this->assertSame($c2, (int)$edges[0]['owner_claimant_id']);
+    }
+
     public function testMatcherFailureLeavesNoDataButReingestRecovers(): void
     {
         $u1 = $this->createUser('armin');
