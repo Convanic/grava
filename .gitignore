@@ -12,6 +12,8 @@
 *.log
 # Build-Artefakte (z. B. scripts/sync_heatmap_edges.sh export -> build/heatmap_edges.sql)
 /build/
+# Vom Deploy (CI) geschriebener Versions-Marker für /healthz
+/VERSION
 # Lokale Sync-/SFTP-Credentials für pull_prod_routes.sh (NIE committen)
 /scripts/.env.sync
 # Brainstorming-/Visual-Companion-Artefakte

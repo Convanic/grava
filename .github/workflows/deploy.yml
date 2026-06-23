@@ -33,6 +33,17 @@ jobs:
       - name: Composer-Abhängigkeiten (ohne dev) installieren
         run: composer install --no-dev --optimize-autoloader --no-interaction --prefer-dist
 
+      # Versions-Marker schreiben, damit /healthz zeigt, welcher Commit
+      # produktiv liegt (.git ist auf dem Server nicht vorhanden).
+      - name: Versions-Datei schreiben
+        run: |
+          printf '{"commit":"%s","short":"%s","built_at":"%s","ref":"%s"}\n' \
+            "$GITHUB_SHA" \
+            "$(printf '%s' "$GITHUB_SHA" | cut -c1-7)" \
+            "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            "${GITHUB_REF_NAME:-main}" \
+            > VERSION
+
       # Sauberes Deploy-Paket bauen: nur das, was auf den Server soll.
       # Schützt die Server-.env und die Nutzerdaten in storage/, weil diese
       # gar nicht erst im Paket landen.

@@ -768,8 +768,24 @@ $router->post('/internal/heatmap/import', function (Request $r) use ($internalTo
 // backend/UNIVERSAL_LINKS.md.
 
 // Healthcheck
-$router->get('/healthz', function ($r): void {
-    Response::json(['status' => 'ok', 'time' => gmdate('Y-m-d\TH:i:s\Z')]);
+$router->get('/healthz', function ($r) use ($basePath): void {
+    // Build-/Versionsinfo aus der vom Deploy geschriebenen VERSION-Datei
+    // (Projekt-Root). Erlaubt zu prüfen, welcher Commit produktiv liegt —
+    // ohne .git auf dem Server. Fehlt die Datei (z. B. lokal), ist version null.
+    $version = null;
+    $versionFile = $basePath . '/VERSION';
+    if (is_file($versionFile)) {
+        $raw = @file_get_contents($versionFile);
+        if ($raw !== false && trim($raw) !== '') {
+            $decoded = json_decode(trim($raw), true);
+            $version = is_array($decoded) ? $decoded : ['commit' => trim($raw)];
+        }
+    }
+    Response::json([
+        'status'  => 'ok',
+        'time'    => gmdate('Y-m-d\TH:i:s\Z'),
+        'version' => $version,
+    ]);
 });
 
 // ---- Host-aware Admin-Split: /admin/* nur unter admin.grava.world, sonst 404 ----
