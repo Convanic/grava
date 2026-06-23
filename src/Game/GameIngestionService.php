@@ -47,7 +47,8 @@ final class GameIngestionService
     /**
      * @return array{matched:int,passes_new:int,skipped_day_cap:int,
      *               skipped_auth_speed:int,skipped_auth_hacc:int,skipped_no_motion:int,
-     *               skipped_privacy_zone:int,banned:bool}
+     *               skipped_privacy_zone:int,banned:bool,
+     *               chunks_total:int,chunks_ok:int,chunks_failed:int}
      */
     public function ingest(
         int $routeId,
@@ -64,6 +65,7 @@ final class GameIngestionService
             'skipped_auth_speed' => 0, 'skipped_auth_hacc' => 0, 'skipped_no_motion' => 0,
             'skipped_privacy_zone' => 0,
             'banned' => false,
+            'chunks_total' => 0, 'chunks_ok' => 0, 'chunks_failed' => 0,
         ];
 
         if ($this->repo->isUserBanned($userId)) {
@@ -78,7 +80,10 @@ final class GameIngestionService
         // Besitzer selbst), da Reviere öffentlich sind.
         $privacyZone = $this->privacyZones?->enabledZoneForUser($userId);
 
-        $segments = $this->matcher->match($route);
+        // Lange Fahrten in ~50-km-Stücke (überlappend) matchen und die Segmente
+        // zusammenführen. Dedup passiert automatisch downstream (Edge-Unique +
+        // Tages-Deckel), die Naht-Überlappung verhindert verlorene Grenz-Kanten.
+        $segments = $this->matchChunked($route, $summary);
         $summary['matched'] = count($segments);
         if ($segments === []) {
             $this->logOk($routeId, $userId, $summary, $startedAt);
@@ -185,7 +190,71 @@ final class GameIngestionService
         return $summary;
     }
 
-    /** @param array{matched:int,passes_new:int,skipped_day_cap:int,skipped_auth_speed:int,skipped_auth_hacc:int,skipped_no_motion:int,skipped_privacy_zone:int,banned:bool} $summary */
+    /**
+     * Matcht die Route gechunkt (lange Fahrten) und führt die Segmente
+     * dedupliziert zusammen. Pro Chunk ein Matcher-Aufruf; ein einzelner
+     * fehlschlagender Chunk (Valhalla nicht erreichbar) verwirft NICHT die
+     * ganze Fahrt — nur wenn ALLE Chunks scheitern, gilt die Engine als unten
+     * und es wird (retrybar) MatchUnavailableException geworfen.
+     *
+     * Naht-Überlappung erzeugt doppelt gematchte Grenz-Kanten; die werden hier
+     * über (way_id, sortierte Knoten-Refs) zusammengeführt, damit Zähler/Arbeit
+     * sauber bleiben (Day-Cap würde sie sonst nur als „skip" verbuchen).
+     *
+     * @param array{chunks_total:int,chunks_ok:int,chunks_failed:int,...} $summary
+     * @return list<MatchedSegment>
+     */
+    private function matchChunked(ParsedRoute $route, array &$summary): array
+    {
+        $ranges = RouteChunker::chunk(
+            $route->points,
+            $this->config->float('game_chunk_size_m'),
+            $this->config->float('game_chunk_overlap_m'),
+        );
+        $summary['chunks_total'] = count($ranges);
+
+        $merged = [];
+        $seen = [];
+        $failed = 0;
+        foreach ($ranges as [$start, $end]) {
+            $sub = new ParsedRoute(
+                points: array_slice($route->points, $start, $end - $start + 1),
+                sourceFormat: $route->sourceFormat,
+                startedAt: $route->startedAt,
+                endedAt: $route->endedAt,
+                elevationGainOverrideM: $route->elevationGainOverrideM,
+            );
+            try {
+                $segs = $this->matcher->match($sub);
+            } catch (MatchUnavailableException $e) {
+                // Engine für diesen Chunk nicht erreichbar → Teilerfolg: weiter.
+                $failed++;
+                continue;
+            }
+            $summary['chunks_ok']++;
+            foreach ($segs as $seg) {
+                $a = min($seg->nodeARef, $seg->nodeBRef);
+                $b = max($seg->nodeARef, $seg->nodeBRef);
+                $key = $seg->wayId . ':' . $a . ':' . $b;
+                if (isset($seen[$key])) {
+                    continue; // doppelt gematchte Naht-Kante
+                }
+                $seen[$key] = true;
+                $merged[] = $seg;
+            }
+        }
+        $summary['chunks_failed'] = $failed;
+
+        // Nur wenn KEIN Chunk durchkam (Engine wirklich unten) → retrybar melden.
+        if ($ranges !== [] && $failed === count($ranges)) {
+            throw new MatchUnavailableException(
+                "Map-Matching fehlgeschlagen: alle {$failed} Chunk(s) nicht matchbar (Engine nicht erreichbar)."
+            );
+        }
+        return $merged;
+    }
+
+    /** @param array{matched:int,passes_new:int,skipped_day_cap:int,skipped_auth_speed:int,skipped_auth_hacc:int,skipped_no_motion:int,skipped_privacy_zone:int,banned:bool,chunks_total:int,chunks_ok:int,chunks_failed:int} $summary */
     private function logOk(int $routeId, int $userId, array $summary, float $startedAt): void
     {
         $this->repo->insertIngestLog(
@@ -200,6 +269,9 @@ final class GameIngestionService
                 'auth_hacc'    => $summary['skipped_auth_hacc'],
                 'no_motion'    => $summary['skipped_no_motion'],
                 'privacy_zone' => $summary['skipped_privacy_zone'],
+                'chunks_total' => $summary['chunks_total'],
+                'chunks_ok'    => $summary['chunks_ok'],
+                'chunks_failed' => $summary['chunks_failed'],
             ],
             null,
             (int) round((microtime(true) - $startedAt) * 1000),

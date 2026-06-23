@@ -13,7 +13,7 @@ final class GameConfigAdminService
         'presence_window_days','hysteresis_factor','pioneer_p0','pioneer_k','pioneer_s',
         'popularity_c','curation_per_hint','curation_per_like','auth_min_speed_kmh',
         'auth_max_hacc_m','start_buffer_m','auth_max_speed_kmh','mod_max_new_edges_per_min',
-        'mod_max_passes_per_day',
+        'mod_max_passes_per_day','game_chunk_size_m','game_chunk_overlap_m',
     ];
     /** @var array<string,list<string>> */
     private const ENUM_KEYS = [

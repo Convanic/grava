@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Tests\Integration\Game;
 
+use App\Game\EdgeMatcher;
 use App\Game\EdgeRecalculator;
 use App\Game\FakeEdgeMatcher;
 use App\Game\GameConfig;
@@ -10,6 +11,7 @@ use App\Game\GameIngestionService;
 use App\Game\GameMath;
 use App\Game\GameRepository;
 use App\Game\MatchedSegment;
+use App\Game\MatchUnavailableException;
 use App\Routes\GeometryParser;
 use App\Routes\ParsedRoute;
 use DateTimeImmutable;
@@ -156,6 +158,72 @@ final class GameIngestionTest extends IntegrationTestCase
         $edges = $this->repo->edgesInBbox(9.6, 47.1, 9.7, 47.2, null, 100);
         $this->assertCount(1, $edges);
         $this->assertSame($c2, (int)$edges[0]['owner_claimant_id']);
+    }
+
+    public function testShortRouteIsSingleChunk(): void
+    {
+        $u1 = $this->createUser('armin');
+        $segs = [$this->segment(1001, 10, 11, [[9.65, 47.12], [9.66, 47.13]], '2026-06-20 08:00:00')];
+        $res = $this->service($segs)->ingest(1, $u1, $this->parsedRoute(), true, $this->now());
+
+        $this->assertSame(1, $res['chunks_total']);
+        $this->assertSame(1, $res['chunks_ok']);
+        $this->assertSame(0, $res['chunks_failed']);
+        $this->assertSame(1, $res['passes_new']);
+    }
+
+    public function testPartialChunkFailureStillIngestsRest(): void
+    {
+        // Kleine Chunk-Größe erzwingt mehrere Chunks auf der kurzen Testroute.
+        $this->pdo->exec(
+            "INSERT INTO game_config (config_key, config_value)
+             VALUES ('game_chunk_size_m','1000'),('game_chunk_overlap_m','100')
+             ON DUPLICATE KEY UPDATE config_value = VALUES(config_value)"
+        );
+        $u1 = $this->createUser('armin');
+        $seg = $this->segment(1001, 10, 11, [[9.65, 47.12], [9.66, 47.13]], '2026-06-20 08:00:00');
+
+        // Matcher, der NUR beim ersten Chunk „Engine nicht erreichbar" wirft.
+        $matcher = new class([$seg]) implements EdgeMatcher {
+            private int $calls = 0;
+            /** @param list<MatchedSegment> $segs */
+            public function __construct(private array $segs) {}
+            public function match(ParsedRoute $route): array
+            {
+                $this->calls++;
+                if ($this->calls === 1) {
+                    throw new MatchUnavailableException('simulierter Chunk-Ausfall');
+                }
+                return $this->segs;
+            }
+        };
+        $svc = new GameIngestionService(
+            $matcher, $this->repo, new EdgeRecalculator($this->repo, $this->config), $this->config, $this->pdo,
+        );
+
+        $res = $svc->ingest(1, $u1, $this->parsedRoute(), true, $this->now());
+
+        $this->assertGreaterThanOrEqual(2, $res['chunks_total']);
+        $this->assertSame(1, $res['chunks_failed'], 'genau der erste Chunk scheitert');
+        $this->assertSame($res['chunks_total'] - 1, $res['chunks_ok']);
+        // Trotz des fehlerhaften Chunks entsteht aus den restlichen ein Pass
+        // (Naht-Kante dedupliziert → nur einer).
+        $this->assertSame(1, $res['matched']);
+        $this->assertSame(1, $res['passes_new']);
+        $this->assertCount(1, $this->repo->edgesInBbox(9.6, 47.1, 9.7, 47.2, null, 100));
+    }
+
+    public function testAllChunksFailingThrows(): void
+    {
+        $this->pdo->exec(
+            "INSERT INTO game_config (config_key, config_value)
+             VALUES ('game_chunk_size_m','1000'),('game_chunk_overlap_m','100')
+             ON DUPLICATE KEY UPDATE config_value = VALUES(config_value)"
+        );
+        $u1 = $this->createUser('armin');
+        // FakeEdgeMatcher mit throw=true scheitert bei JEDEM Chunk → Gesamtausfall.
+        $this->expectException(MatchUnavailableException::class);
+        $this->service([], throw: true)->ingest(1, $u1, $this->parsedRoute(), true, $this->now());
     }
 
     public function testMatcherFailureLeavesNoDataButReingestRecovers(): void

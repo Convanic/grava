@@ -32,6 +32,10 @@ final class GameConfig
         'auth_max_hacc_m'      => '30',
         'auth_require_motion'  => '1',
         'start_buffer_m'       => '0',
+        // Gechunktes Map-Matching langer Fahrten (GAME_INGEST_CHUNKING_BACKEND).
+        // 0 = kein Chunking (ganze Route in einem Stück matchen).
+        'game_chunk_size_m'    => '50000',
+        'game_chunk_overlap_m' => '500',
         'auth_max_speed_kmh'        => '80',
         'mod_max_new_edges_per_min' => '30',
         'mod_max_passes_per_day'    => '200',
