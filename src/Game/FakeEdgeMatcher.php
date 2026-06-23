@@ -4,7 +4,6 @@ declare(strict_types=1);
 namespace App\Game;
 
 use App\Routes\ParsedRoute;
-use RuntimeException;
 
 /**
  * Liefert eine fest vorgegebene Segment-Folge — unabhaengig von der Route.
@@ -22,7 +21,7 @@ final class FakeEdgeMatcher implements EdgeMatcher
     public function match(ParsedRoute $route): array
     {
         if ($this->throw) {
-            throw new RuntimeException('Fake-Matcher: simulierter Valhalla-Ausfall.');
+            throw new MatchUnavailableException('Fake-Matcher: simulierter Valhalla-Ausfall.');
         }
         return $this->segments;
     }

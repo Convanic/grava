@@ -5,6 +5,7 @@ namespace Tests\Unit\Game;
 
 use App\Game\FakeEdgeMatcher;
 use App\Game\MatchedSegment;
+use App\Game\MatchUnavailableException;
 use App\Routes\GeometryParser;
 use DateTimeImmutable;
 use PHPUnit\Framework\TestCase;
@@ -33,5 +34,15 @@ final class FakeEdgeMatcherTest extends TestCase
         $this->assertCount(1, $out);
         $this->assertSame(1001, $out[0]->wayId);
         $this->assertSame('gravel', $out[0]->surface);
+    }
+
+    public function testSimulatedOutageThrowsMatchUnavailable(): void
+    {
+        $matcher = new FakeEdgeMatcher([], throw: true);
+        $parsed = (new GeometryParser())->parse(
+            '{"type":"LineString","coordinates":[[9.65,47.12],[9.66,47.13]]}'
+        );
+        $this->expectException(MatchUnavailableException::class);
+        $matcher->match($parsed);
     }
 }

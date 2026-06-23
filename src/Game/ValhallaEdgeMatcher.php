@@ -5,7 +5,6 @@ namespace App\Game;
 
 use App\Heatmap\ValhallaClient;
 use App\Routes\ParsedRoute;
-use RuntimeException;
 
 /**
  * Echt-Adapter: nutzt den bestehenden ValhallaClient (trace_attributes) und
@@ -28,7 +27,7 @@ final class ValhallaEdgeMatcher implements EdgeMatcher
         }
         $match = $this->client->matchTrace($points);
         if ($match === null) {
-            throw new RuntimeException('Valhalla-Match fehlgeschlagen oder nicht erreichbar.');
+            throw new MatchUnavailableException('Valhalla-Match fehlgeschlagen oder nicht erreichbar.');
         }
 
         $hasMotion = $route->startedAt !== null;

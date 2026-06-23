@@ -7,8 +7,10 @@ use App\Game\GameConfig;
 use App\Game\GameIngestionService;
 use App\Game\GameReadService;
 use App\Game\GameRepository;
+use App\Game\MatchUnavailableException;
 use App\Http\Request;
 use App\Http\Response;
+use App\Routes\GeometryParseException;
 use App\Routes\GeometryParser;
 use App\Routes\RadarTrafficData;
 use App\Routes\RadarTrafficParser;
@@ -93,11 +95,38 @@ final class GameController
             Response::error('forbidden', 'Nur der Eigentümer darf re-ingestieren.', 403);
         }
         $loaded = $this->routes->loadPayloadByPublicId($route['public_id']);
-        $parsed = $this->parser->parse($loaded['payload']);
+        try {
+            $parsed = $this->parser->parse($loaded['payload']);
+        } catch (GeometryParseException $e) {
+            // Route ohne verwertbare Geometrie → kein Server-, sondern ein
+            // Eingabefehler.
+            Response::error('unprocessable_route', 'Route enthält keine verwertbare Geometrie: ' . $e->getMessage(), 422);
+        }
+
+        // Importierte/bewegungslose Routen (z. B. Strava-/GPX-Import ohne
+        // Zeitstempel) können keine authentischen Pässe erzeugen. Ist Motion
+        // Pflicht, beantworten wir das bewusst sauber mit 422 — statt einen
+        // teuren Match zu fahren, der ohnehin 0 Pässe liefert (Anti-Cheat:
+        // fremde GPX/Strava-Importe dürfen kein Revier beanspruchen).
+        $hasMotion = $parsed->startedAt !== null;
+        if (!$hasMotion && $this->config->bool('auth_require_motion')) {
+            Response::error(
+                'route_not_gameable',
+                'Diese Route enthält keine Bewegungsdaten (z. B. importiert/Strava) und kann nicht ins Spiel aufgenommen werden.',
+                422,
+            );
+        }
+
         $radar = $parsed->sourceFormat === 'gpx'
             ? RadarTrafficParser::parse($loaded['payload'])
             : RadarTrafficData::empty();
-        $summary = $this->ingest->ingest((int)$route['route_id'], $uid, $parsed, $parsed->startedAt !== null, null, $radar);
+        try {
+            $summary = $this->ingest->ingest((int)$route['route_id'], $uid, $parsed, $hasMotion, null, $radar);
+        } catch (MatchUnavailableException $e) {
+            // Routing-Engine (Valhalla) nicht erreichbar/kein Match → kein 500,
+            // sondern ein ehrliches 503: der Client darf später erneut.
+            Response::error('routing_unavailable', 'Map-Matching derzeit nicht möglich (Routing-Engine nicht erreichbar). Bitte später erneut versuchen.', 503);
+        }
         Response::json($summary);
     }
 
