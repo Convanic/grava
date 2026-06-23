@@ -58,7 +58,8 @@ final class StravaImportTest extends IntegrationTestCase
 
     private function connect(int $userId): void
     {
-        $url = $this->strava->authorizeUrl($userId);
+        // Mobile-Flow: session-los, State als Bindung.
+        $url = $this->strava->authorizeUrl($userId, 'mobile');
         parse_str((string)parse_url($url, PHP_URL_QUERY), $q);
         $this->strava->handleCallback((string)$q['state'], 'fake-auth-code');
     }
@@ -92,6 +93,42 @@ final class StravaImportTest extends IntegrationTestCase
         $real = $this->realModeService()->status($userId);
         $this->assertTrue($real['configured']);
         $this->assertFalse($real['fake_mode']);
+    }
+
+    public function testMobileFlowCompletesWithoutSession(): void
+    {
+        $userId = $this->createUser();
+        $url = $this->strava->authorizeUrl($userId, 'mobile', 'grava://strava-connected');
+        parse_str((string)parse_url($url, PHP_URL_QUERY), $q);
+
+        // Kein expectedUserId (keine Web-Session) — der State genügt.
+        $res = $this->strava->handleCallback((string)$q['state'], 'fake-auth-code');
+        $this->assertSame($userId, $res['user_id']);
+        $this->assertSame('mobile', $res['flow']);
+        $this->assertSame('grava://strava-connected', $res['return_to']);
+        $this->assertTrue($this->strava->status($userId)['connected']);
+    }
+
+    public function testWebFlowRejectsCallbackWithoutSession(): void
+    {
+        $userId = $this->createUser();
+        $url = $this->strava->authorizeUrl($userId, 'web');
+        parse_str((string)parse_url($url, PHP_URL_QUERY), $q);
+
+        try {
+            $this->strava->handleCallback((string)$q['state'], 'fake-auth-code'); // ohne Session
+            $this->fail('Web-Flow muss ohne Session ablehnen.');
+        } catch (\App\Integrations\Strava\StravaException $e) {
+            $this->assertSame('oauth_state_invalid', $e->errorCode);
+        }
+        $this->assertFalse($this->strava->status($userId)['connected']);
+
+        // Mit passender Session verbindet der Web-Flow normal.
+        $url2 = $this->strava->authorizeUrl($userId, 'web');
+        parse_str((string)parse_url($url2, PHP_URL_QUERY), $q2);
+        $res = $this->strava->handleCallback((string)$q2['state'], 'fake-auth-code', $userId);
+        $this->assertSame('web', $res['flow']);
+        $this->assertTrue($this->strava->status($userId)['connected']);
     }
 
     public function testConnectThenImport(): void

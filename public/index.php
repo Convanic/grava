@@ -521,6 +521,7 @@ $router->delete("{$apiBase}/users/me/avatar",                     fn($r) => $api
 
 // ---- Integrationen / Strava (M4e) ----
 $router->get("{$apiBase}/integrations/strava",                    fn($r) => $apiIntegr->stravaStatus($r),     [$requireBearer]);
+$router->get("{$apiBase}/integrations/strava/connect-url",        fn($r) => $apiIntegr->stravaConnectUrl($r), [$requireBearer]);
 $router->post("{$apiBase}/integrations/strava/import",            fn($r) => $apiIntegr->stravaImport($r),     [$requireBearer, $requireVerified]);
 $router->delete("{$apiBase}/integrations/strava",                 fn($r) => $apiIntegr->stravaDisconnect($r), [$requireBearer]);
 

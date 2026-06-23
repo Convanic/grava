@@ -59,30 +59,51 @@ final class StravaPagesController
 
     public function callback(Request $req): void
     {
-        // Session-Binding gegen OAuth-CSRF/Account-Linking: Der Callback
-        // läuft als Top-Level-Redirect im Browser des eingeloggten Users
-        // (SameSite=Lax sendet das Session-Cookie mit). Wir verlangen eine
-        // Session und koppeln den State an genau diesen User.
-        $user  = $this->requireUser('/settings/integrations');
         $state = (string)($req->query['state'] ?? '');
         $code  = (string)($req->query['code'] ?? '');
         $scope = (string)($req->query['scope'] ?? '');
         $err   = (string)($req->query['error'] ?? '');
+
+        // KEIN requireUser() mehr: Der Mobile-Flow (ASWebAuthenticationSession)
+        // hat keine Web-Session — ein Pflicht-Redirect auf /auth/web-refresh
+        // führte dort zu Login-Seite/500. Die Web-Session ist nur OPTIONAL;
+        // beim Web-Flow erzwingt handleCallback() die Session-Bindung anhand
+        // des im State hinterlegten flow.
+        $ctx = $this->webSession->resolve();
+        $expectedUserId = $ctx !== null ? (int)$ctx['user_id'] : null;
+
         if ($err !== '') {
-            $this->flash('Strava-Verbindung abgebrochen: ' . $err);
-            Response::redirect('/settings/integrations');
+            $this->finish(null, 'error', 'Strava-Verbindung abgebrochen: ' . $err);
         }
+
         try {
-            $this->strava->handleCallback($state, $code, (int)$user['internal_id'], $scope === '' ? null : $scope);
-            if ($scope !== '' && !str_contains($scope, 'activity:read_all')) {
-                $this->flash('Strava verbunden — aber ohne Zugriff auf private Aktivitäten. '
-                    . 'Für den vollständigen Import bitte erneut verbinden und „Alle Aktivitäten" erlauben.');
-            } else {
-                $this->flash('Strava verbunden. Du kannst jetzt Aktivitäten importieren.');
-            }
+            $res = $this->strava->handleCallback($state, $code, $expectedUserId, $scope === '' ? null : $scope);
         } catch (StravaException $e) {
-            $this->flash('Fehler: ' . $e->getMessage());
+            // Flow/return_to sind hier unbekannt → saubere Web-Fehlerseite.
+            $this->finish(null, 'error', 'Fehler: ' . $e->getMessage());
         }
+
+        $fullScope = $scope === '' || str_contains($scope, 'activity:read_all');
+        $msg = $fullScope
+            ? 'Strava verbunden. Du kannst jetzt Aktivitäten importieren.'
+            : 'Strava verbunden — aber ohne Zugriff auf private Aktivitäten. '
+              . 'Für den vollständigen Import bitte erneut verbinden und „Alle Aktivitäten" erlauben.';
+        $this->finish($res['return_to'], $fullScope ? 'connected' : 'limited', $msg);
+    }
+
+    /**
+     * Schließt den Callback ab: Deep-Link zurück in die App (Mobile-Flow mit
+     * return_to) oder Flash + Settings-Seite (Web-Flow).
+     *
+     * @param string $status connected|limited|error
+     */
+    private function finish(?string $returnTo, string $status, string $message): never
+    {
+        if ($returnTo !== null && $returnTo !== '') {
+            $sep = str_contains($returnTo, '?') ? '&' : '?';
+            Response::redirect($returnTo . $sep . 'strava=' . $status);
+        }
+        $this->flash($message);
         Response::redirect('/settings/integrations');
     }
 

@@ -41,18 +41,23 @@ final class StravaService
      * Erzeugt einen single-use State und liefert die Authorize-URL.
      * Im Fake-Modus zeigt sie direkt auf den eigenen Callback (mit
      * Dummy-Code), damit der Flow ohne Strava testbar ist.
+     *
+     * @param 'web'|'mobile' $flow     'mobile' = per Bearer erzeugt, Callback
+     *                                 schließt session-los ab (State = Bindung).
+     * @param ?string        $returnTo Deep-Link/URL, zu der der Callback nach
+     *                                 Abschluss zurückleitet (nur Mobile-Flow).
      */
-    public function authorizeUrl(int $userId): string
+    public function authorizeUrl(int $userId, string $flow = 'web', ?string $returnTo = null): string
     {
         $state = bin2hex(random_bytes(32));
         Db::pdo()->prepare(
-            'INSERT INTO oauth_states (state, user_id, provider, created_at)
-             VALUES (?, ?, "strava", ?)'
-        )->execute([$state, $userId, Clock::nowUtcString()]);
+            'INSERT INTO oauth_states (state, user_id, provider, flow, return_to, created_at)
+             VALUES (?, ?, "strava", ?, ?, ?)'
+        )->execute([$state, $userId, $flow, $returnTo, Clock::nowUtcString()]);
 
         if ($this->fakeMode) {
             return rtrim($this->appUrl, '/') . '/auth/strava/callback'
-                . '?state=' . $state . '&code=fake-auth-code';
+                . '?state=' . $state . '&code=fake-auth-code&scope=read,activity:read_all';
         }
 
         $params = http_build_query([
@@ -70,30 +75,39 @@ final class StravaService
     }
 
     /**
-     * Verifiziert + konsumiert den State, tauscht den Code gegen Tokens
-     * und legt/aktualisiert die Connection (verschlüsselt). Liefert die
-     * user_id für den Redirect.
+     * Verifiziert + konsumiert den State, tauscht den Code gegen Tokens und
+     * legt/aktualisiert die Connection (verschlüsselt).
+     *
+     * @return array{user_id:int, flow:string, return_to:?string}
      */
-    public function handleCallback(string $state, string $code, ?int $expectedUserId = null, ?string $grantedScope = null): int
+    public function handleCallback(string $state, string $code, ?int $expectedUserId = null, ?string $grantedScope = null): array
     {
         if ($state === '' || $code === '') {
             throw new StravaException('oauth_invalid', 'Ungültige OAuth-Antwort.', 400);
         }
         $pdo = Db::pdo();
-        $stmt = $pdo->prepare('SELECT user_id FROM oauth_states WHERE state = ? AND provider = "strava" LIMIT 1');
+        $stmt = $pdo->prepare('SELECT user_id, flow, return_to FROM oauth_states WHERE state = ? AND provider = "strava" LIMIT 1');
         $stmt->execute([$state]);
-        $userId = $stmt->fetchColumn();
-        if ($userId === false) {
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        if ($row === false) {
             throw new StravaException('oauth_state_invalid', 'OAuth-State unbekannt oder abgelaufen.', 400);
         }
-        $userId = (int)$userId;
+        $userId   = (int)$row['user_id'];
+        $flow     = (string)($row['flow'] ?? 'web');
+        $returnTo = $row['return_to'] !== null ? (string)$row['return_to'] : null;
         // Single-use: sofort konsumieren.
         $pdo->prepare('DELETE FROM oauth_states WHERE state = ?')->execute([$state]);
 
-        // Session-Binding (CSRF-Schutz): Der Callback wird im Browser des
-        // eingeloggten Users aufgerufen. Stimmt der State-Owner nicht mit
-        // der aktiven Session überein, könnte ein Angreifer seinen eigenen
-        // Strava-Account an einen fremden Account koppeln. Wir lehnen ab.
+        // CSRF-Schutz, flow-abhängig:
+        //  - web:    Der Callback läuft im Browser des eingeloggten Users. Ohne
+        //            passende Session könnte ein Angreifer seinen Strava-Account
+        //            an ein fremdes Konto koppeln → Session-Bindung Pflicht.
+        //  - mobile: Der State wurde über einen authentifizierten Bearer-Aufruf
+        //            erzeugt und nur an die App des Users ausgeliefert → der
+        //            single-use State IST die Bindung; keine Web-Session nötig.
+        if ($flow === 'web' && $expectedUserId === null) {
+            throw new StravaException('oauth_state_invalid', 'OAuth-Callback ohne aktive Sitzung.', 400);
+        }
         if ($expectedUserId !== null && $expectedUserId !== $userId) {
             throw new StravaException('oauth_state_invalid', 'OAuth-State gehört zu einer anderen Sitzung.', 400);
         }
@@ -106,7 +120,7 @@ final class StravaService
             $tokens['scope'] = $grantedScope;
         }
         $this->persistConnection($userId, $tokens);
-        return $userId;
+        return ['user_id' => $userId, 'flow' => $flow, 'return_to' => $returnTo];
     }
 
     /**

@@ -405,14 +405,14 @@ direkt als `URL` einer `AsyncImage`.
 | Methode | Pfad | Auth | Zweck |
 |---------|------|------|-------|
 | GET | `/integrations/strava` | Bearer | Verbindungsstatus |
+| GET | `/integrations/strava/connect-url` | Bearer | Mobile-Connect: Authorize-URL (token-basiert) |
 | POST | `/integrations/strava/import` | Bearer+Verified | Aktivitäten importieren |
 | DELETE | `/integrations/strava` | Bearer | Verbindung trennen (204) |
 
-Der **OAuth-Connect läuft über die Web-UI** (`/auth/strava/connect` →
-Strava → Callback), weil er an die Browser-Session gebunden ist. Die native App
-öffnet dazu die Web-Seite (z. B. `ASWebAuthenticationSession`). Angeforderter
-Scope: **`read,activity:read_all`** — `activity:read_all` ist nötig, um auch
-private Aktivitäten und deren GPS-Streams zu importieren.
+**Zwei Connect-Wege** (angeforderter Scope jeweils **`read,activity:read_all`** — nötig für private Aktivitäten + GPS-Streams):
+
+- **Web** (`/auth/strava/connect` → Strava → Callback): an die Browser-Session gebunden; der Callback erzwingt eine passende Web-Session.
+- **Mobile (token-basiert)**: `GET /integrations/strava/connect-url` (Bearer) → `{ "authorize_url": "https://www.strava.com/oauth/authorize?…&state=…", "return_to": "grava://strava-connected" }`. Der `state` ist kurzlebig und an den Bearer-User gebunden (kein Web-Cookie nötig). Die App öffnet `authorize_url` via `ASWebAuthenticationSession`. Der Callback `…/auth/strava/callback` schließt **session-los** ab und leitet per Deep-Link `return_to` zurück in die App, mit Status-Query `?strava=connected|limited|error`. Optionaler Query `?return_to=` (nur `grava://…` oder `https://grava.world/…`, sonst Default). `limited` = verbunden, aber ohne `activity:read_all` → erneut verbinden empfehlen.
 
 Status: `{ "connected": true, "athlete_id": "99000001", "scope": "read,activity:read_all", "connected_at": "…Z", "configured": true, "fake_mode": false }`.
 - `configured` = Server hat Strava-Credentials (oder Fake aktiv).
