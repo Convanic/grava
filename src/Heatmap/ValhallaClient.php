@@ -52,11 +52,25 @@ final class ValhallaClient
             'shape_match' => 'map_snap',
         ], JSON_THROW_ON_ERROR);
 
-        $json = $this->post('/trace_attributes', $body);
+        $json = $this->post('/trace_attributes', $body, count($shape));
         if ($json === null) {
+            // Grund (Transport-Fehler ODER HTTP 4xx/5xx mit Body) wurde bereits
+            // in post() geloggt.
             return null;
         }
-        return self::parse($json);
+        $match = self::parse($json);
+        if ($match === null) {
+            // 200 OK, aber kein verwertbares Match (kein `edges`, Fehler-Body wie
+            // error_code 444 „map_snap failed", oder kaputtes JSON). KEIN
+            // Erreichbarkeitsproblem — fürs Debugging trotzdem die rohe Antwort.
+            error_log(sprintf(
+                'Valhalla /trace_attributes: HTTP 200, aber nicht parsebar/ohne edges. points=%d costing=%s shape_match=map_snap resp=%.500s',
+                count($shape),
+                $this->costing,
+                $json,
+            ));
+        }
+        return $match;
     }
 
     /** Die konfigurierte Basis-URL (für Diagnose/Anzeige im Admin-Dashboard). */
@@ -246,11 +260,12 @@ final class ValhallaClient
         return $coords;
     }
 
-    private function post(string $path, string $body): ?string
+    private function post(string $path, string $body, int $pointCount = 0): ?string
     {
         $url = rtrim($this->baseUrl, '/') . $path;
         $ch = curl_init($url);
         if ($ch === false) {
+            error_log('Valhalla ' . $path . ': curl_init fehlgeschlagen für ' . $url);
             return null;
         }
         curl_setopt_array($ch, [
@@ -261,11 +276,28 @@ final class ValhallaClient
             CURLOPT_TIMEOUT        => $this->timeoutSeconds,
             CURLOPT_CONNECTTIMEOUT => 5,
         ]);
-        $resp = curl_exec($ch);
-        $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $resp  = curl_exec($ch);
+        $code  = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $errno = curl_errno($ch);
+        $err   = curl_error($ch);
         curl_close($ch);
 
-        if ($resp === false || $code !== 200 || !is_string($resp)) {
+        // Echter Transport-/Verbindungsfehler → Engine NICHT erreichbar.
+        if ($resp === false || $errno !== 0) {
+            error_log(sprintf(
+                'Valhalla %s: Transport-Fehler errno=%d "%s" url=%s costing=%s shape_match=map_snap points=%d body_len=%d timeout=%ds',
+                $path, $errno, $err, $url, $this->costing, $pointCount, strlen($body), $this->timeoutSeconds,
+            ));
+            return null;
+        }
+        // Engine HAT geantwortet, aber nicht mit 200 (z. B. 400/444 „kein Match"
+        // außerhalb der Tile-Region) — das ist KEIN Erreichbarkeitsproblem.
+        // Rohe Antwort (erste ~500 Bytes) für die Ursachenanalyse loggen.
+        if ($code !== 200 || !is_string($resp)) {
+            error_log(sprintf(
+                'Valhalla %s: HTTP %d url=%s costing=%s shape_match=map_snap points=%d body_len=%d resp=%.500s',
+                $path, $code, $url, $this->costing, $pointCount, strlen($body), is_string($resp) ? $resp : '',
+            ));
             return null;
         }
         return $resp;
