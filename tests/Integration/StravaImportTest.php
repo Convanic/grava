@@ -152,6 +152,28 @@ final class StravaImportTest extends IntegrationTestCase
         $this->assertSame(1, $count);
     }
 
+    public function testImportPersistsActivityStartAsDeterministicAnchor(): void
+    {
+        // Der Strava-Activity-Startzeitpunkt (start_date) muss als stabiler
+        // Fahrt-Zeitpunkt in der Route landen — nicht „heute". Nur so liefert
+        // ein Re-Ingest an einem anderen Tag denselben ridden_on (keine
+        // doppelten Pässe/Präsenz).
+        $userId = $this->createUser();
+        $this->connect($userId);
+        $this->strava->import($userId);
+
+        $startedAt = $this->pdo->query(
+            "SELECT v.started_at
+               FROM route_versions v
+               JOIN routes r ON r.id = v.route_id
+              WHERE r.user_id = {$userId} AND r.source = 'strava'
+              LIMIT 1"
+        )->fetchColumn();
+
+        // FakeStravaClient: Activity 1 start_date = 2026-05-01T07:30:00Z.
+        $this->assertSame('2026-05-01 07:30:00', (string)$startedAt);
+    }
+
     public function testReimportIsIdempotent(): void
     {
         $userId = $this->createUser();

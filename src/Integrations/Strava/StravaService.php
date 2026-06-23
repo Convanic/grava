@@ -161,7 +161,11 @@ final class StravaService
                 continue;
             }
 
-            $payload = self::buildGeoJson($latlng, $streams['altitude'] ?? []);
+            $payload = self::buildGeoJson(
+                $latlng,
+                $streams['altitude'] ?? [],
+                isset($act['start_date']) ? (string)$act['start_date'] : null,
+            );
             $title   = trim((string)($act['name'] ?? 'Strava-Aktivität'));
             if ($title === '') {
                 $title = 'Strava-Aktivität';
@@ -317,10 +321,20 @@ final class StravaService
     /**
      * Baut ein GeoJSON-LineString-Feature aus latlng + altitude.
      *
+     * Der Activity-Startzeitpunkt (`start_date`) wird — sofern vorhanden — als
+     * `properties.startedAt` (ISO-8601 UTC) eingebettet. Das ist der STABILE,
+     * an die Strava-Aktivität gebundene Dedup-Anker für die Spiel-Ingestion:
+     * Strava-Streams tragen keine Per-Punkt-Zeitstempel, daher fiele der
+     * `ridden_on`-Tagesschlüssel sonst auf „heute" (Server-Zeit) zurück — und
+     * ein Re-Ingest an einem anderen Tag erzeugte einen zweiten Präsenz-Tag.
+     * Mit eingebettetem startedAt liefert ein Re-Ingest derselben Aktivität
+     * immer denselben `ridden_on` → keine zusätzlichen Pässe/Präsenz.
+     *
      * @param list<array{0:float,1:float}> $latlng  [[lat,lon],…]
      * @param list<float> $altitude
+     * @param ?string $startDate Strava-`start_date` (ISO-8601), z. B. "2026-05-01T07:30:00Z".
      */
-    private static function buildGeoJson(array $latlng, array $altitude): string
+    private static function buildGeoJson(array $latlng, array $altitude, ?string $startDate = null): string
     {
         $coords = [];
         foreach ($latlng as $i => $pair) {
@@ -333,13 +347,38 @@ final class StravaService
                 $coords[] = [$lon, $lat];
             }
         }
+
+        $properties = new \stdClass();
+        $startedAtIso = self::normalizeIso($startDate);
+        if ($startedAtIso !== null) {
+            $properties->startedAt = $startedAtIso;
+        }
+
         return json_encode([
             'type' => 'Feature',
-            'properties' => new \stdClass(),
+            'properties' => $properties,
             'geometry' => [
                 'type' => 'LineString',
                 'coordinates' => $coords,
             ],
         ], JSON_THROW_ON_ERROR);
+    }
+
+    /**
+     * Normalisiert einen Datums-String defensiv auf ISO-8601 in UTC
+     * (`Y-m-d\TH:i:s\Z`). Liefert null bei leerem/ungültigem Input.
+     */
+    private static function normalizeIso(?string $value): ?string
+    {
+        if ($value === null || trim($value) === '') {
+            return null;
+        }
+        try {
+            return (new \DateTimeImmutable($value))
+                ->setTimezone(new \DateTimeZone('UTC'))
+                ->format('Y-m-d\TH:i:s\Z');
+        } catch (\Throwable) {
+            return null;
+        }
     }
 }

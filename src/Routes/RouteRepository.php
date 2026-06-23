@@ -673,7 +673,17 @@ final class RouteRepository
                     v.version    AS head_version,
                     v.format     AS head_format,
                     v.started_at AS head_started_at,
-                    v.ended_at   AS head_ended_at
+                    v.ended_at   AS head_ended_at,
+                    (SELECT DATE_FORMAT(MIN(gp.created_at), \'%Y-%m-%d %H:%i:%s\')
+                       FROM game_edge_pass gp
+                      WHERE gp.route_id = r.id
+                        AND gp.user_id  = r.user_id
+                        AND gp.invalidated_at IS NULL) AS game_ingested_at,
+                    (SELECT COUNT(DISTINCT gp.edge_id)
+                       FROM game_edge_pass gp
+                      WHERE gp.route_id = r.id
+                        AND gp.user_id  = r.user_id
+                        AND gp.invalidated_at IS NULL) AS game_edges_count
                   FROM routes r
                   LEFT JOIN route_versions v ON v.id = r.head_version_id';
     }
@@ -717,6 +727,14 @@ final class RouteRepository
             'created_at'        => self::isoUtc((string)$row['created_at']),
             'updated_at'        => self::isoUtc((string)$row['updated_at']),
             'deleted_at'        => $row['deleted_at'] === null ? null : self::isoUtc((string)$row['deleted_at']),
+            // Spiel-Status: gesetzt, sobald für den Eigentümer ≥1 (gültiger)
+            // Spiel-Pass aus dieser Route existiert (= Zeitpunkt des ersten
+            // Passes); sonst null. Abgeleitet aus game_edge_pass (Quelle der
+            // Wahrheit) — kann so nicht veralten. game_edges_count = Anzahl
+            // distinkter beanspruchter Kanten.
+            'game_ingested_at'  => !array_key_exists('game_ingested_at', $row) || $row['game_ingested_at'] === null
+                ? null : self::isoUtc((string)$row['game_ingested_at']),
+            'game_edges_count'  => (int)($row['game_edges_count'] ?? 0),
             // Internal fields — Controller übergibt die nicht weiter
             // an den Client, kann sie aber für Folge-Ops nutzen.
             '_internal' => [

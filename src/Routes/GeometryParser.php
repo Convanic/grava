@@ -246,12 +246,83 @@ final class GeometryParser
             throw new GeometryParseException('GeoJSON enthält weniger als zwei Punkte.');
         }
 
+        // Optionaler Fahrt-Zeitanker aus den Feature-Properties (z. B. der
+        // Strava-Import bettet `properties.startedAt` ein). GeoJSON kennt keine
+        // Per-Punkt-Zeitstempel — die Punkte bleiben daher bewusst zeitlos
+        // (kein avg-Speed → keine Auth-Speed-Abweisung). Der Zeitanker dient
+        // nur als deterministischer Fahrt-/Dedup-Zeitpunkt.
+        [$startedAt, $endedAt] = self::extractTimeBounds($data);
+
         return new ParsedRoute(
             points: $points,
             sourceFormat: 'geojson',
-            startedAt: null,
-            endedAt: null,
+            startedAt: $startedAt,
+            endedAt: $endedAt,
         );
+    }
+
+    /**
+     * Liest optionale Zeitgrenzen aus `properties.startedAt`/`properties.endedAt`
+     * (ISO-8601). Unterstützt `Feature` und `FeatureCollection` (min Start /
+     * max Ende über alle Features). Andere Wurzeltypen tragen keine Properties.
+     *
+     * @param array<string,mixed> $data
+     * @return array{0:?DateTimeImmutable,1:?DateTimeImmutable}
+     */
+    private static function extractTimeBounds(array $data): array
+    {
+        $type = $data['type'] ?? null;
+
+        if ($type === 'Feature') {
+            return self::timeBoundsFromProps($data['properties'] ?? null);
+        }
+
+        if ($type === 'FeatureCollection') {
+            $start = null;
+            $end   = null;
+            foreach ((array)($data['features'] ?? []) as $f) {
+                if (!is_array($f)) {
+                    continue;
+                }
+                [$s, $e] = self::extractTimeBounds($f);
+                if ($s !== null && ($start === null || $s < $start)) {
+                    $start = $s;
+                }
+                if ($e !== null && ($end === null || $e > $end)) {
+                    $end = $e;
+                }
+            }
+            return [$start, $end];
+        }
+
+        return [null, null];
+    }
+
+    /**
+     * @param mixed $props
+     * @return array{0:?DateTimeImmutable,1:?DateTimeImmutable}
+     */
+    private static function timeBoundsFromProps(mixed $props): array
+    {
+        if (!is_array($props)) {
+            return [null, null];
+        }
+        return [
+            self::parseIsoOrNull($props['startedAt'] ?? null),
+            self::parseIsoOrNull($props['endedAt'] ?? null),
+        ];
+    }
+
+    private static function parseIsoOrNull(mixed $value): ?DateTimeImmutable
+    {
+        if (!is_string($value) || trim($value) === '') {
+            return null;
+        }
+        try {
+            return (new DateTimeImmutable($value))->setTimezone(new DateTimeZone('UTC'));
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     /**

@@ -41,6 +41,44 @@ final class GeometryParserTest extends TestCase
         $this->assertSame(2, $parsed->pointCount());
     }
 
+    public function testGeoJsonWithoutStartedAtHasNullTimeBounds(): void
+    {
+        $json = '{"type":"LineString","coordinates":[[8.5,49.5],[8.51,49.51]]}';
+        $parsed = $this->parser->parse($json);
+        $this->assertNull($parsed->startedAt);
+        $this->assertNull($parsed->endedAt);
+    }
+
+    public function testGeoJsonFeatureStartedAtBecomesDeterministicAnchor(): void
+    {
+        // Strava-Import-Form: Feature mit eingebettetem startedAt, aber ohne
+        // Per-Punkt-Zeitstempel. startedAt ist der stabile Dedup-Anker.
+        $json = '{"type":"Feature","properties":{"startedAt":"2026-05-01T07:30:00Z"},'
+              . '"geometry":{"type":"LineString","coordinates":[[8.5,49.5],[8.51,49.51]]}}';
+        $parsed = $this->parser->parse($json);
+
+        $this->assertNotNull($parsed->startedAt);
+        $this->assertSame('2026-05-01T07:30:00+00:00', $parsed->startedAt->format('c'));
+        // Per-Punkt-Zeitstempel bleiben null (kein avg-Speed → keine Abweisung).
+        $this->assertNull($parsed->points[0]->timestamp);
+    }
+
+    public function testGeoJsonStartedAtIsNormalizedToUtc(): void
+    {
+        $json = '{"type":"Feature","properties":{"startedAt":"2026-05-01T09:30:00+02:00"},'
+              . '"geometry":{"type":"LineString","coordinates":[[8.5,49.5],[8.51,49.51]]}}';
+        $parsed = $this->parser->parse($json);
+        $this->assertSame('2026-05-01T07:30:00+00:00', $parsed->startedAt?->format('c'));
+    }
+
+    public function testGeoJsonInvalidStartedAtIsIgnored(): void
+    {
+        $json = '{"type":"Feature","properties":{"startedAt":"not-a-date"},'
+              . '"geometry":{"type":"LineString","coordinates":[[8.5,49.5],[8.51,49.51]]}}';
+        $parsed = $this->parser->parse($json);
+        $this->assertNull($parsed->startedAt);
+    }
+
     public function testRejectsUnknownFormat(): void
     {
         $this->expectException(GeometryParseException::class);
