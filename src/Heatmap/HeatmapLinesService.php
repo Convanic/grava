@@ -307,9 +307,14 @@ final class HeatmapLinesService
         $anyMatched = false;
         foreach ($runs as $run) {
             $run   = $this->downsample($run);
-            $match = $this->valhalla->matchTrace(
-                array_map(static fn($p) => ['lat' => $p['lat'], 'lon' => $p['lon']], $run)
-            );
+            try {
+                $match = $this->valhalla->matchTrace(
+                    array_map(static fn($p) => ['lat' => $p['lat'], 'lon' => $p['lon']], $run)
+                );
+            } catch (ValhallaUnavailableException $e) {
+                // Engine nicht erreichbar → Run überspringen (wie bisher bei null).
+                $match = null;
+            }
             if ($match === null) {
                 continue;
             }

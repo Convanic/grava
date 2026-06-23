@@ -114,7 +114,13 @@ final class RouteSurfaceService
         }
         // Vor dem Matching ausdünnen (Valhalla-Punktelimit / Performance).
         $points = $this->projector->resample($points);
-        $match = $this->valhalla->matchTrace($points);
+        try {
+            $match = $this->valhalla->matchTrace($points);
+        } catch (ValhallaUnavailableException $e) {
+            // Engine nicht erreichbar → optionaler Detail-Pfad liefert null
+            // (Aufrufer fällt auf die geometrische Projektion zurück).
+            return null;
+        }
         if ($match === null || $match->edges === []) {
             return null;
         }

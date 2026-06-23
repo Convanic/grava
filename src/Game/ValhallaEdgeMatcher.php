@@ -25,9 +25,20 @@ final class ValhallaEdgeMatcher implements EdgeMatcher
         foreach ($route->points as $p) {
             $points[] = ['lat' => $p->lat, 'lon' => $p->lon];
         }
-        $match = $this->client->matchTrace($points);
+        try {
+            $match = $this->client->matchTrace($points);
+        } catch (\App\Heatmap\ValhallaUnavailableException $e) {
+            // Engine wirklich nicht erreichbar (Transport-Fehler/5xx) → retrybar.
+            // Als domänentypisierte Exception weiterreichen, damit der HTTP-Adapter
+            // 503 routing_unavailable (statt 500) liefert.
+            throw new MatchUnavailableException($e->getMessage(), 0, $e);
+        }
         if ($match === null) {
-            throw new MatchUnavailableException('Valhalla-Match fehlgeschlagen oder nicht erreichbar.');
+            // Engine erreichbar, aber die Spur ließ sich nicht matchen (z. B.
+            // 400/444 „map_snap failed"). Das ist KEIN Routing-Ausfall: die
+            // Ingestion läuft mit 0 Segmenten normal durch (keine Pässe, kein
+            // 503), statt fälschlich „routing_unavailable" zu melden.
+            return [];
         }
 
         $hasMotion = $route->startedAt !== null;

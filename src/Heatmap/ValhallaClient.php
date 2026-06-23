@@ -16,7 +16,9 @@ namespace App\Heatmap;
  *  - `shape` ist eine encoded Polyline mit precision 1e6.
  *  - `edge.length` ist in den Response-`units` (Default Kilometer).
  */
-final class ValhallaClient
+// Nicht final: erlaubt schlanke Test-Doubles (z. B. für ValhallaEdgeMatcher),
+// ohne ein eigenes Interface einzuführen.
+class ValhallaClient
 {
     public function __construct(
         private readonly string $baseUrl,
@@ -282,20 +284,33 @@ final class ValhallaClient
         $err   = curl_error($ch);
         curl_close($ch);
 
-        // Echter Transport-/Verbindungsfehler → Engine NICHT erreichbar.
+        // Echter Transport-/Verbindungsfehler → Engine NICHT erreichbar
+        // (retrybar). Wird als ValhallaUnavailableException nach oben gereicht.
         if ($resp === false || $errno !== 0) {
-            error_log(sprintf(
+            $msg = sprintf(
                 'Valhalla %s: Transport-Fehler errno=%d "%s" url=%s costing=%s shape_match=map_snap points=%d body_len=%d timeout=%ds',
                 $path, $errno, $err, $url, $this->costing, $pointCount, strlen($body), $this->timeoutSeconds,
-            ));
-            return null;
+            );
+            error_log($msg);
+            throw new ValhallaUnavailableException($msg);
         }
-        // Engine HAT geantwortet, aber nicht mit 200 (z. B. 400/444 „kein Match"
-        // außerhalb der Tile-Region) — das ist KEIN Erreichbarkeitsproblem.
-        // Rohe Antwort (erste ~500 Bytes) für die Ursachenanalyse loggen.
+        // 5xx → Engine antwortet, ist aber serverseitig gestört → ebenfalls
+        // „nicht verfügbar" (retrybar).
+        if ($code >= 500) {
+            $msg = sprintf(
+                'Valhalla %s: HTTP %d (Server-Fehler) url=%s points=%d resp=%.500s',
+                $path, $code, $url, $pointCount, is_string($resp) ? $resp : '',
+            );
+            error_log($msg);
+            throw new ValhallaUnavailableException($msg);
+        }
+        // 4xx → Engine HAT geantwortet, nur kein verwertbares Match (z. B.
+        // 400/444 „map_snap failed", Spur snappt nicht). KEIN
+        // Erreichbarkeitsproblem → null (Aufrufer behandelt als „kein Match").
+        // Rohe Antwort (erste ~500 Bytes) fürs Debugging loggen.
         if ($code !== 200 || !is_string($resp)) {
             error_log(sprintf(
-                'Valhalla %s: HTTP %d url=%s costing=%s shape_match=map_snap points=%d body_len=%d resp=%.500s',
+                'Valhalla %s: HTTP %d (kein Match) url=%s costing=%s shape_match=map_snap points=%d body_len=%d resp=%.500s',
                 $path, $code, $url, $this->costing, $pointCount, strlen($body), is_string($resp) ? $resp : '',
             ));
             return null;
