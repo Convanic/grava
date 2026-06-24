@@ -84,6 +84,45 @@ final class GameAdminServiceTest extends IntegrationTestCase
         $this->assertSame(1, $board[1]['held_edges']);
     }
 
+    public function testLeaderboardListsAllActiveUsersIncludingZeroTerritory(): void
+    {
+        // u1: hält eine Kante (Solo). u2: nur Aktivität (Pässe), kein Besitz.
+        // u3: registriert, aber gar keine Spielaktivität.
+        $u1 = $this->createUser('holder');
+        $u2 = $this->createUser('active');
+        $u3 = $this->createUser('idle');
+
+        $c1 = $this->repo->riderClaimantId($u1);
+        $e1 = $this->makeEdge(4001, 40, 41);
+        $this->pdo->prepare('UPDATE game_edge SET owner_claimant_id = ? WHERE id = ?')->execute([$c1, $e1]);
+
+        // u2 fährt eine (andere) Kante → Pass, aber kein Besitz.
+        $c2 = $this->repo->riderClaimantId($u2);
+        $e2 = $this->makeEdge(4002, 42, 43);
+        $this->repo->insertPassIfAbsent($e2, $c2, $u2, 1, '2026-06-20', '2026-06-20 08:00:00.000');
+
+        $board = $this->service->leaderboard(50);
+        $byHandle = [];
+        foreach ($board as $row) {
+            $byHandle[$row['handle']] = $row;
+        }
+
+        // Alle drei aktiven Nutzer erscheinen (kein Territorium-Filter mehr).
+        $this->assertCount(3, $board);
+        $this->assertArrayHasKey('holder', $byHandle);
+        $this->assertArrayHasKey('active', $byHandle);
+        $this->assertArrayHasKey('idle', $byHandle);
+
+        $this->assertSame(1, $byHandle['holder']['held_edges']);
+        $this->assertSame(0, $byHandle['active']['held_edges']);
+        $this->assertSame(1, $byHandle['active']['passes'], 'Aktivität trotz 0 Solo-Besitz sichtbar');
+        $this->assertSame(1, $byHandle['active']['edges_ridden']);
+        $this->assertSame(0, $byHandle['idle']['passes']);
+
+        // Sortierung: Besitzer zuerst.
+        $this->assertSame('holder', $board[0]['handle']);
+    }
+
     private function makeCrew(string $name, string $slug, string $joinCode, int $captainUserId): array
     {
         $this->pdo->prepare('INSERT INTO game_claimant (type, user_id) VALUES ("group", NULL)')->execute();

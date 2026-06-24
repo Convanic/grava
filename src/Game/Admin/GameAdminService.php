@@ -67,31 +67,67 @@ final class GameAdminService
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
-    /** @return list<array{claimant_id:int,handle:?string,held_edges:int,held_length_m:float,pioneered:int}> */
+    /**
+     * Spieler-Übersicht fürs Admin-Dashboard: listet ALLE aktiven Nutzer (nicht
+     * nur Territorium-Halter), mit Solo-Besitz-Stats soweit vorhanden PLUS einer
+     * Aktivitäts-Spalte (gültige Pässe / distinkt befahrene Kanten). So sind
+     * Spieler auch dann sichtbar, wenn ihr Besitz bei einer Crew/Fraktion liegt
+     * oder noch kein Revier materialisiert wurde.
+     *
+     * Hinweis: held_edges/held_length_m/pioneered beziehen sich auf den
+     * Rider-(Solo-)Claimant; Crew-/Fraktions-Besitz erscheint hier bewusst nicht
+     * als „held" (dafür Crews-Seite), wohl aber als Aktivität (passes).
+     *
+     * @return list<array{user_id:int,claimant_id:?int,handle:?string,display_name:?string,status:string,held_edges:int,held_length_m:float,pioneered:int,passes:int,edges_ridden:int}>
+     */
     public function leaderboard(int $limit = 50): array
     {
         $stmt = $this->pdo->prepare(
-            'SELECT c.id AS claimant_id, u.public_handle AS handle,
-                    (SELECT COUNT(*) FROM game_edge e WHERE e.owner_claimant_id = c.id) AS held_edges,
-                    (SELECT COALESCE(SUM(length_m),0) FROM game_edge e WHERE e.owner_claimant_id = c.id) AS held_length_m,
-                    (SELECT COUNT(*) FROM game_edge e WHERE e.discoverer_claimant_id = c.id) AS pioneered
-               FROM game_claimant c
-               LEFT JOIN users u ON u.id = c.user_id
-              WHERE c.type = "rider"
-             HAVING held_edges > 0 OR pioneered > 0
-              ORDER BY held_edges DESC, held_length_m DESC, pioneered DESC, c.id ASC
-              LIMIT ?'
+            "SELECT
+                    u.id              AS user_id,
+                    u.public_handle   AS handle,
+                    u.display_name    AS display_name,
+                    u.status          AS status,
+                    rc.id             AS claimant_id,
+                    COALESCE(he.held_edges, 0)    AS held_edges,
+                    COALESCE(he.held_length_m, 0) AS held_length_m,
+                    COALESCE(pi.pioneered, 0)     AS pioneered,
+                    COALESCE(pa.passes, 0)        AS passes,
+                    COALESCE(pa.edges_ridden, 0)  AS edges_ridden
+               FROM users u
+               LEFT JOIN game_claimant rc
+                      ON rc.user_id = u.id AND rc.type = 'rider'
+               LEFT JOIN (
+                    SELECT owner_claimant_id AS cid, COUNT(*) AS held_edges, SUM(length_m) AS held_length_m
+                      FROM game_edge WHERE owner_claimant_id IS NOT NULL GROUP BY owner_claimant_id
+               ) he ON he.cid = rc.id
+               LEFT JOIN (
+                    SELECT discoverer_claimant_id AS cid, COUNT(*) AS pioneered
+                      FROM game_edge WHERE discoverer_claimant_id IS NOT NULL GROUP BY discoverer_claimant_id
+               ) pi ON pi.cid = rc.id
+               LEFT JOIN (
+                    SELECT user_id AS uid, COUNT(*) AS passes, COUNT(DISTINCT edge_id) AS edges_ridden
+                      FROM game_edge_pass WHERE invalidated_at IS NULL GROUP BY user_id
+               ) pa ON pa.uid = u.id
+              WHERE u.status = 'active'
+              ORDER BY held_edges DESC, held_length_m DESC, pioneered DESC, passes DESC, u.id ASC
+              LIMIT ?"
         );
         $stmt->bindValue(1, $limit, PDO::PARAM_INT);
         $stmt->execute();
         $out = [];
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
             $out[] = [
-                'claimant_id'   => (int)$r['claimant_id'],
+                'user_id'       => (int)$r['user_id'],
+                'claimant_id'   => $r['claimant_id'] !== null ? (int)$r['claimant_id'] : null,
                 'handle'        => $r['handle'] !== null ? (string)$r['handle'] : null,
+                'display_name'  => $r['display_name'] !== null ? (string)$r['display_name'] : null,
+                'status'        => (string)$r['status'],
                 'held_edges'    => (int)$r['held_edges'],
                 'held_length_m' => (float)$r['held_length_m'],
                 'pioneered'     => (int)$r['pioneered'],
+                'passes'        => (int)$r['passes'],
+                'edges_ridden'  => (int)$r['edges_ridden'],
             ];
         }
         return $out;
