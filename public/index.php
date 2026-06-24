@@ -359,6 +359,8 @@ $apiPushDev  = new PushDeviceController($pushDevices);
 $apiAvatar   = new AvatarController($avatarServ);
 $apiIntegr   = new IntegrationsController($stravaServ);
 $apiHeatmap  = new HeatmapController($heatmapServ);
+$personalHeatmap = new \App\Heatmap\PersonalHeatmapService($routeStorage, new GeometryParser(), $privacyZoneRepo);
+$apiMeHeatmap = new \App\Controllers\Api\MeHeatmapController($personalHeatmap);
 $apiHeatmapLines = new HeatmapLinesController($heatmapLines);
 $apiReferral = new ReferralController($referrals);
 $apiGame = new GameController($gameRead, $gameRepo, $gameIngest, $gameConfig, $routeService, new GeometryParser());
@@ -532,6 +534,7 @@ $router->delete("{$apiBase}/integrations/strava",                 fn($r) => $api
 
 $router->get("{$apiBase}/heatmap",                                fn($r) => $apiHeatmap->index($r));
 $router->get("{$apiBase}/heatmap/lines",                          fn($r) => $apiHeatmapLines->index($r));
+$router->get("{$apiBase}/me/heatmap",                             fn($r) => $apiMeHeatmap->me($r), [$requireBearer]);
 
 // ---- Referrals (M7) ----
 // Eigener Code/Link + Statistik. Kein öffentliches Leaderboard.
