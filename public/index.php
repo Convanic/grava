@@ -105,8 +105,10 @@ use App\Game\TerritoryTakeoverNotifier;
 use App\Game\GameReadService;
 use App\Game\GameRecomputeService;
 use App\Game\PlayerLeaderboardService;
+use App\Game\SegmentSpeedService;
 use App\Controllers\Api\GameController;
 use App\Controllers\Api\PlayerLeaderboardController;
+use App\Controllers\Api\SegmentSpeedController;
 use App\Database\Db;
 
 $basePath = dirname(__DIR__);
@@ -365,6 +367,7 @@ $apiHeatmapLines = new HeatmapLinesController($heatmapLines);
 $apiReferral = new ReferralController($referrals);
 $apiGame = new GameController($gameRead, $gameRepo, $gameIngest, $gameConfig, $routeService, new GeometryParser());
 $apiPlayerBoard = new PlayerLeaderboardController(new PlayerLeaderboardService($gameRepo, $gameConfig));
+$apiSegment = new SegmentSpeedController(new SegmentSpeedService($gameRepo, $gameConfig));
 $apiPrivacyZone = new \App\Controllers\Api\PrivacyZoneController($privacyZoneSvc);
 $gameCrewRepo    = new \App\Game\Crew\CrewRepository(Db::pdo());
 $gameFactionRepo = new \App\Game\Faction\FactionRepository(Db::pdo());
@@ -473,6 +476,11 @@ $router->get("{$apiBase}/discover/users",                         fn($r) => $api
 // User. Routes-Endpoint erbt die Discovery-Filter (limit/offset/sort/q).
 $router->get("{$apiBase}/users/by-handle/{handle}",               fn($r) => $apiProfile->show($r),    [$optionalBearer]);
 $router->get("{$apiBase}/users/by-handle/{handle}/routes",        fn($r) => $apiProfile->routes($r),  [$optionalBearer]);
+// Follower-/Following-Listen: anonym OK (OptionalBearer ergänzt nur die
+// viewer-relativen Flags is_self/is_followed_by_viewer + Block-Filter).
+// Volle PublicProfile-Objekte als users[] plus pagination.
+$router->get("{$apiBase}/users/by-handle/{handle}/followers",     fn($r) => $apiProfile->followers($r), [$optionalBearer]);
+$router->get("{$apiBase}/users/by-handle/{handle}/following",     fn($r) => $apiProfile->following($r), [$optionalBearer]);
 
 // ---- Follow + Block (M3 Phase 4) ----
 // Auth-required. POST /follow ist 201 (neu) bzw. 200 (idempotent).
@@ -547,6 +555,10 @@ $router->get("{$apiBase}/game/me",                 fn($r) => $apiGame->me($r),  
 $router->get("{$apiBase}/game/config",             fn($r) => $apiGame->config($r),   [$requireBearer]);
 // Solo-/Spieler-Rangliste (S7): world anonym, friends/me brauchen Bearer.
 $router->get("{$apiBase}/game/leaderboard",        fn($r) => $apiPlayerBoard->index($r), [$optionalBearer]);
+// Segment-Speed / Tempo-Wertung: Leaderboard je Kante (OptionalBearer; friends/me
+// brauchen Bearer), eigene Bestzeiten (Bearer).
+$router->get("{$apiBase}/game/segments/{id}/leaderboard", fn($r) => $apiSegment->leaderboard($r), [$optionalBearer]);
+$router->get("{$apiBase}/game/me/segments",        fn($r) => $apiSegment->mySegments($r), [$requireBearer]);
 $router->post("{$apiBase}/game/ingest/{route_id}", fn($r) => $apiGame->reingest($r), [$requireBearer]);
 $router->get ("{$apiBase}/game/crews/me",          fn($r) => $apiCrew->me($r),       [$requireBearer]);
 $router->post("{$apiBase}/game/crews/join",        fn($r) => $apiCrew->join($r),     [$requireBearer]);

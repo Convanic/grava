@@ -131,6 +131,14 @@ abstract class IntegrationTestCase extends TestCase
         )->execute([$blockerId, $blockedId, Clock::nowUtcString()]);
     }
 
+    protected function seedFollow(int $followerId, int $followeeId, ?string $createdAt = null): void
+    {
+        $this->pdo->prepare(
+            'INSERT INTO follows (follower_id, followee_id, created_at)
+             VALUES (?, ?, ?)'
+        )->execute([$followerId, $followeeId, $createdAt ?? Clock::nowUtcString()]);
+    }
+
     protected static function uuid4(): string
     {
         $b = random_bytes(16);

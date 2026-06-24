@@ -52,6 +52,31 @@ final class ProfileController
         Response::json($res);
     }
 
+    public function followers(Request $req): void
+    {
+        $this->followList($req, 'followers');
+    }
+
+    public function following(Request $req): void
+    {
+        $this->followList($req, 'following');
+    }
+
+    private function followList(Request $req, string $direction): void
+    {
+        $handle = (string)($req->routeParams['handle'] ?? '');
+        $viewerId = $this->viewerId($req);
+
+        $res = $this->profile->getProfileFollowList($handle, $viewerId, $direction, [
+            'limit'  => (int)($req->query['limit']  ?? 50),
+            'offset' => (int)($req->query['offset'] ?? 0),
+        ]);
+        if ($res === null) {
+            Response::error('not_found', 'Profil existiert nicht.', 404);
+        }
+        Response::json($res);
+    }
+
     private function viewerId(Request $req): ?int
     {
         $id = isset($req->user) ? (int)($req->user->internal_id ?? 0) : 0;

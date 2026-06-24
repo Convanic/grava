@@ -53,6 +53,11 @@ final class GameConfig
         // Stufe 3 (Fraktionen, GAME_STAGE3_BACKEND.md §6).
         'faction_switch_cooldown_days' => '30',
         'faction_map_grid'             => '0.05',
+        // Segment-Speed / Tempo-Wertung (GAME_SEGMENT_SPEED_BACKEND.md).
+        'segment_min_length_m'      => '200',
+        'segment_min_speed_kmh'     => '5',
+        'segment_max_speed_kmh'     => '80',
+        'segment_leaderboard_top_n' => '100',
     ];
 
     public function __construct(private readonly PDO $pdo) {}

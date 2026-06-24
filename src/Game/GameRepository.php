@@ -811,4 +811,153 @@ final class GameRepository
         }
         return $out;
     }
+
+    // ----------------------------------------------------------------
+    // Segment-Speed / Tempo-Wertung (GAME_SEGMENT_SPEED_BACKEND.md)
+    // ----------------------------------------------------------------
+
+    /**
+     * Schreibt eine Effort-Zeile (Tempo-Wertung). NICHT tagesgedeckelt —
+     * jede authentische, getimte Befahrung zählt; Best-of entsteht beim Lesen.
+     */
+    public function insertSegmentEffort(
+        int $edgeId,
+        int $claimantId,
+        int $userId,
+        int $routeId,
+        string $riddenAt,
+        float $durationS,
+        float $avgSpeedKmh,
+        float $lengthM,
+    ): void {
+        $this->pdo->prepare(
+            'INSERT INTO game_segment_effort
+                (edge_id, claimant_id, user_id, route_id, ridden_at, duration_s, avg_speed_kmh, length_m)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+        )->execute([$edgeId, $claimantId, $userId, $routeId, $riddenAt, $durationS, $avgSpeedKmh, $lengthM]);
+    }
+
+    /**
+     * Bestzeit je Fahrer (MIN duration_s) auf einer Kante, optional im Fenster.
+     * Tie-Break-stabil (frühere ridden_at, kleinere id) — eine Zeile pro Fahrer.
+     *
+     * @return list<array{user_id:int,duration_s:float,avg_speed_kmh:float,achieved_at:string}>
+     */
+    public function bestEffortsForEdge(int $edgeId, ?string $sinceDate): array
+    {
+        $sql =
+            'SELECT user_id, duration_s, avg_speed_kmh, achieved_at FROM (
+                SELECT user_id, duration_s, avg_speed_kmh, ridden_at AS achieved_at,
+                       ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY duration_s ASC, ridden_at ASC, id ASC) AS rn
+                  FROM game_segment_effort
+                 WHERE edge_id = ?'
+            . ($sinceDate !== null ? ' AND ridden_at >= ?' : '')
+            . ') t WHERE rn = 1';
+        $params = $sinceDate !== null ? [$edgeId, $sinceDate] : [$edgeId];
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($params);
+        $out = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $out[] = [
+                'user_id'       => (int)$r['user_id'],
+                'duration_s'    => (float)$r['duration_s'],
+                'avg_speed_kmh' => (float)$r['avg_speed_kmh'],
+                'achieved_at'   => (string)$r['achieved_at'],
+            ];
+        }
+        return $out;
+    }
+
+    /**
+     * Bestzeit je Fahrer für MEHRERE Kanten gebündelt (für Rang/Teilnehmer in
+     * /game/me/segments). Gruppiert nach edge_id.
+     *
+     * @param list<int> $edgeIds
+     * @return array<int,list<array{user_id:int,duration_s:float}>>
+     */
+    public function bestEffortsForEdges(array $edgeIds, ?string $sinceDate): array
+    {
+        $edgeIds = array_values(array_unique(array_map('intval', $edgeIds)));
+        if ($edgeIds === []) {
+            return [];
+        }
+        $in = implode(',', array_fill(0, count($edgeIds), '?'));
+        $sql =
+            "SELECT edge_id, user_id, duration_s FROM (
+                SELECT edge_id, user_id, duration_s,
+                       ROW_NUMBER() OVER (PARTITION BY edge_id, user_id ORDER BY duration_s ASC, ridden_at ASC, id ASC) AS rn
+                  FROM game_segment_effort
+                 WHERE edge_id IN ($in)"
+            . ($sinceDate !== null ? ' AND ridden_at >= ?' : '')
+            . ') t WHERE rn = 1';
+        $params = $edgeIds;
+        if ($sinceDate !== null) {
+            $params[] = $sinceDate;
+        }
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($params);
+        $out = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $out[(int)$r['edge_id']][] = [
+                'user_id'    => (int)$r['user_id'],
+                'duration_s' => (float)$r['duration_s'],
+            ];
+        }
+        return $out;
+    }
+
+    /**
+     * Persönliche Bestzeiten eines Fahrers über alle Kanten (eine Zeile pro
+     * Kante), zuletzt erzielt zuerst, paginiert, mit Kanten-Meta.
+     *
+     * @return list<array{edge_id:int,length_m:float,surface:?string,best_duration_s:float,best_avg_speed_kmh:float,achieved_at:string}>
+     */
+    public function userSegmentBests(int $userId, ?string $sinceDate, int $limit, int $offset): array
+    {
+        $sql =
+            'SELECT t.edge_id, t.duration_s, t.avg_speed_kmh, t.achieved_at,
+                    e.length_m, e.surface_character
+               FROM (
+                SELECT edge_id, duration_s, avg_speed_kmh, ridden_at AS achieved_at,
+                       ROW_NUMBER() OVER (PARTITION BY edge_id ORDER BY duration_s ASC, ridden_at ASC, id ASC) AS rn
+                  FROM game_segment_effort
+                 WHERE user_id = ?'
+            . ($sinceDate !== null ? ' AND ridden_at >= ?' : '')
+            . ') t JOIN game_edge e ON e.id = t.edge_id
+               WHERE t.rn = 1
+               ORDER BY t.achieved_at DESC, t.edge_id DESC
+               LIMIT ? OFFSET ?';
+        $stmt = $this->pdo->prepare($sql);
+        $i = 1;
+        $stmt->bindValue($i++, $userId, PDO::PARAM_INT);
+        if ($sinceDate !== null) {
+            $stmt->bindValue($i++, $sinceDate, PDO::PARAM_STR);
+        }
+        $stmt->bindValue($i++, $limit, PDO::PARAM_INT);
+        $stmt->bindValue($i, $offset, PDO::PARAM_INT);
+        $stmt->execute();
+        $out = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $out[] = [
+                'edge_id'            => (int)$r['edge_id'],
+                'length_m'           => (float)$r['length_m'],
+                'surface'            => $r['surface_character'] !== null ? (string)$r['surface_character'] : null,
+                'best_duration_s'    => (float)$r['duration_s'],
+                'best_avg_speed_kmh' => (float)$r['avg_speed_kmh'],
+                'achieved_at'        => (string)$r['achieved_at'],
+            ];
+        }
+        return $out;
+    }
+
+    /** Anzahl Kanten, auf denen der Fahrer (im Fenster) Efforts hat — für Pagination. */
+    public function countUserSegments(int $userId, ?string $sinceDate): int
+    {
+        $sql = 'SELECT COUNT(DISTINCT edge_id) FROM game_segment_effort WHERE user_id = ?'
+            . ($sinceDate !== null ? ' AND ridden_at >= ?' : '');
+        $params = $sinceDate !== null ? [$userId, $sinceDate] : [$userId];
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($params);
+        return (int)$stmt->fetchColumn();
+    }
 }

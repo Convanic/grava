@@ -26,5 +26,8 @@ final class MatchedSegment
         public readonly ?float $maxHaccM,
         public readonly bool $hasMotion,
         public readonly DateTimeImmutable $riddenAt,
+        // Tempo-Wertung (GAME_SEGMENT_SPEED_BACKEND): Ein-/Austritts-Dauer auf der
+        // Kante. Null ⇒ wird im Effort-Pfad aus length_m / avg_speed_kmh abgeleitet.
+        public readonly ?float $durationS = null,
     ) {}
 }

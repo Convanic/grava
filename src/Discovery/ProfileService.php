@@ -5,6 +5,7 @@ namespace App\Discovery;
 
 use App\Database\Db;
 use App\Routes\RouteRepository;
+use PDO;
 
 /**
  * M3 Phase 3: Public-Profil-Lookup für /u/{handle} und API-Profile.
@@ -143,6 +144,133 @@ final class ProfileService
                 'offset'   => $filters['offset'],
                 'total'    => $res['total'],
                 'has_more' => ($filters['offset'] + $filters['limit']) < $res['total'],
+            ],
+        ];
+    }
+
+    /**
+     * Listet die Follower bzw. Followees eines Profils (per Handle) als
+     * volle PublicProfile-Objekte plus Pagination — oder `null`, wenn
+     * der Profil-User nicht existiert / nicht sichtbar ist (kein Handle,
+     * gelöscht, Block Viewer↔Profil). Gleiche Privacy-Garantien wie
+     * `getProfile`: die Block-Prüfung läuft, BEVOR die Liste gebaut wird.
+     *
+     * @param 'followers'|'following' $direction  `followers` = wer dem
+     *        Profil folgt; `following` = wem das Profil folgt.
+     * @param array{limit?: int, offset?: int} $filters
+     * @return array{
+     *     users: list<array<string,mixed>>,
+     *     pagination: array{limit: int, offset: int, total: int, has_more: bool}
+     * }|null
+     */
+    public function getProfileFollowList(string $handle, ?int $viewerUserId, string $direction, array $filters): ?array
+    {
+        $row = $this->resolveHandle($handle);
+        if ($row === null) {
+            return null;
+        }
+        $profileId = (int)$row['id'];
+
+        if ($viewerUserId !== null && $this->isBlocked($viewerUserId, $profileId)) {
+            return null;
+        }
+
+        $limit  = max(1, min(100, (int)($filters['limit']  ?? 50)));
+        $offset = max(0, (int)($filters['offset'] ?? 0));
+
+        // Richtung bestimmt, welche Spalte der Follow-Beziehung den
+        // gelisteten User trägt und welche das Profil fixiert.
+        if ($direction === 'followers') {
+            $listColumn   = 'f.follower_id';
+            $anchorColumn = 'f.followee_id';
+        } else {
+            $listColumn   = 'f.followee_id';
+            $anchorColumn = 'f.follower_id';
+        }
+
+        $where  = ["{$anchorColumn} = ?", "u.public_handle IS NOT NULL", "u.status = 'active'"];
+        $params = [$profileId];
+
+        // Block-Filter aus Sicht des Viewers: User, die der Viewer
+        // blockt ODER die den Viewer blocken, fallen aus Liste UND
+        // total heraus (konsistent mit Discovery).
+        if ($viewerUserId !== null) {
+            $excluded = $this->discovery->blockedUserIds($viewerUserId);
+            if ($excluded !== []) {
+                $ph = implode(',', array_fill(0, count($excluded), '?'));
+                $where[] = "u.id NOT IN ({$ph})";
+                foreach ($excluded as $uid) {
+                    $params[] = (int)$uid;
+                }
+            }
+        }
+
+        $whereSql = implode("\n           AND ", $where);
+
+        $countSql = "SELECT COUNT(*)
+                       FROM follows f
+                       JOIN users u ON u.id = {$listColumn}
+                      WHERE {$whereSql}";
+        $cnt = Db::pdo()->prepare($countSql);
+        $cnt->execute($params);
+        $total = (int)$cnt->fetchColumn();
+
+        // EXISTS für is_followed_by_viewer; Counts als korrelierte
+        // Subselects (analog DiscoveryService::searchUsers).
+        $viewerExpr = $viewerUserId !== null
+            ? "EXISTS(SELECT 1 FROM follows vf WHERE vf.follower_id = ? AND vf.followee_id = u.id)"
+            : 'NULL';
+
+        $sql = "SELECT
+                    u.id AS uid,
+                    u.public_handle, u.display_name, u.created_at,
+                    (SELECT COUNT(*) FROM routes r
+                       WHERE r.user_id = u.id
+                         AND r.visibility = 'public'
+                         AND r.deleted_at IS NULL) AS route_count_public,
+                    (SELECT COUNT(*) FROM follows fr WHERE fr.followee_id = u.id) AS follower_count,
+                    (SELECT COUNT(*) FROM follows fg WHERE fg.follower_id = u.id) AS following_count,
+                    {$viewerExpr} AS is_followed_by_viewer
+                  FROM follows f
+                  JOIN users u ON u.id = {$listColumn}
+                 WHERE {$whereSql}
+                 ORDER BY f.created_at DESC, u.id DESC
+                 LIMIT ? OFFSET ?";
+
+        $stmt = Db::pdo()->prepare($sql);
+        $i = 1;
+        if ($viewerUserId !== null) {
+            $stmt->bindValue($i++, $viewerUserId, PDO::PARAM_INT);
+        }
+        foreach ($params as $p) {
+            $stmt->bindValue($i++, $p, PDO::PARAM_INT);
+        }
+        $stmt->bindValue($i++, $limit,  PDO::PARAM_INT);
+        $stmt->bindValue($i,   $offset, PDO::PARAM_INT);
+        $stmt->execute();
+
+        $users = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $uid = (int)$r['uid'];
+            $users[] = [
+                'handle'                => (string)$r['public_handle'],
+                'display_name'          => $r['display_name'] === null ? null : (string)$r['display_name'],
+                'joined_at'             => str_replace(' ', 'T', (string)$r['created_at']) . 'Z',
+                'route_count_public'    => (int)$r['route_count_public'],
+                'follower_count'        => (int)$r['follower_count'],
+                'following_count'       => (int)$r['following_count'],
+                'is_followed_by_viewer' => $viewerUserId === null ? null : (bool)$r['is_followed_by_viewer'],
+                'is_self'               => $viewerUserId !== null && $viewerUserId === $uid,
+            ];
+        }
+
+        return [
+            'users'      => $users,
+            'pagination' => [
+                'limit'    => $limit,
+                'offset'   => $offset,
+                'total'    => $total,
+                'has_more' => ($offset + $limit) < $total,
             ],
         ];
     }

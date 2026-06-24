@@ -48,7 +48,9 @@ final class GameIngestionService
      * @return array{matched:int,passes_new:int,skipped_day_cap:int,
      *               skipped_auth_speed:int,skipped_auth_hacc:int,skipped_no_motion:int,
      *               skipped_privacy_zone:int,banned:bool,
-     *               chunks_total:int,chunks_ok:int,chunks_failed:int}
+     *               chunks_total:int,chunks_ok:int,chunks_failed:int,
+     *               efforts_new:int,skipped_effort_no_timing:int,
+     *               skipped_effort_short:int,skipped_effort_implausible:int}
      */
     public function ingest(
         int $routeId,
@@ -66,6 +68,8 @@ final class GameIngestionService
             'skipped_privacy_zone' => 0,
             'banned' => false,
             'chunks_total' => 0, 'chunks_ok' => 0, 'chunks_failed' => 0,
+            'efforts_new' => 0, 'skipped_effort_no_timing' => 0,
+            'skipped_effort_short' => 0, 'skipped_effort_implausible' => 0,
         ];
 
         if ($this->repo->isUserBanned($userId)) {
@@ -94,6 +98,11 @@ final class GameIngestionService
         $minSpeed = $this->config->float('auth_min_speed_kmh');
         $maxHacc = $this->config->float('auth_max_hacc_m');
         $requireMotion = $this->config->bool('auth_require_motion');
+
+        // Tempo-Wertung (GAME_SEGMENT_SPEED_BACKEND): Schwellen für Efforts.
+        $effortMinLength = $this->config->float('segment_min_length_m');
+        $effortMinSpeed  = $this->config->float('segment_min_speed_kmh');
+        $effortMaxSpeed  = $this->config->float('segment_max_speed_kmh');
 
         $touched = [];
         $edgeGeoms = []; // [edgeId => list<[lon,lat]>] für das Radar-Map-Matching
@@ -147,6 +156,15 @@ final class GameIngestionService
                 } else {
                     $summary['skipped_day_cap']++;
                 }
+
+                // Tempo-Wertung: jede getimte, plausible Befahrung wird als Effort
+                // gebucht — UNABHÄNGIG vom Tages-Deckel des Passes (eine zweite,
+                // schnellere Fahrt am selben Tag soll zählen).
+                $this->recordEffort(
+                    $seg, $edgeId, $claimantId, $userId, $routeId, $riddenAt,
+                    $effortMinLength, $effortMinSpeed, $effortMaxSpeed, $summary,
+                );
+
                 $touched[$edgeId] = true;
                 $edgeGeoms[$edgeId] = $geom;
             }
@@ -254,7 +272,55 @@ final class GameIngestionService
         return $merged;
     }
 
-    /** @param array{matched:int,passes_new:int,skipped_day_cap:int,skipped_auth_speed:int,skipped_auth_hacc:int,skipped_no_motion:int,skipped_privacy_zone:int,banned:bool,chunks_total:int,chunks_ok:int,chunks_failed:int} $summary */
+    /**
+     * Bucht einen Segment-Effort (Tempo-Wertung), sofern die Befahrung getimt und
+     * plausibel ist. Gates per Config; nur ein Skip-Grund pro Segment. Der Pass
+     * hat die Auth-Filter bereits passiert, wenn wir hier sind.
+     *
+     * @param array<string,mixed> $summary
+     */
+    private function recordEffort(
+        MatchedSegment $seg,
+        int $edgeId,
+        int $claimantId,
+        int $userId,
+        int $routeId,
+        string $riddenAt,
+        float $minLength,
+        float $minSpeed,
+        float $maxSpeed,
+        array &$summary,
+    ): void {
+        // Ohne Timing (z. B. Strava-/GPX-Import) keine Tempo-Wertung.
+        if (!$seg->hasMotion || $seg->avgSpeedKmh === null) {
+            $summary['skipped_effort_no_timing']++;
+            return;
+        }
+        if ($seg->lengthM < $minLength) {
+            $summary['skipped_effort_short']++;
+            return;
+        }
+        $speed = $seg->avgSpeedKmh;
+        if ($speed < $minSpeed || $speed > $maxSpeed) {
+            $summary['skipped_effort_implausible']++;
+            return;
+        }
+
+        // Dauer aus dem Matcher (Ein-/Austritt) oder aus Länge/Tempo abgeleitet.
+        $duration = $seg->durationS ?? ($seg->lengthM / ($speed / 3.6));
+        if ($duration <= 0.0) {
+            $summary['skipped_effort_implausible']++;
+            return;
+        }
+
+        $this->repo->insertSegmentEffort(
+            $edgeId, $claimantId, $userId, $routeId, $riddenAt,
+            $duration, $speed, $seg->lengthM,
+        );
+        $summary['efforts_new']++;
+    }
+
+    /** @param array{matched:int,passes_new:int,skipped_day_cap:int,skipped_auth_speed:int,skipped_auth_hacc:int,skipped_no_motion:int,skipped_privacy_zone:int,banned:bool,chunks_total:int,chunks_ok:int,chunks_failed:int,efforts_new:int,skipped_effort_no_timing:int,skipped_effort_short:int,skipped_effort_implausible:int} $summary */
     private function logOk(int $routeId, int $userId, array $summary, float $startedAt): void
     {
         $this->repo->insertIngestLog(
@@ -272,6 +338,10 @@ final class GameIngestionService
                 'chunks_total' => $summary['chunks_total'],
                 'chunks_ok'    => $summary['chunks_ok'],
                 'chunks_failed' => $summary['chunks_failed'],
+                'efforts_new'  => $summary['efforts_new'],
+                'effort_no_timing'   => $summary['skipped_effort_no_timing'],
+                'effort_short'       => $summary['skipped_effort_short'],
+                'effort_implausible' => $summary['skipped_effort_implausible'],
             ],
             null,
             (int) round((microtime(true) - $startedAt) * 1000),

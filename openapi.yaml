@@ -584,6 +584,52 @@ paths:
                   pagination: { $ref: '#/components/schemas/Pagination' }
         "404": { $ref: '#/components/responses/Error' }
 
+  /users/by-handle/{handle}/followers:
+    parameters: [ { $ref: '#/components/parameters/Handle' } ]
+    get:
+      tags: [Profiles]
+      summary: Follower eines Profils (wer diesem User folgt)
+      security:
+        - bearerAuth: []
+        - {}
+      parameters:
+        - { $ref: '#/components/parameters/Limit' }
+        - { $ref: '#/components/parameters/Offset' }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  users: { type: array, items: { $ref: '#/components/schemas/PublicProfile' } }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+        "404": { $ref: '#/components/responses/Error' }
+
+  /users/by-handle/{handle}/following:
+    parameters: [ { $ref: '#/components/parameters/Handle' } ]
+    get:
+      tags: [Profiles]
+      summary: Following eines Profils (wem dieser User folgt)
+      security:
+        - bearerAuth: []
+        - {}
+      parameters:
+        - { $ref: '#/components/parameters/Limit' }
+        - { $ref: '#/components/parameters/Offset' }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  users: { type: array, items: { $ref: '#/components/schemas/PublicProfile' } }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+        "404": { $ref: '#/components/responses/Error' }
+
   /users/by-handle/{handle}/follow:
     parameters: [ { $ref: '#/components/parameters/Handle' } ]
     post:

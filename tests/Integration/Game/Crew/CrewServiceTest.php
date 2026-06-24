@@ -144,6 +144,18 @@ final class CrewServiceTest extends IntegrationTestCase
         $this->assertSame($crew['id'], (int)$row2['crew_id']);
         $this->assertSame('Owls', $row2['crew_name']);
         $this->assertSame($u1, (int)$row2['rider_user_id'], 'Erstfahrer bleibt der Mensch.');
+
+        // Fraktions-Join-Pfad (grün/blau aus IntegrationTestCase-Seed).
+        $fid = (int)$this->pdo->query("SELECT id FROM game_faction WHERE key_slug='green'")->fetchColumn();
+        $this->pdo->prepare('UPDATE game_crew SET faction_id = ? WHERE id = ?')->execute([$fid, $crew['id']]);
+        $rows3 = $this->repo->edgesGeoForMap(9.0, 47.0, 10.0, 48.0, 100);
+        $row3 = null;
+        foreach ($rows3 as $r) {
+            if ((int)$r['id'] === $edge) { $row3 = $r; break; }
+        }
+        $this->assertNotNull($row3);
+        $this->assertSame('green', $row3['faction_key']);
+        $this->assertNotEmpty($row3['faction_color']);
     }
 
     public function testCaptainMustTransferBeforeLeaving(): void

@@ -309,9 +309,18 @@ bzw. `{ "users": [...], "pagination": {...} }`.
 |---------|------|------|-------|
 | GET | `/users/by-handle/{handle}` | (Bearer) | Öffentliches Profil |
 | GET | `/users/by-handle/{handle}/routes` | (Bearer) | Öffentliche Routen des Users |
+| GET | `/users/by-handle/{handle}/followers` | (Bearer) | Wer diesem User folgt — `{ "users": [PublicProfile…], "pagination": {…} }` |
+| GET | `/users/by-handle/{handle}/following` | (Bearer) | Wem dieser User folgt — `{ "users": [PublicProfile…], "pagination": {…} }` |
 
 `404`, wenn der Handle nicht existiert **oder** eine Block-Beziehung besteht
 (kein 403 — Block ist nicht aus dem Status-Code ablesbar).
+
+Die `followers`/`following`-Listen liefern volle `PublicProfile`-Objekte (inkl.
+`is_self`/`is_followed_by_viewer` bei Bearer) plus `pagination` (`limit` 1..100,
+Default 50; `offset`). Anonym abrufbar (OptionalBearer); ein Bearer ergänzt die
+viewer-relativen Flags und blendet beidseitig geblockte User aus Liste **und**
+`pagination.total` aus. Sortierung: neueste Follow-Beziehung zuerst. Im Gegensatz
+zu `/users/me/follows` (reduzierte Form) tragen diese Endpunkte das volle Schema.
 
 ### 5.5 Follow / Block
 
@@ -480,6 +489,8 @@ für die Farbe; `surface` ist ein OSM/Valhalla-Fallback. Ungültige `bbox` ⇒ `
 - `GET /api/v1/game/me` — eigene Statistik (gehaltene Kanten, Erstbefahrungen, gehaltene Länge). Bearer. Zählt über den **effektiven Claimant** (Crew, wenn Mitglied, sonst Rider) — identisch zur `owner_is_me`-Logik in `/game/edges`, damit `held_edges` mit den als eigene markierten Kanten übereinstimmt.
 - `GET /api/v1/game/config` — aktuelle `game_config`-Werte. Bearer.
 - `GET /api/v1/game/leaderboard?scope&window&metric` — Solo-/Spieler-Rangliste (S7, **OptionalBearer**). `scope` = `world` (anonym) \| `friends` (Bearer-Pflicht → sonst `401`; Follow-Graph inkl. self). `window` = `week` (7 T) \| `season` (90 T, Default) \| `all`. `metric` = `area` (Default, gehaltene Länge in m als Top-90-Tage-Präsenz-Beitragender) \| `pioneer` (Anzahl Kanten in der Erstbefahrer-Kohorte ≤10) \| `value` (Σ Kantenwert der gehaltenen Kanten) \| `distance` (gefahrene Distanz im Fenster). Antwort `{ "entries": [ { rank, handle, value, is_me } ], "me": { rank, value } | null }`. `entries` value-absteigend, Rang fortlaufend (Top 100), Tie deterministisch nach `user_id`. `me` auch außerhalb der Top-N (null, wenn ausgeloggt/ohne Daten). `area`/`value` sind 90-Tage-rollierend (Präsenz); `all` wird dafür wie `season` behandelt. Invalidierte Pässe ausgeschlossen. Reine Lese-Aggregation. (Region-Scope folgt später als `scope=region&bbox=…`.)
+- `GET /api/v1/game/segments/{id}/leaderboard?scope&window` — Segment-Speed / Tempo-Wertung je Kante (**OptionalBearer**, siehe `backend/GAME_SEGMENT_SPEED_BACKEND.md`). `{id}` = `game_edge.id`. `scope` = `world` (anonym) \| `friends` (Bearer-Pflicht → sonst `401`; Follow-Graph inkl. self). `window` = `week` (7 T) \| `season` (`presence_window_days`, Default) \| `all` (kein Limit), angewendet auf `ridden_at`. Antwort `{ "segment": { edge_id, length_m, surface }, "entries": [ { rank, handle, duration_s, avg_speed_kmh, achieved_at, is_me } ], "me": { rank, duration_s } | null }`. Eine Zeile **pro Fahrer** = dessen Bestzeit, aufsteigend nach `duration_s` (Tie → frühere `achieved_at`, dann `user_id`), Top-N = `segment_leaderboard_top_n` (100). `me` auch außerhalb der Top-N. Unbekannte `{id}` → `404`; Kante ohne Efforts im Fenster → `200` mit leeren `entries`. Reine Lese-Aggregation aus `game_segment_effort`.
+- `GET /api/v1/game/me/segments?window&limit&offset` — eigene Bestzeiten über alle Segmente (**Bearer**, sonst `401`). Antwort `{ "segments": [ { edge_id, length_m, surface, best_duration_s, best_avg_speed_kmh, achieved_at, rank, total_riders } ], "pagination": { limit, offset, total, has_more } }`. Sortiert nach zuletzt erzielter Bestzeit (`achieved_at` absteigend); `rank`/`total_riders` beziehen sich auf das `window`.
 - `POST /api/v1/game/ingest/{route_id}` — Re-Run der Ingestion (idempotent), nur Owner. `{route_id}` ist die **öffentliche Route-ID (UUID)**, konsistent mit `GET /routes/{id}` (intern-numerische ID wird rückwärtskompatibel ebenfalls akzeptiert). Antwort: Match-/Pass-/Skip-Zähler.
   - **Vertrauenswürdige Quellen** (`source ∈ {strava, import}`) gelten vorerst als „echt": Sie tragen keine Motion-/Surface-/Radar-Daten, umgehen aber den `auth_require_motion`-Filter und legen ganz normal Besitz-Pässe an (Day-Cap, Privatzonen/§17, `start_buffer_m` und die Wertlogik bleiben unverändert). Erwartung: `matched>0`, `passes_new>0`, Kanten erscheinen als Besitz des Nutzers. (Cheat-Schutz für Importe folgt später.)
   - Fehlerfälle (kein `500`): `422 unprocessable_route` — gespeicherter Payload ohne verwertbare Geometrie; `503 routing_unavailable` — Map-Matching gerade nicht möglich (Routing-Engine/Valhalla nicht erreichbar oder kein Match), der Client darf später erneut.
