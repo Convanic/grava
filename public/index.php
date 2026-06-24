@@ -472,6 +472,11 @@ $router->get("{$apiBase}/discover/routes",                        fn($r) => $api
 $router->get("{$apiBase}/discover/users",                         fn($r) => $apiDiscover->users($r),  [$optionalBearer]);
 
 // ---- Profile (M3 Phase 3) ----
+// Personensuche: Teilstring über Handle + Anzeigename. Anonym OK
+// (OptionalBearer ergänzt is_self/is_followed_by_viewer). Statische
+// Route vor {handle}, kollidiert aber ohnehin nicht (eigenes Segment).
+// Antwortform deckungsgleich mit /followers/following.
+$router->get("{$apiBase}/users/search",                           fn($r) => $apiProfile->search($r),  [$optionalBearer]);
 // Anonym OK. 404 bei nicht existentem oder gegenseitig blockierten
 // User. Routes-Endpoint erbt die Discovery-Filter (limit/offset/sort/q).
 $router->get("{$apiBase}/users/by-handle/{handle}",               fn($r) => $apiProfile->show($r),    [$optionalBearer]);

@@ -52,6 +52,31 @@ final class ProfileController
         Response::json($res);
     }
 
+    /**
+     * Personensuche: GET /api/v1/users/search?q=&limit=&offset=
+     *
+     * Anonym OK (OptionalBearer ergänzt nur is_self/is_followed_by_viewer).
+     * Antwortform deckungsgleich mit /followers/following (UserListEnvelope).
+     * Leeres/zu kurzes q → leere Liste (kein 4xx), Mindestlänge prüft der
+     * Service.
+     */
+    public function search(Request $req): void
+    {
+        $viewerId = $this->viewerId($req);
+
+        $filters = [
+            'limit'  => (int)($req->query['limit']  ?? 30),
+            'offset' => (int)($req->query['offset'] ?? 0),
+        ];
+        $q = $req->query['q'] ?? null;
+        if (is_string($q) && trim($q) !== '') {
+            // Längen-Cap, damit kein 100k-Pattern reingejagt wird (analog Discovery).
+            $filters['q'] = substr(trim($q), 0, 100);
+        }
+
+        Response::json($this->profile->searchProfiles($viewerId, $filters));
+    }
+
     public function followers(Request $req): void
     {
         $this->followList($req, 'followers');

@@ -1,0 +1,23 @@
+---
+description: Speicherort der externen Backend-Spezifikationen/Anweisungen (Cursor/Backend-Agent) für GravelExplorer/GRAVA
+alwaysApply: true
+---
+
+# Backend-Spezifikationen (externe Doku)
+
+Die maßgeblichen Backend-Anweisungen/Spezifikationen der iOS-App (z. B.
+Endpunkt-Verträge, Akzeptanzkriterien, Antwortschemata) liegen **außerhalb**
+dieses Repos unter:
+
+```
+/Users/arminlorenz/Documents/GravelExplorer/backend
+```
+
+- Dort liegen Dateien wie `USER_SEARCH_BACKEND.md`, `FOLLOW_LISTS_BACKEND.md`,
+  `PLAYER_LEADERBOARD_BACKEND.md`, `ROADMAP.md` usw.
+- Wenn der Nutzer einen Endpunkt/eine Aufgabe „aus `backend/<DATEI>.md`"
+  nennt und die Datei hier im Repo (`./backend/...`) fehlt, zuerst im obigen
+  externen Verzeichnis nachsehen.
+- Die App ist jeweils „fertig" und erwartet **exakt** das dort beschriebene
+  Schema — Feldnamen/Antwortform 1:1 einhalten (an bestehenden Endpunkten
+  wie `/followers`/`/following` orientieren).

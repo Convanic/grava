@@ -276,6 +276,161 @@ final class ProfileService
     }
 
     /**
+     * Personensuche: Teilstring über Handle UND Anzeigename
+     * (case-insensitive). Liefert volle PublicProfile-Objekte plus
+     * Pagination — **deckungsgleich** mit `getProfileFollowList`
+     * (`/followers`/`/following`), damit der Client beide mit
+     * demselben Modell (`UserListEnvelope`) dekodiert.
+     *
+     * Privacy/Enumeration-Schutz:
+     *  - Nur öffentliche, aktive Profile (`public_handle IS NOT NULL`,
+     *    `status = 'active'`). Es gibt (Stand jetzt) kein „privates
+     *    Profil"-/„nicht auffindbar"-Flag — käme es hinzu, hier mit
+     *    in die WHERE-Bedingung aufnehmen.
+     *  - Gegenüber dem Viewer blockierte User fallen aus Liste UND
+     *    `total` (konsistent mit Discovery/Follow-Listen).
+     *  - Das eigene Konto (`is_self`) darf erscheinen.
+     *  - Mindestlänge: leeres/zu kurzes `q` (< 2 Zeichen, nach trim)
+     *    → leere Liste, **kein Fehler**.
+     *
+     * Relevanz-Sortierung: exakter Handle-Treffer zuerst, dann
+     * Handle-Präfix, dann Anzeigename-Präfix, sonst (Teilstring
+     * irgendwo) zuletzt — innerhalb gleicher Stufe alphabetisch
+     * nach Handle.
+     *
+     * @param array{q?: string|null, limit?: int, offset?: int} $filters
+     * @return array{
+     *     users: list<array<string,mixed>>,
+     *     pagination: array{limit: int, offset: int, total: int, has_more: bool}
+     * }
+     */
+    public function searchProfiles(?int $viewerUserId, array $filters): array
+    {
+        $limit  = max(1, min(100, (int)($filters['limit']  ?? 30)));
+        $offset = max(0, (int)($filters['offset'] ?? 0));
+
+        $q = isset($filters['q']) ? trim((string)$filters['q']) : '';
+
+        // Mindestlänge gegen Enumeration. Zu kurz → leere, aber
+        // wohlgeformte Envelope (kein 4xx), wie die App es erwartet.
+        if (mb_strlen($q) < 2) {
+            return [
+                'users'      => [],
+                'pagination' => [
+                    'limit'    => $limit,
+                    'offset'   => $offset,
+                    'total'    => 0,
+                    'has_more' => false,
+                ],
+            ];
+        }
+
+        // Konsistent mit DiscoveryService::searchUsers: LOWER()+LIKE,
+        // damit die Suche unabhängig von der Spalten-Collation
+        // case-insensitive ist. Wildcards (% _) werden bewusst NICHT
+        // escaped — gleiche Konvention wie der bestehende
+        // /discover/users-Suchpfad.
+        $qLower   = mb_strtolower($q);
+        $contains = '%' . $qLower . '%';
+        $prefix   = $qLower . '%';
+
+        $where  = [
+            'u.public_handle IS NOT NULL',
+            "u.status = 'active'",
+            '(LOWER(u.public_handle) LIKE ? OR LOWER(u.display_name) LIKE ?)',
+        ];
+        $whereParams = [$contains, $contains];
+
+        if ($viewerUserId !== null) {
+            $excluded = $this->discovery->blockedUserIds($viewerUserId);
+            if ($excluded !== []) {
+                $ph = implode(',', array_fill(0, count($excluded), '?'));
+                $where[] = "u.id NOT IN ({$ph})";
+                foreach ($excluded as $uid) {
+                    $whereParams[] = (int)$uid;
+                }
+            }
+        }
+
+        $whereSql = implode("\n           AND ", $where);
+
+        $countSql = "SELECT COUNT(*) FROM users u WHERE {$whereSql}";
+        $cnt = Db::pdo()->prepare($countSql);
+        $cnt->execute($whereParams);
+        $total = (int)$cnt->fetchColumn();
+
+        // EXISTS für is_followed_by_viewer; Counts als korrelierte
+        // Subselects — identisch zu getProfileFollowList.
+        $viewerExpr = $viewerUserId !== null
+            ? "EXISTS(SELECT 1 FROM follows vf WHERE vf.follower_id = ? AND vf.followee_id = u.id)"
+            : 'NULL';
+
+        $sql = "SELECT
+                    u.id AS uid,
+                    u.public_handle, u.display_name, u.created_at,
+                    (SELECT COUNT(*) FROM routes r
+                       WHERE r.user_id = u.id
+                         AND r.visibility = 'public'
+                         AND r.deleted_at IS NULL) AS route_count_public,
+                    (SELECT COUNT(*) FROM follows fr WHERE fr.followee_id = u.id) AS follower_count,
+                    (SELECT COUNT(*) FROM follows fg WHERE fg.follower_id = u.id) AS following_count,
+                    {$viewerExpr} AS is_followed_by_viewer
+                  FROM users u
+                 WHERE {$whereSql}
+                 ORDER BY
+                    CASE
+                        WHEN LOWER(u.public_handle) = ?    THEN 0
+                        WHEN LOWER(u.public_handle) LIKE ? THEN 1
+                        WHEN LOWER(u.display_name)  LIKE ? THEN 2
+                        ELSE 3
+                    END,
+                    u.public_handle ASC
+                 LIMIT ? OFFSET ?";
+
+        $stmt = Db::pdo()->prepare($sql);
+        $i = 1;
+        if ($viewerUserId !== null) {
+            $stmt->bindValue($i++, $viewerUserId, PDO::PARAM_INT);
+        }
+        foreach ($whereParams as $p) {
+            $stmt->bindValue($i++, $p, is_int($p) ? PDO::PARAM_INT : PDO::PARAM_STR);
+        }
+        // Relevanz-Parameter (ORDER BY CASE): exakter Handle, Handle-
+        // Präfix, Anzeigename-Präfix.
+        $stmt->bindValue($i++, $qLower, PDO::PARAM_STR);
+        $stmt->bindValue($i++, $prefix, PDO::PARAM_STR);
+        $stmt->bindValue($i++, $prefix, PDO::PARAM_STR);
+        $stmt->bindValue($i++, $limit,  PDO::PARAM_INT);
+        $stmt->bindValue($i,   $offset, PDO::PARAM_INT);
+        $stmt->execute();
+
+        $users = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $uid = (int)$r['uid'];
+            $users[] = [
+                'handle'                => (string)$r['public_handle'],
+                'display_name'          => $r['display_name'] === null ? null : (string)$r['display_name'],
+                'joined_at'             => str_replace(' ', 'T', (string)$r['created_at']) . 'Z',
+                'route_count_public'    => (int)$r['route_count_public'],
+                'follower_count'        => (int)$r['follower_count'],
+                'following_count'       => (int)$r['following_count'],
+                'is_followed_by_viewer' => $viewerUserId === null ? null : (bool)$r['is_followed_by_viewer'],
+                'is_self'               => $viewerUserId !== null && $viewerUserId === $uid,
+            ];
+        }
+
+        return [
+            'users'      => $users,
+            'pagination' => [
+                'limit'    => $limit,
+                'offset'   => $offset,
+                'total'    => $total,
+                'has_more' => ($offset + $limit) < $total,
+            ],
+        ];
+    }
+
+    /**
      * @return array<string,mixed>|null  raw user row oder null
      */
     private function resolveHandle(string $handle): ?array
