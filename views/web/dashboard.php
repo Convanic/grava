@@ -76,3 +76,9 @@ if ($createdAt !== '') {
         <button type="submit" class="btn-secondary">Abmelden</button>
     </form>
 </section>
+
+<section class="card">
+    <h2>Funktionen &amp; Neuigkeiten</h2>
+    <p class="muted">Was grava alles kann und was als Nächstes kommt.</p>
+    <p><a class="btn-primary" href="/features">Funktionen &amp; Neuigkeiten ansehen</a></p>
+</section>
