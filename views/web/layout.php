@@ -30,6 +30,7 @@ $_pageScripts = $_pageScripts ?? [];
         <?php $_surfaceCheck = \App\Config\Config::instance()->bool('SURFACE_CHECK_ENABLED', true); ?>
         <?php if ($_authedUser !== null): ?>
             <a href="/dashboard">Dashboard</a>
+            <a href="/features">Funktionen</a>
             <a href="/routes">Routen</a>
             <a href="/discover">Entdecken</a>
             <a href="/heatmap">Heatmap</a>

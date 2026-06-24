@@ -379,6 +379,7 @@ $gameFactionSvc = new \App\Game\Faction\FactionService(
 $apiFaction = new \App\Controllers\Api\FactionController($gameFactionSvc);
 $webAuth    = new AuthPagesController($auth, $cookieAuth, $webSession, $rate, $basePath . '/views');
 $webHome    = new DashboardController($webSession, $auth, $basePath . '/views');
+$webFeatures = new \App\Controllers\Web\FeaturesPagesController($webSession, $auth, $basePath . '/views');
 $webRefresh = new WebRefreshController($cookieAuth, $webSession);
 $webRoutes  = new RoutePagesController($webSession, $auth, $routeService, $shareTokens, $config, $routeGeoJson, $basePath . '/views', $routeInsights);
 $webShare   = new PublicSharePageController($shareTokens, $basePath . '/views', $routeService, $routeGeoJson, $routeInsights, $privacyZoneRepo, $privacyTrimmer);
@@ -572,6 +573,7 @@ $router->get('/verify-email',      fn($r) => $webAuth->showVerify($r));
 $router->get('/privacy',           fn($r) => $webLegal->privacy($r));
 $router->get('/terms',             fn($r) => $webLegal->terms($r));
 $router->get('/dashboard',         fn($r) => $webHome->show($r));
+$router->get('/features',          fn($r) => $webFeatures->show($r));
 $router->post('/logout',           fn($r) => $webAuth->doLogout($r),          [$csrf]);
 // H5: Einziger Punkt, an dem ein Refresh-Token-Cookie konsumiert wird.
 // Pfad-Scoped Cookie sorgt dafür, dass es nur hier eintrifft.
