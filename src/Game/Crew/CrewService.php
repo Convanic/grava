@@ -130,6 +130,109 @@ final class CrewService
         });
     }
 
+    /**
+     * §12.3 — Notbesetzung des Captains. Jedes Mitglied darf ein Mitglied zum
+     * Captain machen, ABER nur solange die Crew keinen (aktiven) Captain hat
+     * (Anti-Hijacking). Sonst gilt der reguläre transfer-Weg → 409.
+     *
+     * @return array<string,mixed> Aktualisiertes Crew-Profil (Form wie GET /crews/{slug}).
+     */
+    public function claimCaptain(int $userId, string $slug, string $handle): array
+    {
+        $handle = ltrim(trim($handle), '@');
+        if ($handle === '') {
+            throw CrewException::validation('user_handle erforderlich.');
+        }
+        return $this->transactional(function () use ($userId, $slug, $handle): array {
+            $crew = $this->crews->crewBySlug(trim($slug));
+            if ($crew === null) {
+                throw CrewException::notFound('Crew nicht gefunden.');
+            }
+            $crewId = (int)$crew['id'];
+
+            // Nur Mitglieder der Crew dürfen die Notbesetzung auslösen (§12.d → 403).
+            $requester = $this->crews->membershipOf($userId);
+            if ($requester === null || $requester['crew_id'] !== $crewId) {
+                throw CrewException::forbidden('Nur Mitglieder der Crew dürfen einen Captain bestimmen.');
+            }
+            // Anti-Hijacking-Guard (§12.b → 409).
+            if ($this->crews->hasActiveCaptain($crewId)) {
+                throw CrewException::conflict('Crew hat bereits einen Captain — nutze die reguläre Übergabe.');
+            }
+            // Ziel muss aktives Mitglied der Crew sein (§12.c → 404).
+            $target = $this->crews->memberByHandle($crewId, $handle);
+            if ($target === null) {
+                throw CrewException::notFound('Mitglied nicht gefunden.');
+            }
+
+            // Eindeutige Captain-Zeile herstellen (etwaige tote Captain-Zeile weg).
+            $this->crews->clearCaptains($crewId);
+            $this->crews->setRole($target['user_id'], 'captain');
+            $this->crews->setOwnerUser($crewId, $target['user_id']);
+
+            $this->audit->record($userId, 'crew_captain_claim', (string)$crew['slug'], [
+                'to_user_id' => $target['user_id'], 'to_handle' => $handle,
+            ]);
+            return $this->crewPayload($crewId, false);
+        });
+    }
+
+    /**
+     * §12.1 — Heilt captain-lose, nicht-leere Crews (Altbestand), indem das
+     * älteste aktive Mitglied zum Captain promotet wird. Reiner Rollen-/Owner-
+     * Wechsel (Group-Claimant unverändert) → kein Edge-Recompute nötig.
+     *
+     * @return list<array{slug:string,promoted_user_id:int}>
+     */
+    public function healCaptainlessCrews(): array
+    {
+        return $this->transactional(function (): array {
+            $healed = [];
+            foreach ($this->crews->captainlessCrews() as $crew) {
+                $crewId = $crew['crew_id'];
+                $newCap = $this->crews->oldestMember($crewId, null, true)
+                    ?? $this->crews->oldestMember($crewId);
+                if ($newCap === null) {
+                    continue; // keine (aktiven) Mitglieder → nicht heilbar
+                }
+                $this->crews->clearCaptains($crewId);
+                $this->crews->setRole($newCap, 'captain');
+                $this->crews->setOwnerUser($crewId, $newCap);
+                $this->audit->record($newCap, 'crew_captain_heal', $crew['slug'], ['crew_id' => $crewId]);
+                $healed[] = ['slug' => $crew['slug'], 'promoted_user_id' => $newCap];
+            }
+            return $healed;
+        });
+    }
+
+    /**
+     * §12.1 — Invariante bei Account-Löschung: ein Captain darf NIE eine
+     * nicht-leere Crew ohne Captain hinterlassen. Vor dem Entfernen wird das
+     * älteste verbleibende Mitglied promotet; ist der User das letzte Mitglied,
+     * wird die Crew regulär (mit Recompute) aufgelöst.
+     */
+    public function handleAccountDeletion(int $userId, ?DateTimeImmutable $now = null): void
+    {
+        $now ??= Clock::nowUtc();
+        $this->transactional(function () use ($userId, $now): void {
+            $m = $this->crews->membershipOf($userId);
+            if ($m === null) {
+                return;
+            }
+            $crewId = $m['crew_id'];
+            if ($m['role'] === 'captain' && $this->crews->memberCount($crewId) > 1) {
+                $newCap = $this->crews->oldestMember($crewId, $userId, true)
+                    ?? $this->crews->oldestMember($crewId, $userId);
+                if ($newCap !== null) {
+                    $this->crews->setRole($newCap, 'captain');
+                    $this->crews->setOwnerUser($crewId, $newCap);
+                    $this->crews->setRole($userId, 'member'); // self degradieren, damit leaveInternal nicht blockt
+                }
+            }
+            $this->leaveInternal($userId, $now);
+        });
+    }
+
     /** @return array<string,mixed>|null Eigene Crew (mit join_code, wenn Captain) oder null. */
     public function me(int $userId): ?array
     {
@@ -298,11 +401,17 @@ final class CrewService
         $members = $this->crews->members($crewId);
         $stats   = $this->game->meStats((int)$crew['claimant_id']);
 
+        // captain_handle ist der *aktive* Captain (§12.2). Zeigt eine Captain-
+        // Zeile auf einen gelöschten Account, gilt die Crew als captain-los
+        // (null) → iOS blendet die Recovery-UI ein.
+        $captainHandle = $this->crews->captainHandle($crewId);
         $captain = null;
-        foreach ($members as $m) {
-            if ($m['role'] === 'captain') {
-                $captain = ['user_id' => $m['user_id'], 'handle' => $m['handle'], 'name' => $m['name']];
-                break;
+        if ($captainHandle !== null) {
+            foreach ($members as $m) {
+                if ($m['role'] === 'captain' && $m['handle'] === $captainHandle) {
+                    $captain = ['user_id' => $m['user_id'], 'handle' => $m['handle'], 'name' => $m['name']];
+                    break;
+                }
             }
         }
 
@@ -313,6 +422,7 @@ final class CrewService
             'claimant_id'     => (int)$crew['claimant_id'],
             'member_count'    => count($members),
             'captain'         => $captain,
+            'captain_handle'  => $captainHandle,
             'held_edges'      => $stats['held'],
             'pioneered_edges' => $stats['pioneered'],
             'held_length_m'   => $stats['held_length_m'],

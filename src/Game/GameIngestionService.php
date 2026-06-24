@@ -104,6 +104,13 @@ final class GameIngestionService
         $effortMinSpeed  = $this->config->float('segment_min_speed_kmh');
         $effortMaxSpeed  = $this->config->float('segment_max_speed_kmh');
 
+        // Rush-Auto-Tag (§3.1): einmal die offenen Rushes der Crew des Fahrers
+        // laden; das Fenster-/Announcement-Matching passiert je Segment in PHP
+        // (keine RSVP-Bedingung, §19.6). Ohne Crew/Rush bleibt rush_id NULL.
+        $rushEnabled = $this->config->bool('rush_enabled');
+        $rushRequiresAnnouncement = $this->config->bool('rush_requires_announcement');
+        $openRushes = $rushEnabled ? $this->repo->openRushesForUser($userId) : [];
+
         $touched = [];
         $edgeGeoms = []; // [edgeId => list<[lon,lat]>] für das Radar-Map-Matching
         $this->pdo->beginTransaction();
@@ -151,7 +158,10 @@ final class GameIngestionService
 
                 $riddenOn = $seg->riddenAt->format('Y-m-d');
                 $riddenAt = $seg->riddenAt->format('Y-m-d H:i:s.v');
-                if ($this->repo->insertPassIfAbsent($edgeId, $claimantId, $userId, $routeId, $riddenOn, $riddenAt)) {
+                $rushId = $openRushes === []
+                    ? null
+                    : $this->matchRush($openRushes, $riddenAt, $rushRequiresAnnouncement);
+                if ($this->repo->insertPassIfAbsent($edgeId, $claimantId, $userId, $routeId, $riddenOn, $riddenAt, $rushId)) {
                     $summary['passes_new']++;
                 } else {
                     $summary['skipped_day_cap']++;
@@ -346,6 +356,28 @@ final class GameIngestionService
             null,
             (int) round((microtime(true) - $startedAt) * 1000),
         );
+    }
+
+    /**
+     * Findet den (höchstens einen) offenen Rush, dessen Fenster $riddenAt
+     * enthält (§3.1). Der String-Vergleich der DATETIME(3)-Werte
+     * ('Y-m-d H:i:s.v', feste Breite) ist lexikografisch korrekt. RSVP spielt
+     * keine Rolle (§19.6); wer im Fenster fährt, wird getaggt.
+     *
+     * @param list<array{id:int,start_at:string,end_at:string,created_at:string}> $rushes
+     */
+    private function matchRush(array $rushes, string $riddenAt, bool $requiresAnnouncement): ?int
+    {
+        foreach ($rushes as $r) {
+            if ($riddenAt < $r['start_at'] || $riddenAt > $r['end_at']) {
+                continue;
+            }
+            if ($requiresAnnouncement && $r['created_at'] > $riddenAt) {
+                continue; // kein rückwirkendes Taggen
+            }
+            return $r['id'];
+        }
+        return null;
     }
 
     /** @param list<array{0:float,1:float}> $geom @return array{0:float,1:float,2:float,3:float} */

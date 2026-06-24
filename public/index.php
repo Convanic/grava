@@ -228,6 +228,27 @@ $gameRead      = new GameReadService($gameRepo, $gameConfig);
 $gameRecompute = new GameRecomputeService($gameRepo, $gameRecalc);
 $privacyZoneSvc = new \App\Privacy\PrivacyZoneService($privacyZoneRepo, $gameRepo, $gameRecalc, Db::pdo());
 
+// Rush / Group-Ride-Übernahme (GAME_RUSH_BACKEND.md). Früh verdrahtet, weil der
+// Cron-Tick (game:rush-tick) bereits im CLI-Dispatch unten verfügbar sein muss.
+// CrewRepository wird hier (statt erst beim API-Block) erzeugt und unten
+// wiederverwendet.
+$gameCrewRepo = new \App\Game\Crew\CrewRepository(Db::pdo());
+$gameFactionRepo = new \App\Game\Faction\FactionRepository(Db::pdo());
+$gameRushRepo = new \App\Game\Rush\RushRepository(Db::pdo());
+$gameRushSvc  = new \App\Game\Rush\RushService(
+    Db::pdo(), $gameRushRepo, $gameCrewRepo, $gameRepo, $gameRecalc, $gameConfig,
+    $notifServ, new \App\Game\Admin\GameAuditService(Db::pdo()),
+);
+// CrewService ebenfalls früh: der CLI-Befehl game:heal-crews (§12.1) braucht ihn
+// vor dem CLI-Dispatch. Unten im API-Block nur noch wiederverwendet.
+$gameCrewSvc  = new \App\Game\Crew\CrewService(
+    Db::pdo(), $gameCrewRepo, $gameRepo, $gameRecalc, $gameConfig,
+    new \App\Game\Admin\GameAuditService(Db::pdo()),
+    $gameFactionRepo,
+);
+// §12.1: Crew-Invariante bei Account-Löschung (Captain promoten / Solo-Crew lösen).
+$auth->setCrewService($gameCrewSvc);
+
 // M2: Routes-Stack
 $routeStorage = new RouteStorage($config);
 $routeRepo    = new RouteRepository();
@@ -279,7 +300,7 @@ $routeSurface = new RouteSurfaceService(
 // CLI dispatch
 // ---------------------------------------------------------------------------
 if (PHP_SAPI === 'cli') {
-    $cli = new Commands($basePath, $tokens, $routeService, $config, new NotificationService(), new HeatmapService(), $heatmapLines, $gameRecompute);
+    $cli = new Commands($basePath, $tokens, $routeService, $config, new NotificationService(), new HeatmapService(), $heatmapLines, $gameRecompute, $gameRushSvc, $gameCrewSvc);
     exit($cli->run($_SERVER['argv'] ?? []));
 }
 
@@ -369,14 +390,10 @@ $apiGame = new GameController($gameRead, $gameRepo, $gameIngest, $gameConfig, $r
 $apiPlayerBoard = new PlayerLeaderboardController(new PlayerLeaderboardService($gameRepo, $gameConfig));
 $apiSegment = new SegmentSpeedController(new SegmentSpeedService($gameRepo, $gameConfig));
 $apiPrivacyZone = new \App\Controllers\Api\PrivacyZoneController($privacyZoneSvc);
-$gameCrewRepo    = new \App\Game\Crew\CrewRepository(Db::pdo());
-$gameFactionRepo = new \App\Game\Faction\FactionRepository(Db::pdo());
-$gameCrewSvc  = new \App\Game\Crew\CrewService(
-    Db::pdo(), $gameCrewRepo, $gameRepo, $gameRecalc, $gameConfig,
-    new \App\Game\Admin\GameAuditService(Db::pdo()),
-    $gameFactionRepo,
-);
+// $gameCrewRepo, $gameFactionRepo, $gameCrewSvc wurden bereits oben (vor dem
+// CLI-Dispatch) verdrahtet.
 $apiCrew = new \App\Controllers\Api\CrewController($gameCrewSvc);
+$apiRush = new \App\Controllers\Api\RushController($gameRushSvc);
 $gameFactionSvc = new \App\Game\Faction\FactionService(
     Db::pdo(), $gameCrewRepo, $gameFactionRepo, $gameCrewSvc, $gameConfig,
     new \App\Game\Admin\GameAuditService(Db::pdo()),
@@ -570,11 +587,17 @@ $router->post("{$apiBase}/game/crews/join",        fn($r) => $apiCrew->join($r),
 $router->post("{$apiBase}/game/crews/leave",       fn($r) => $apiCrew->leave($r),    [$requireBearer]);
 $router->post("{$apiBase}/game/crews/transfer",    fn($r) => $apiCrew->transfer($r), [$requireBearer]);
 $router->post("{$apiBase}/game/crews",             fn($r) => $apiCrew->create($r),   [$requireBearer]);
+// ---- Game (Rush / Group-Ride-Übernahme — GAME_RUSH_BACKEND.md §5) ----
+$router->post  ("{$apiBase}/game/crews/me/rush",   fn($r) => $apiRush->create($r),   [$requireBearer]);
+$router->get   ("{$apiBase}/game/crews/me/rush",   fn($r) => $apiRush->myRush($r),   [$requireBearer]);
+$router->post  ("{$apiBase}/game/rush/{id}/rsvp",  fn($r) => $apiRush->rsvp($r),     [$requireBearer]);
+$router->delete("{$apiBase}/game/rush/{id}",       fn($r) => $apiRush->cancel($r),   [$requireBearer]);
 // ---- Game (Stufe 3 — Fraktionen) ----
 $router->get   ("{$apiBase}/game/factions/map",          fn($r) => $apiFaction->map($r),       [$optionalBearer]);
 $router->get   ("{$apiBase}/game/factions",              fn($r) => $apiFaction->standings($r));
 $router->post  ("{$apiBase}/game/crews/{slug}/faction",  fn($r) => $apiFaction->set($r),       [$requireBearer]);
 $router->delete("{$apiBase}/game/crews/{slug}/faction",  fn($r) => $apiFaction->clear($r),     [$requireBearer]);
+$router->post  ("{$apiBase}/game/crews/{slug}/captain",  fn($r) => $apiCrew->claimCaptain($r), [$requireBearer]);
 $router->get ("{$apiBase}/game/crews/{slug}/leaderboard", fn($r) => $apiCrew->leaderboard($r), [$requireBearer]);
 $router->get ("{$apiBase}/game/crews/{slug}",      fn($r) => $apiCrew->show($r),     [$requireBearer]);
 
@@ -702,7 +725,7 @@ $router->post('/u/{handle}/r/{id}/comments/{cid}/delete', fn($r) => $webEngage->
 // und verhalten sich wie eine unbekannte Route (404).
 $internalToken = (string)($config->get('INTERNAL_TOKEN', '') ?? '');
 $runInternal = function (Request $r, string $command)
-    use ($internalToken, $basePath, $tokens, $routeService, $config, $heatmapLines, $gameRecompute) {
+    use ($internalToken, $basePath, $tokens, $routeService, $config, $heatmapLines, $gameRecompute, $gameRushSvc, $gameCrewSvc) {
     if ($internalToken === '') {
         Response::error('not_found', 'Nicht gefunden.', 404);
     }
@@ -710,7 +733,7 @@ $runInternal = function (Request $r, string $command)
     if ($provided === '' || !hash_equals($internalToken, $provided)) {
         Response::error('not_found', 'Nicht gefunden.', 404);
     }
-    $cli = new Commands($basePath, $tokens, $routeService, $config, new NotificationService(), new HeatmapService(), $heatmapLines, $gameRecompute);
+    $cli = new Commands($basePath, $tokens, $routeService, $config, new NotificationService(), new HeatmapService(), $heatmapLines, $gameRecompute, $gameRushSvc, $gameCrewSvc);
     ob_start();
     try {
         $code = $cli->run(['internal', $command]);
@@ -747,6 +770,10 @@ $router->get('/internal/cron/heatmap-lines',  fn($r) => $runInternal($r, 'cron:h
 $router->post('/internal/cron/heatmap-lines', fn($r) => $runInternal($r, 'cron:heatmap-lines'));
 $router->get('/internal/cron/game-recompute',  fn($r) => $runInternal($r, 'game:recompute'));
 $router->post('/internal/cron/game-recompute', fn($r) => $runInternal($r, 'game:recompute'));
+$router->get('/internal/cron/rush-tick',  fn($r) => $runInternal($r, 'game:rush-tick'));
+$router->post('/internal/cron/rush-tick', fn($r) => $runInternal($r, 'game:rush-tick'));
+$router->get('/internal/game/heal-crews',  fn($r) => $runInternal($r, 'game:heal-crews'));
+$router->post('/internal/game/heal-crews', fn($r) => $runInternal($r, 'game:heal-crews'));
 // Read-only Log-Tail für Diagnose ohne SSH (z. B. frischer PDO/SQLSTATE-Stacktrace).
 $router->get('/internal/logtail',  fn($r) => $runInternal($r, 'internal:logtail'));
 $router->post('/internal/logtail', fn($r) => $runInternal($r, 'internal:logtail'));

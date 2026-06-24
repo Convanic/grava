@@ -14,6 +14,18 @@ final class GameConfigAdminService
         'popularity_c','curation_per_hint','curation_per_like','auth_min_speed_kmh',
         'auth_max_hacc_m','start_buffer_m','auth_max_speed_kmh','mod_max_new_edges_per_min',
         'mod_max_passes_per_day','game_chunk_size_m','game_chunk_overlap_m',
+        // Rush (GAME_RUSH_BACKEND.md §2.4).
+        'rush_multiplier','rush_min_crew_size','rush_window_hours','rush_window_hours_max',
+        'rush_cooldown_days','rush_colocation_radius_m',
+    ];
+    /** Numerisch, aber leer erlaubt (NULL-Semantik). */
+    private const NULLABLE_NUMERIC_KEYS = [
+        'rush_max_edges_per_rush','rush_hysteresis_factor',
+    ];
+    /** Boolesche Keys (0/1/true/false/…). */
+    private const BOOL_KEYS = [
+        'auth_require_motion','rush_enabled','rush_stacks_with_group_bonus',
+        'rush_requires_announcement','rush_require_colocation',
     ];
     /** @var array<string,list<string>> */
     private const ENUM_KEYS = [
@@ -48,13 +60,19 @@ final class GameConfigAdminService
                     continue;
                 }
                 $clean[$key] = $value;
+            } elseif (in_array($key, self::NULLABLE_NUMERIC_KEYS, true)) {
+                if ($value !== '' && (!is_numeric($value) || (float)$value < 0)) {
+                    $errors[$key] = 'muss leer oder eine Zahl >= 0 sein';
+                    continue;
+                }
+                $clean[$key] = $value;
             } elseif (isset(self::ENUM_KEYS[$key])) {
                 if (!in_array($value, self::ENUM_KEYS[$key], true)) {
                     $errors[$key] = 'ungueltiger Wert';
                     continue;
                 }
                 $clean[$key] = $value;
-            } elseif ($key === 'auth_require_motion') {
+            } elseif (in_array($key, self::BOOL_KEYS, true)) {
                 if (!in_array(strtolower($value), ['0','1','true','false','yes','no','on','off'], true)) {
                     $errors[$key] = 'muss boolesch sein';
                     continue;

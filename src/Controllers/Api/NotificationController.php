@@ -73,7 +73,7 @@ final class NotificationController
         $userId = (int)($req->user->internal_id ?? 0);
         $prefs = $this->prefs !== null
             ? $this->prefs->get($userId)
-            : ['follow' => true, 'like' => true, 'comment' => true];
+            : ['follow' => true, 'like' => true, 'comment' => true, 'rush' => true];
         Response::json(['preferences' => $prefs]);
     }
 
@@ -91,7 +91,7 @@ final class NotificationController
         }
         $prefs = $this->prefs !== null
             ? $this->prefs->upsert($userId, $patch)
-            : ['follow' => true, 'like' => true, 'comment' => true];
+            : ['follow' => true, 'like' => true, 'comment' => true, 'rush' => true];
         Response::json(['preferences' => $prefs]);
     }
 

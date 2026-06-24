@@ -144,6 +144,113 @@ final class CrewRepository
             ->execute([$ownerUserId, $crewId]);
     }
 
+    // ----------------------------------------------------------------
+    // Captain-Invariante / Self-Healing (GAME_RUSH_BACKEND.md §12)
+    // ----------------------------------------------------------------
+
+    /**
+     * Hat die Crew aktuell einen *gültigen* Captain (role=captain UND aktiver
+     * User)? Eine Captain-Zeile, die auf einen gelöschten Account zeigt, gilt
+     * NICHT als Captain — sonst bliebe die Crew in der Sackgasse (§12.3).
+     */
+    public function hasActiveCaptain(int $crewId): bool
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT 1 FROM game_crew_member m JOIN users u ON u.id = m.user_id
+              WHERE m.crew_id = ? AND m.role = "captain" AND u.status = "active" LIMIT 1'
+        );
+        $stmt->execute([$crewId]);
+        return $stmt->fetchColumn() !== false;
+    }
+
+    /** Handle des aktiven Captains (oder null, wenn captain-los). */
+    public function captainHandle(int $crewId): ?string
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT u.public_handle FROM game_crew_member m JOIN users u ON u.id = m.user_id
+              WHERE m.crew_id = ? AND m.role = "captain" AND u.status = "active" LIMIT 1'
+        );
+        $stmt->execute([$crewId]);
+        $v = $stmt->fetchColumn();
+        return $v === false || $v === null ? null : (string)$v;
+    }
+
+    /**
+     * Mitglied der Crew per öffentlichem Handle (nur aktive User).
+     * @return array{user_id:int,role:string}|null
+     */
+    public function memberByHandle(int $crewId, string $handle): ?array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT m.user_id, m.role FROM game_crew_member m JOIN users u ON u.id = m.user_id
+              WHERE m.crew_id = ? AND u.public_handle = ? AND u.status = "active" LIMIT 1'
+        );
+        $stmt->execute([$crewId, $handle]);
+        $r = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $r === false ? null : ['user_id' => (int)$r['user_id'], 'role' => (string)$r['role']];
+    }
+
+    /**
+     * Ältestes Mitglied (kleinste joined_at, dann user_id), optional exkl. eines
+     * Users. $activeOnly bevorzugt aktive Accounts für die Notbesetzung.
+     */
+    public function oldestMember(int $crewId, ?int $exceptUserId = null, bool $activeOnly = false): ?int
+    {
+        $sql = 'SELECT m.user_id FROM game_crew_member m';
+        $sql .= $activeOnly ? ' JOIN users u ON u.id = m.user_id' : '';
+        $sql .= ' WHERE m.crew_id = ?';
+        $params = [$crewId];
+        if ($activeOnly) {
+            $sql .= ' AND u.status = "active"';
+        }
+        if ($exceptUserId !== null) {
+            $sql .= ' AND m.user_id <> ?';
+            $params[] = $exceptUserId;
+        }
+        $sql .= ' ORDER BY m.joined_at ASC, m.user_id ASC LIMIT 1';
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($params);
+        $v = $stmt->fetchColumn();
+        return $v === false || $v === null ? null : (int)$v;
+    }
+
+    /** Setzt alle Captain-Zeilen der Crew auf 'member' (vor einer Neubesetzung). */
+    public function clearCaptains(int $crewId): void
+    {
+        $this->pdo->prepare('UPDATE game_crew_member SET role = "member" WHERE crew_id = ? AND role = "captain"')
+            ->execute([$crewId]);
+    }
+
+    /**
+     * Nicht-leere Crews ohne gültigen (aktiven) Captain — Altbestands-Datencheck
+     * (§12.1). Liefert die Crews, die geheilt werden müssen.
+     *
+     * @return list<array{crew_id:int,slug:string,name:string,members:int}>
+     */
+    public function captainlessCrews(): array
+    {
+        $rows = $this->pdo->query(
+            'SELECT cr.id AS crew_id, cr.slug, cr.name,
+                    (SELECT COUNT(*) FROM game_crew_member m WHERE m.crew_id = cr.id) AS members
+               FROM game_crew cr
+              WHERE (SELECT COUNT(*) FROM game_crew_member m WHERE m.crew_id = cr.id) > 0
+                AND NOT EXISTS (
+                    SELECT 1 FROM game_crew_member cm JOIN users u ON u.id = cm.user_id
+                     WHERE cm.crew_id = cr.id AND cm.role = "captain" AND u.status = "active")
+              ORDER BY cr.id ASC'
+        )->fetchAll(PDO::FETCH_ASSOC);
+        $out = [];
+        foreach ($rows as $r) {
+            $out[] = [
+                'crew_id' => (int)$r['crew_id'],
+                'slug'    => (string)$r['slug'],
+                'name'    => (string)$r['name'],
+                'members' => (int)$r['members'],
+            ];
+        }
+        return $out;
+    }
+
     public function slugExists(string $slug): bool
     {
         $stmt = $this->pdo->prepare('SELECT 1 FROM game_crew WHERE slug = ?');

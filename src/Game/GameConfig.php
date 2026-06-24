@@ -58,6 +58,20 @@ final class GameConfig
         'segment_min_speed_kmh'     => '5',
         'segment_max_speed_kmh'     => '80',
         'segment_leaderboard_top_n' => '100',
+        // Rush / Group-Ride-Übernahme (GAME_RUSH_BACKEND.md §2.4). Leerer Wert
+        // bei *_per_rush / *_hysteresis_factor = NULL-Semantik (siehe Helfer).
+        'rush_enabled'                 => '1',
+        'rush_multiplier'              => '2.0',
+        'rush_stacks_with_group_bonus' => '0',
+        'rush_min_crew_size'           => '3',
+        'rush_window_hours'            => '4',
+        'rush_window_hours_max'        => '12',
+        'rush_max_edges_per_rush'      => '',
+        'rush_cooldown_days'           => '7',
+        'rush_requires_announcement'   => '1',
+        'rush_require_colocation'      => '0',
+        'rush_colocation_radius_m'     => '100',
+        'rush_hysteresis_factor'       => '',
     ];
 
     public function __construct(private readonly PDO $pdo) {}
@@ -95,6 +109,20 @@ final class GameConfig
     public function bool(string $key): bool
     {
         return in_array(strtolower(trim($this->raw($key))), ['1', 'true', 'yes', 'on'], true);
+    }
+
+    /** Wie int(), aber leerer Wert → null (NULL-Semantik, z. B. rush_max_edges_per_rush = unbegrenzt). */
+    public function intOrNull(string $key): ?int
+    {
+        $v = trim($this->raw($key));
+        return $v === '' ? null : (int)$v;
+    }
+
+    /** Wie float(), aber leerer Wert → null (z. B. rush_hysteresis_factor = erbt STAGE1-Wert). */
+    public function floatOrNull(string $key): ?float
+    {
+        $v = trim($this->raw($key));
+        return $v === '' ? null : (float)$v;
     }
 
     /** @return array<string,string> Alle effektiven Werte (DB ueber Default). */

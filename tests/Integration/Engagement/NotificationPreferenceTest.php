@@ -39,19 +39,19 @@ final class NotificationPreferenceTest extends IntegrationTestCase
     public function testGetDefaultsAllTrueWithoutRow(): void
     {
         $u = $this->createUser('a');
-        $this->assertSame(['follow' => true, 'like' => true, 'comment' => true], $this->prefs->get($u));
+        $this->assertSame(['follow' => true, 'like' => true, 'comment' => true, 'rush' => true], $this->prefs->get($u));
     }
 
     public function testUpsertPartialKeepsOthersUnchanged(): void
     {
         $u = $this->createUser('b');
         $res = $this->prefs->upsert($u, ['like' => false]);
-        $this->assertSame(['follow' => true, 'like' => false, 'comment' => true], $res);
-        $this->assertSame(['follow' => true, 'like' => false, 'comment' => true], $this->prefs->get($u));
+        $this->assertSame(['follow' => true, 'like' => false, 'comment' => true, 'rush' => true], $res);
+        $this->assertSame(['follow' => true, 'like' => false, 'comment' => true, 'rush' => true], $this->prefs->get($u));
 
         // Zweites Upsert ändert nur comment, like bleibt false.
         $this->prefs->upsert($u, ['comment' => false]);
-        $this->assertSame(['follow' => true, 'like' => false, 'comment' => false], $this->prefs->get($u));
+        $this->assertSame(['follow' => true, 'like' => false, 'comment' => false, 'rush' => true], $this->prefs->get($u));
     }
 
     public function testIsPushEnabledUnknownTypeIsTrue(): void

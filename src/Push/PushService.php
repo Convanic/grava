@@ -43,6 +43,11 @@ final class PushService
             $badge = $this->unreadCount($recipientId);
 
             $payload = $this->buildPayload($notificationId, $type, $actor, $routePublicId, $badge);
+            // Rush-Deep-Link (rush/{id}): subject_type='rush' trägt die Rush-ID
+            // ins Payload, damit iOS direkt auf RushView springen kann.
+            if ($subjectType === 'rush' && $subjectId !== null) {
+                $payload['rush_id'] = (string)$subjectId;
+            }
             // Collapse je (Typ, Notification) — verhindert Duplikate bei Retries.
             $collapseId = substr($type . '-' . $notificationId, 0, 64);
 
@@ -77,6 +82,9 @@ final class PushService
             'comment'         => ['Neuer Kommentar', $actorLabel . ' hat deine Route kommentiert.'],
             'territory_taken' => ['Revier übernommen', 'Dein Revier wurde übernommen.'],
             'crew_invite'     => ['Crew-Einladung', $actorLabel . ' hat dich in eine Crew eingeladen.'],
+            'rush_invite'     => ['Rush angesetzt', $actorLabel . ' hat einen Rush angesetzt — fahrt jetzt zusammen!'],
+            'rush_reminder'   => ['Rush startet bald', 'Euer Rush startet gleich.'],
+            'rush_result'     => ['Rush beendet', 'Das Ergebnis eures Rushes steht fest.'],
             default           => ['GRAVA', $actorLabel . ' hat eine Aktion ausgeführt.'],
         };
 

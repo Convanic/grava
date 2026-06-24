@@ -211,4 +211,156 @@ final class CrewServiceTest extends IntegrationTestCase
         $this->assertArrayNotHasKey('join_code', $mateMe);
         $this->assertSame(2, $capMe['member_count']);
     }
+
+    // ----------------------------------------------------------------
+    // §12 — captain-lose Crew heilen (Self-Healing)
+    // ----------------------------------------------------------------
+
+    /** Macht den Captain einer Crew „ungültig" (Account gelöscht) → captain-los. */
+    private function softDelete(int $userId): void
+    {
+        $this->pdo->prepare('UPDATE users SET status = "deleted" WHERE id = ?')->execute([$userId]);
+    }
+
+    public function testMePayloadExposesCaptainHandle(): void
+    {
+        $cap = $this->createUser('skipper');
+        $this->svc->create($cap, 'Sailors');
+        $this->assertSame('skipper', $this->svc->me($cap)['captain_handle']);
+    }
+
+    /** 12.a: captain-lose Crew + Mitglied bestimmt gültigen Member → wird Captain. */
+    public function testClaimCaptainPromotesMemberWhenCaptainless(): void
+    {
+        $cap  = $this->createUser('gonecap');
+        $mate = $this->createUser('newcap');
+        $crew = $this->svc->create($cap, 'Orphans');
+        $this->svc->join($mate, $crew['join_code']);
+        $this->softDelete($cap); // Crew ist jetzt captain-los
+
+        $this->assertNull($this->svc->me($mate)['captain_handle'], 'Vorbedingung: kein aktiver Captain.');
+
+        $res = $this->svc->claimCaptain($mate, 'orphans', 'newcap');
+        $this->assertSame('newcap', $res['captain_handle']);
+        $this->assertSame('captain', $this->crews->membershipOf($mate)['role']);
+        $this->assertSame('newcap', $this->svc->me($mate)['captain_handle']);
+    }
+
+    /** 12.b: Crew MIT Captain → 409, Captain unverändert. */
+    public function testClaimCaptainConflictsWhenCaptainExists(): void
+    {
+        $cap  = $this->createUser('boss');
+        $mate = $this->createUser('hijacker');
+        $crew = $this->svc->create($cap, 'Solid');
+        $this->svc->join($mate, $crew['join_code']);
+
+        try {
+            $this->svc->claimCaptain($mate, 'solid', 'hijacker');
+            $this->fail('Mit existierendem Captain muss 409 kommen.');
+        } catch (CrewException $e) {
+            $this->assertSame(409, $e->status);
+        }
+        $this->assertSame('captain', $this->crews->membershipOf($cap)['role']);
+        $this->assertSame('member', $this->crews->membershipOf($mate)['role']);
+    }
+
+    /** 12.c: Handle ist kein Mitglied → 404, kein Wechsel. */
+    public function testClaimCaptainUnknownHandleReturns404(): void
+    {
+        $cap  = $this->createUser('gone2');
+        $mate = $this->createUser('member2');
+        $crew = $this->svc->create($cap, 'Ghosts');
+        $this->svc->join($mate, $crew['join_code']);
+        $this->softDelete($cap);
+
+        try {
+            $this->svc->claimCaptain($mate, 'ghosts', 'doesnotexist');
+            $this->fail('Unbekanntes Mitglied muss 404 werfen.');
+        } catch (CrewException $e) {
+            $this->assertSame(404, $e->status);
+        }
+        $this->assertSame('member', $this->crews->membershipOf($mate)['role'], 'Kein Wechsel.');
+    }
+
+    /** 12.d: Nicht-Mitglied (fremder Bearer) → 403. */
+    public function testClaimCaptainNonMemberReturns403(): void
+    {
+        $cap       = $this->createUser('gone3');
+        $mate      = $this->createUser('member3');
+        $outsider  = $this->createUser('stranger');
+        $crew = $this->svc->create($cap, 'Closed');
+        $this->svc->join($mate, $crew['join_code']);
+        $this->softDelete($cap);
+
+        try {
+            $this->svc->claimCaptain($outsider, 'closed', 'member3');
+            $this->fail('Fremder darf keinen Captain bestimmen.');
+        } catch (CrewException $e) {
+            $this->assertSame(403, $e->status);
+        }
+    }
+
+    public function testClaimCaptainIsIdempotentOnDoubleClick(): void
+    {
+        $cap  = $this->createUser('gone4');
+        $mate = $this->createUser('member4');
+        $crew = $this->svc->create($cap, 'Doubles');
+        $this->svc->join($mate, $crew['join_code']);
+        $this->softDelete($cap);
+
+        $this->svc->claimCaptain($mate, 'doubles', 'member4'); // erster Klick: OK
+        try {
+            $this->svc->claimCaptain($mate, 'doubles', 'member4'); // zweiter Klick: 409-Guard
+            $this->fail('Zweiter Aufruf muss am 409-Guard scheitern.');
+        } catch (CrewException $e) {
+            $this->assertSame(409, $e->status);
+        }
+    }
+
+    public function testHealCaptainlessCrewsPromotesOldestMember(): void
+    {
+        $cap  = $this->createUser('healcap');
+        $m1   = $this->createUser('heal1');
+        $m2   = $this->createUser('heal2');
+        $crew = $this->svc->create($cap, 'Healme');
+        $this->svc->join($m1, $crew['join_code']);
+        $this->svc->join($m2, $crew['join_code']);
+        $this->softDelete($cap);
+
+        $healed = $this->svc->healCaptainlessCrews();
+        $this->assertCount(1, $healed);
+        // Ältestes verbleibendes Mitglied (zuerst beigetreten) = m1.
+        $this->assertSame($m1, $healed[0]['promoted_user_id']);
+        $this->assertSame('captain', $this->crews->membershipOf($m1)['role']);
+        $this->assertSame('heal1', $this->svc->me($m1)['captain_handle']);
+
+        // Idempotent: zweiter Lauf findet nichts mehr.
+        $this->assertSame([], $this->svc->healCaptainlessCrews());
+    }
+
+    public function testAccountDeletionPromotesOldestRemainingMember(): void
+    {
+        $cap = $this->createUser('delcap');
+        $m1  = $this->createUser('del1');
+        $m2  = $this->createUser('del2');
+        $crew = $this->svc->create($cap, 'Leavers');
+        $this->svc->join($m1, $crew['join_code']);
+        $this->svc->join($m2, $crew['join_code']);
+
+        $this->svc->handleAccountDeletion($cap);
+
+        $this->assertNull($this->crews->membershipOf($cap), 'Gelöschter Captain ist kein Mitglied mehr.');
+        $this->assertSame('captain', $this->crews->membershipOf($m1)['role'], 'Ältestes Mitglied wird Captain.');
+        $this->assertSame(2, $this->crews->memberCount((int)$crew['id']));
+        $this->assertTrue($this->crews->hasActiveCaptain((int)$crew['id']));
+    }
+
+    public function testAccountDeletionDissolvesSoloCrew(): void
+    {
+        $cap = $this->createUser('solocap');
+        $this->svc->create($cap, 'Lonewolf');
+        $this->svc->handleAccountDeletion($cap);
+        $this->assertNull($this->crews->crewBySlug('lonewolf'), 'Solo-Crew wird aufgelöst.');
+        $this->assertNull($this->crews->membershipOf($cap));
+    }
 }

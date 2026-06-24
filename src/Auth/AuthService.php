@@ -28,6 +28,19 @@ final class AuthService
     ) {}
 
     /**
+     * Optionaler Hook für die Crew-Invariante bei Account-Löschung
+     * (GAME_RUSH_BACKEND.md §12.1). Per Setter verdrahtet, weil CrewService
+     * erst nach AuthService konstruiert wird; fehlt er (z. B. in reinen
+     * Auth-Tests), bleibt das Verhalten unverändert.
+     */
+    private ?\App\Game\Crew\CrewService $crews = null;
+
+    public function setCrewService(\App\Game\Crew\CrewService $crews): void
+    {
+        $this->crews = $crews;
+    }
+
+    /**
      * Registrierung. Antwortet aus Sicht des Aufrufers immer identisch
      * (kein Tokens-Response, generischer 202-Status), damit es keine
      * Account-Enumeration über diesen Endpoint gibt.
@@ -467,6 +480,21 @@ final class AuthService
                     throw $e;
                 }
                 error_log('AuthService::deleteAccount: referrals-Tabelle existiert nicht, überspringe.');
+            }
+
+            // GAME_RUSH §12.1: Crew-Invariante. Ein Captain darf NIE eine
+            // nicht-leere Crew ohne Captain hinterlassen — CrewService promotet
+            // das älteste Mitglied bzw. löst eine Solo-Crew sauber auf. Läuft in
+            // DERSELBEN Transaktion (CrewService::transactional erkennt das).
+            if ($this->crews !== null) {
+                try {
+                    $this->crews->handleAccountDeletion($userId);
+                } catch (\PDOException $e) {
+                    if (!str_contains($e->getMessage(), '1146')) {
+                        throw $e;
+                    }
+                    error_log('AuthService::deleteAccount: Crew-Tabellen existieren nicht, überspringe.');
+                }
             }
 
             $pdo->commit();

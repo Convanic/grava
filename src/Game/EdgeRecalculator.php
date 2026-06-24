@@ -44,8 +44,15 @@ final class EdgeRecalculator
         $bonus      = $this->config->float('group_ride_bonus');
         $minMembers = $this->config->int('group_ride_min_members');
 
-        // Tages-Aggregation je (effektiver Claimant, ridden_on): Summe Gewicht + distinct Mitglieder.
-        $dayWeight  = [];   // [cid][ridden_on] => float
+        // Rush (§3): qualifizierte, getaggte Pässe bekommen statt des
+        // Gruppenfahrt-Bonus einen Multiplikator. Welche rush_id auf DIESER
+        // Kante "zieht", wird einmal vorab bestimmt (Qualifikation + Edge-Cap).
+        [$rushApplies, $rushMult, $rushStacks] = $this->resolveRush($edgeId, $passes);
+
+        // Tages-Aggregation je (effektiver Claimant, ridden_on): regulärer und
+        // gerushter Gewicht-Anteil getrennt, plus distinct Mitglieder.
+        $dayNonRush = [];   // [cid][ridden_on] => float (regulärer Anteil)
+        $dayRush    = [];   // [cid][ridden_on][rush_id] => float (gerushter Anteil)
         $dayMembers = [];   // [cid][ridden_on] => array<int,true>
         $isGroup    = [];   // [cid] => bool
         $lastPassByClaimant = [];
@@ -65,8 +72,13 @@ final class EdgeRecalculator
             $isGroup[$cid] = $eff['is_group'];
             $on = $p['ridden_on'];
             $w = GameMath::presenceWeight($this->ageDays($p['ridden_at'], $now), $windowDays);
-            $dayWeight[$cid][$on] = ($dayWeight[$cid][$on] ?? 0.0) + $w;
             $dayMembers[$cid][$on][$uid] = true;
+            $rid = $p['rush_id'];
+            if ($rid !== null && ($rushApplies[$rid] ?? false)) {
+                $dayRush[$cid][$on][$rid] = ($dayRush[$cid][$on][$rid] ?? 0.0) + $w;
+            } else {
+                $dayNonRush[$cid][$on] = ($dayNonRush[$cid][$on] ?? 0.0) + $w;
+            }
             if (!isset($lastPassByClaimant[$cid]) || $p['ridden_at'] > $lastPassByClaimant[$cid]) {
                 $lastPassByClaimant[$cid] = $p['ridden_at'];
             }
@@ -85,17 +97,23 @@ final class EdgeRecalculator
             }
         }
 
-        // Präsenz je Claimant; Gruppenfahrt-Bonus als Tagesfaktor (nur Group-Claimants,
-        // ab group_ride_min_members verschiedenen Mitgliedern am selben Tag).
+        // Präsenz je Claimant. Ohne gerushte Pässe reduziert sich der Term exakt
+        // auf die Stufe-1/2-Formel (Gruppenfahrt-Bonus als Tagesfaktor) →
+        // bit-identisch (§9.7). Gerushte Pässe ersetzen den Bonus durch den
+        // Multiplikator (rush_stacks_with_group_bonus=false) bzw. stapeln ihn.
         $presence = [];
-        foreach ($dayWeight as $cid => $byDay) {
-            $sum = 0.0;
-            foreach ($byDay as $on => $w) {
-                $members = count($dayMembers[$cid][$on]);
-                if (($isGroup[$cid] ?? false) && $bonus !== 1.0 && $members >= $minMembers) {
-                    $w *= $bonus;
+        $cids = array_keys($dayNonRush + $dayRush);
+        foreach ($cids as $cid) {
+            $sum  = 0.0;
+            $days = array_keys(($dayNonRush[$cid] ?? []) + ($dayRush[$cid] ?? []));
+            foreach ($days as $on) {
+                $members = count($dayMembers[$cid][$on] ?? []);
+                $g = (($isGroup[$cid] ?? false) && $bonus !== 1.0 && $members >= $minMembers) ? $bonus : 1.0;
+                $sum += $g * ($dayNonRush[$cid][$on] ?? 0.0);
+                foreach (($dayRush[$cid][$on] ?? []) as $rid => $rw) {
+                    $m = $rushMult[$rid] ?? 1.0;
+                    $sum += ($rushStacks ? $m * $g : $m) * $rw;
                 }
-                $sum += $w;
             }
             $presence[(int)$cid] = $sum;
         }
@@ -116,12 +134,18 @@ final class EdgeRecalculator
         $ownerSince = null;
         if ($challenger !== null) {
             $currentPresence = $currentOwner !== null ? ($presence[$currentOwner] ?? 0.0) : 0.0;
+            // Übernahme weiter ausschließlich über Hysterese (§9.4, kein
+            // Sofort-Flip). rush_hysteresis_factor (falls gesetzt) erlaubt einen
+            // eigenen Faktor für rush-getriebene Übernahmen; sonst erbt der Rush
+            // die STAGE1-Hysterese.
+            $hysteresis = $this->config->floatOrNull('rush_hysteresis_factor')
+                ?? $this->config->float('hysteresis_factor');
             $newOwner = GameMath::decideOwner(
                 $currentOwner,
                 $currentPresence,
                 $challenger,
                 $challengerPresence,
-                $this->config->float('hysteresis_factor'),
+                $hysteresis,
             );
             if ($newOwner !== $currentOwner) {
                 $ownerSince = $now->format('Y-m-d H:i:s.v');
@@ -180,6 +204,62 @@ final class EdgeRecalculator
             $traffic['observations'],
             $discovererClaimant,
         );
+    }
+
+    /**
+     * Bestimmt je auf der Kante vorkommendem Rush, ob sein Multiplikator gilt:
+     * qualifiziert (≥ rush_min_crew_size distinct getaggte Fahrer, §3.2) UND
+     * diese Kante innerhalb rush_max_edges_per_rush (deterministisch nach
+     * edge_id, §3.3). Nicht-qualifizierte/gekappte rushte Pässe verhalten sich
+     * wie normale Pässe.
+     *
+     * @param list<array{claimant_id:int,user_id:int,ridden_on:string,ridden_at:string,rush_id:?int}> $passes
+     * @return array{0:array<int,bool>,1:array<int,float>,2:bool} [applies, multiplier, stacks]
+     */
+    private function resolveRush(int $edgeId, array $passes): array
+    {
+        if (!$this->config->bool('rush_enabled')) {
+            return [[], [], false];
+        }
+        $rushIds = [];
+        foreach ($passes as $p) {
+            if ($p['rush_id'] !== null) {
+                $rushIds[$p['rush_id']] = true;
+            }
+        }
+        if ($rushIds === []) {
+            return [[], [], false];
+        }
+
+        $minCrew = $this->config->int('rush_min_crew_size');
+        $cap     = $this->config->intOrNull('rush_max_edges_per_rush');
+        $stacks  = $this->config->bool('rush_stacks_with_group_bonus');
+        $info    = $this->repo->rushInfoMany(array_keys($rushIds));
+
+        $applies = [];
+        $mult    = [];
+        foreach ($info as $rid => $i) {
+            // cancelled/expired zählen nie; expired impliziert ohnehin < minCrew.
+            $qualified = $i['distinct_riders'] >= $minCrew
+                && $i['status'] !== 'cancelled'
+                && $i['status'] !== 'expired';
+            if (!$qualified) {
+                $applies[$rid] = false;
+                continue;
+            }
+            $allowed = true;
+            if ($cap !== null) {
+                $capped  = array_slice($this->repo->rushTaggedEdgeIds($rid), 0, max(0, $cap));
+                $allowed = in_array($edgeId, $capped, true);
+                if (!$allowed) {
+                    // Kein Silent-Cap (§3.3/§9.9): die Kappung wird protokolliert.
+                    error_log("rush_edge_cap: Kante {$edgeId} über rush_max_edges_per_rush={$cap} (Rush {$rid}) — regulärer Tagesbonus.");
+                }
+            }
+            $applies[$rid] = $allowed;
+            $mult[$rid]    = $i['multiplier'];
+        }
+        return [$applies, $mult, $stacks];
     }
 
     private function ageDays(string $mysqlDatetime, DateTimeImmutable $now): float

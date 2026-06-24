@@ -22,6 +22,8 @@ final class Commands
         private readonly ?HeatmapService $heatmap = null,
         private readonly ?HeatmapLinesService $heatmapLines = null,
         private readonly ?\App\Game\GameRecomputeService $gameRecompute = null,
+        private readonly ?\App\Game\Rush\RushService $rushService = null,
+        private readonly ?\App\Game\Crew\CrewService $crewService = null,
     ) {}
 
     public function run(array $argv): int
@@ -56,6 +58,12 @@ final class Commands
 
             case 'game:recompute':
                 return $this->recomputeGame($argv);
+
+            case 'game:rush-tick':
+                return $this->rushTick();
+
+            case 'game:heal-crews':
+                return $this->healCrews();
 
             case 'internal:logtail':
             case 'logtail':
@@ -169,6 +177,44 @@ final class Commands
         }
         $n = $this->gameRecompute->recomputeAll();
         echo "Spiel neu berechnet: {$n} Kanten.\n";
+        return 0;
+    }
+
+    /**
+     * Rush-Statuszeit (§4): überführt fällige Rushes (planned→active,
+     * active→completed/expired), rechnet betroffene Kanten neu und stößt
+     * rush_result-Push an. Für Cron (z. B. minütlich) + /internal-Endpoint.
+     */
+    private function rushTick(): int
+    {
+        if ($this->rushService === null) {
+            echo "RushService nicht verfügbar.\n";
+            return 1;
+        }
+        $res = $this->rushService->tick();
+        echo "Rush-Tick: aktiviert={$res['activated']}, abgeschlossen={$res['completed']}, verfallen={$res['expired']}.\n";
+        return 0;
+    }
+
+    /**
+     * Datencheck + Self-Healing (§12.1): findet nicht-leere Crews ohne gültigen
+     * Captain (Altbestand) und promotet das älteste Mitglied. Idempotent.
+     */
+    private function healCrews(): int
+    {
+        if ($this->crewService === null) {
+            echo "CrewService nicht verfügbar.\n";
+            return 1;
+        }
+        $healed = $this->crewService->healCaptainlessCrews();
+        if ($healed === []) {
+            echo "Keine captain-losen Crews gefunden.\n";
+            return 0;
+        }
+        foreach ($healed as $h) {
+            echo "Crew '{$h['slug']}': Captain → User #{$h['promoted_user_id']}.\n";
+        }
+        echo 'Geheilt: ' . count($healed) . " Crew(s).\n";
         return 0;
     }
 
@@ -432,6 +478,8 @@ final class Commands
         echo "  heatmap:rebuild-local  (LOKAL) Rebuild aus Manifest + Dateien: --manifest=.. --routes-dir=..\n";
         echo "  heatmap:export-edges   (LOKAL) heatmap_edges als JSON exportieren: --out=..\n";
         echo "  game:recompute      Berechnet alle Spiel-Kanten aus den Pässen neu [--bbox=minLon,minLat,maxLon,maxLat]\n";
+        echo "  game:rush-tick      Aktualisiert fällige Rush-Status (planned→active→completed/expired)\n";
+        echo "  game:heal-crews     Heilt captain-lose Crews (promotet ältestes Mitglied)\n";
         echo "  help                Zeigt diese Hilfe\n";
     }
 }

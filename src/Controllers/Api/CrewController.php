@@ -63,6 +63,15 @@ final class CrewController
         Response::json(['crew' => $this->crews->me($uid)]);
     }
 
+    /** POST /game/crews/{slug}/captain — Notbesetzung (§12.3). */
+    public function claimCaptain(Request $req): void
+    {
+        $uid    = $this->userId($req);
+        $slug   = trim((string)($req->routeParams['slug'] ?? ''));
+        $handle = (string)$req->input('user_handle', '');
+        $this->run(fn () => Response::json($this->crews->claimCaptain($uid, $slug, $handle)));
+    }
+
     public function leaderboard(Request $req): void
     {
         $uid  = $this->userId($req);

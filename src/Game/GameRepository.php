@@ -165,7 +165,13 @@ final class GameRepository
         return (int)$stmt->fetchColumn();
     }
 
-    /** @return bool true wenn ein NEUER Pass angelegt wurde (sonst Tages-Deckel). */
+    /**
+     * @return bool true wenn ein NEUER Pass angelegt wurde (sonst Tages-Deckel).
+     *
+     * $rushId (Auto-Tag, §3.1): kollabiert ein Tag auf einen Pass, gewinnt der
+     * rush_id des getaggten (im Fenster liegenden) Passes — COALESCE bewahrt
+     * einen bereits gesetzten Tag, übernimmt aber einen neuen, wenn er fehlte.
+     */
     public function insertPassIfAbsent(
         int $edgeId,
         int $claimantId,
@@ -173,14 +179,17 @@ final class GameRepository
         int $routeId,
         string $riddenOn,
         string $riddenAt,
+        ?int $rushId = null,
     ): bool {
         $stmt = $this->pdo->prepare(
             'INSERT INTO game_edge_pass
-                (edge_id, claimant_id, user_id, route_id, ridden_on, ridden_at)
-             VALUES (?, ?, ?, ?, ?, ?)
-             ON DUPLICATE KEY UPDATE ridden_at = GREATEST(ridden_at, VALUES(ridden_at))'
+                (edge_id, claimant_id, user_id, route_id, ridden_on, ridden_at, rush_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE
+                ridden_at = GREATEST(ridden_at, VALUES(ridden_at)),
+                rush_id   = COALESCE(VALUES(rush_id), rush_id)'
         );
-        $stmt->execute([$edgeId, $claimantId, $userId, $routeId, $riddenOn, $riddenAt]);
+        $stmt->execute([$edgeId, $claimantId, $userId, $routeId, $riddenOn, $riddenAt, $rushId]);
         return $stmt->rowCount() === 1;
     }
 
@@ -206,12 +215,12 @@ final class GameRepository
     }
 
     /**
-     * @return list<array{claimant_id:int,user_id:int,ridden_on:string,ridden_at:string}>
+     * @return list<array{claimant_id:int,user_id:int,ridden_on:string,ridden_at:string,rush_id:?int}>
      */
     public function passesForEdge(int $edgeId): array
     {
         $stmt = $this->pdo->prepare(
-            'SELECT claimant_id, user_id, ridden_on, ridden_at FROM game_edge_pass
+            'SELECT claimant_id, user_id, ridden_on, ridden_at, rush_id FROM game_edge_pass
               WHERE edge_id = ? AND invalidated_at IS NULL'
         );
         $stmt->execute([$edgeId]);
@@ -222,9 +231,94 @@ final class GameRepository
                 'user_id'     => (int)$r['user_id'],
                 'ridden_on'   => (string)$r['ridden_on'],
                 'ridden_at'   => (string)$r['ridden_at'],
+                'rush_id'     => $r['rush_id'] !== null ? (int)$r['rush_id'] : null,
             ];
         }
         return $out;
+    }
+
+    // ----------------------------------------------------------------
+    // Rush / Group-Ride-Übernahme (GAME_RUSH_BACKEND.md) — Ingest + Recompute
+    // ----------------------------------------------------------------
+
+    /**
+     * Nicht-abgeschlossene Rushes (planned/active) der Crew des Users — für den
+     * Auto-Tag beim Ingest (§3.1). Die eigentliche Fenster-/Announcement-Prüfung
+     * passiert in PHP, damit pro Route nur EINE Query nötig ist.
+     *
+     * @return list<array{id:int,start_at:string,end_at:string,created_at:string}>
+     */
+    public function openRushesForUser(int $userId): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT r.id, r.start_at, r.end_at, r.created_at
+               FROM game_crew_member m
+               JOIN game_rush r ON r.crew_id = m.crew_id
+              WHERE m.user_id = ? AND r.status IN ("planned","active")'
+        );
+        $stmt->execute([$userId]);
+        $out = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $out[] = [
+                'id'         => (int)$r['id'],
+                'start_at'   => (string)$r['start_at'],
+                'end_at'     => (string)$r['end_at'],
+                'created_at' => (string)$r['created_at'],
+            ];
+        }
+        return $out;
+    }
+
+    /**
+     * Recompute-Infos je Rush (§3.2/§3.3): Multiplikator-Snapshot, Status,
+     * Crew-Claimant und die Zahl distinct getaggter Fahrer (Qualifikations-Gate).
+     *
+     * @param list<int> $rushIds
+     * @return array<int,array{multiplier:float,status:string,crew_claimant_id:int,distinct_riders:int}>
+     */
+    public function rushInfoMany(array $rushIds): array
+    {
+        $rushIds = array_values(array_unique(array_map('intval', $rushIds)));
+        if ($rushIds === []) {
+            return [];
+        }
+        $ph = implode(',', array_fill(0, count($rushIds), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT r.id, r.multiplier, r.status, cr.claimant_id AS crew_claimant_id,
+                    (SELECT COUNT(DISTINCT p.user_id) FROM game_edge_pass p
+                      WHERE p.rush_id = r.id AND p.invalidated_at IS NULL) AS distinct_riders
+               FROM game_rush r
+               JOIN game_crew cr ON cr.id = r.crew_id
+              WHERE r.id IN ($ph)"
+        );
+        $stmt->execute($rushIds);
+        $out = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $out[(int)$r['id']] = [
+                'multiplier'       => (float)$r['multiplier'],
+                'status'           => (string)$r['status'],
+                'crew_claimant_id' => (int)$r['crew_claimant_id'],
+                'distinct_riders'  => (int)$r['distinct_riders'],
+            ];
+        }
+        return $out;
+    }
+
+    /**
+     * Distinct getaggte Kanten eines Rushes (sortiert nach edge_id) — Basis für
+     * den deterministischen Edge-Cap (§3.3) und den gezielten Recompute (§7).
+     *
+     * @return list<int>
+     */
+    public function rushTaggedEdgeIds(int $rushId): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT DISTINCT edge_id FROM game_edge_pass
+              WHERE rush_id = ? AND invalidated_at IS NULL
+              ORDER BY edge_id'
+        );
+        $stmt->execute([$rushId]);
+        return array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
     }
 
     /**

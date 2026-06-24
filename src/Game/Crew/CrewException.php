@@ -52,4 +52,9 @@ final class CrewException extends RuntimeException
     {
         return new self('forbidden', $message, 403);
     }
+
+    public static function conflict(string $message): self
+    {
+        return new self('conflict', $message, 409);
+    }
 }
