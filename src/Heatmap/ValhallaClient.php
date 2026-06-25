@@ -195,6 +195,8 @@ class ValhallaClient
                 lengthM: (float)($e['length'] ?? 0) * $toMeters,
                 geometry: $geom,
                 surface: isset($e['surface']) && is_string($e['surface']) ? $e['surface'] : null,
+                beginShapeIndex: is_int($begin) ? $begin : null,
+                endShapeIndex: is_int($end) ? $end : null,
             );
         }
 

@@ -62,6 +62,26 @@ final class ValhallaEdgeMatcher implements EdgeMatcher
             $maxHacc = null;
             $firstTs = null;
             $lastTs = null;
+            $durationS = null;
+            $avgSpeedKmh = null;
+
+            if ($edge->beginShapeIndex !== null && $edge->endShapeIndex !== null) {
+                $i0 = $edge->beginShapeIndex;
+                $i1 = $edge->endShapeIndex;
+                if ($i1 >= $i0 && isset($route->points[$i0], $route->points[$i1])) {
+                    $t0 = $route->points[$i0]->timestamp;
+                    $t1 = $route->points[$i1]->timestamp;
+                    if ($t0 !== null && $t1 !== null) {
+                        $dt = $t1->getTimestamp() - $t0->getTimestamp();
+                        if ($dt > 0) {
+                            $durationS = (float)$dt;
+                            $avgSpeedKmh = ($edge->lengthM / $dt) * 3.6;
+                            $riddenAt = $t0;
+                        }
+                    }
+                }
+            }
+
             foreach ($idxs as $i) {
                 $pt = $route->points[$i] ?? null;
                 if ($pt === null) {
@@ -75,16 +95,13 @@ final class ValhallaEdgeMatcher implements EdgeMatcher
                     $maxHacc = $maxHacc === null ? $pt->horizontalAccuracyM : max($maxHacc, $pt->horizontalAccuracyM);
                 }
             }
-            if ($firstTs !== null) {
-                $riddenAt = $firstTs;
-            }
-
-            $avgSpeedKmh = null;
-            if ($firstTs !== null && $lastTs !== null) {
+            if ($durationS === null && $firstTs !== null && $lastTs !== null) {
                 $dt = $lastTs->getTimestamp() - $firstTs->getTimestamp();
                 if ($dt > 0) {
+                    $durationS = (float)$dt;
                     $avgSpeedKmh = ($edge->lengthM / $dt) * 3.6;
                 }
+                $riddenAt = $firstTs;
             }
 
             $segments[] = new MatchedSegment(
@@ -98,6 +115,7 @@ final class ValhallaEdgeMatcher implements EdgeMatcher
                 maxHaccM: $maxHacc,
                 hasMotion: $hasMotion,
                 riddenAt: $riddenAt,
+                durationS: $durationS,
             );
         }
         return $segments;

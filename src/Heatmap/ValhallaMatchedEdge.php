@@ -16,6 +16,8 @@ final class ValhallaMatchedEdge
      * @param float                            $lengthM    Kantenlänge in Metern
      * @param list<array{0:float,1:float}>     $geometry   gesnappte Teil-Polyline als [lon, lat]
      * @param string|null                      $surface    OSM-Surface (z. B. "paved_smooth", "gravel")
+     * @param int|null                         $beginShapeIndex Index in der Valhalla-Shape
+     * @param int|null                         $endShapeIndex   Index in der Valhalla-Shape
      */
     public function __construct(
         public readonly int $valhallaId,
@@ -23,5 +25,7 @@ final class ValhallaMatchedEdge
         public readonly float $lengthM,
         public readonly array $geometry,
         public readonly ?string $surface = null,
+        public readonly ?int $beginShapeIndex = null,
+        public readonly ?int $endShapeIndex = null,
     ) {}
 }

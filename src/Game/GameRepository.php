@@ -196,16 +196,66 @@ final class GameRepository
         string $riddenOn,
         string $riddenAt,
         ?int $rushId = null,
+        ?int $durationMs = null,
+        ?float $avgSpeedKmh = null,
+        ?string $bikeClass = null,
+    ): bool {
+        return $this->upsertPass(
+            $edgeId, $claimantId, $userId, $routeId, $riddenOn, $riddenAt, $rushId,
+            $durationMs, $avgSpeedKmh, $bikeClass,
+        );
+    }
+
+    /**
+     * Tagesgedeckelter Pass inkl. optionaler Rekord-Felder (Upsert-MIN, Spec §3.2).
+     *
+     * @return bool true wenn ein NEUER Pass angelegt wurde (sonst Tages-Deckel-Update).
+     */
+    public function upsertPass(
+        int $edgeId,
+        int $claimantId,
+        int $userId,
+        int $routeId,
+        string $riddenOn,
+        string $riddenAt,
+        ?int $rushId = null,
+        ?int $durationMs = null,
+        ?float $avgSpeedKmh = null,
+        ?string $bikeClass = null,
     ): bool {
         $stmt = $this->pdo->prepare(
             'INSERT INTO game_edge_pass
-                (edge_id, claimant_id, user_id, route_id, ridden_on, ridden_at, rush_id)
-             VALUES (?, ?, ?, ?, ?, ?, ?)
+                (edge_id, claimant_id, user_id, route_id, ridden_on, ridden_at, rush_id,
+                 duration_ms, avg_speed_kmh, bike_class)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON DUPLICATE KEY UPDATE
                 ridden_at = GREATEST(ridden_at, VALUES(ridden_at)),
-                rush_id   = COALESCE(VALUES(rush_id), rush_id)'
+                rush_id = COALESCE(VALUES(rush_id), rush_id),
+                duration_ms = CASE
+                    WHEN VALUES(duration_ms) IS NULL THEN duration_ms
+                    WHEN duration_ms IS NULL THEN VALUES(duration_ms)
+                    WHEN VALUES(duration_ms) < duration_ms THEN VALUES(duration_ms)
+                    ELSE duration_ms
+                END,
+                avg_speed_kmh = CASE
+                    WHEN VALUES(duration_ms) IS NULL THEN avg_speed_kmh
+                    WHEN duration_ms IS NULL THEN VALUES(avg_speed_kmh)
+                    WHEN VALUES(duration_ms) < duration_ms THEN VALUES(avg_speed_kmh)
+                    WHEN VALUES(duration_ms) = duration_ms THEN GREATEST(avg_speed_kmh, VALUES(avg_speed_kmh))
+                    ELSE avg_speed_kmh
+                END,
+                bike_class = CASE
+                    WHEN VALUES(duration_ms) IS NULL THEN bike_class
+                    WHEN duration_ms IS NULL THEN VALUES(bike_class)
+                    WHEN VALUES(duration_ms) < duration_ms THEN VALUES(bike_class)
+                    WHEN VALUES(duration_ms) = duration_ms THEN VALUES(bike_class)
+                    ELSE bike_class
+                END'
         );
-        $stmt->execute([$edgeId, $claimantId, $userId, $routeId, $riddenOn, $riddenAt, $rushId]);
+        $stmt->execute([
+            $edgeId, $claimantId, $userId, $routeId, $riddenOn, $riddenAt, $rushId,
+            $durationMs, $avgSpeedKmh, $bikeClass,
+        ]);
         return $stmt->rowCount() === 1;
     }
 
@@ -1198,5 +1248,153 @@ final class GameRepository
         $stmt->execute([$crewId]);
         $name = $stmt->fetchColumn();
         return $name === false ? null : (string)$name;
+    }
+
+    // ----------------------------------------------------------------
+    // Segment-Rekorde auf game_edge_pass (GAME_SEGMENT_SPEED_BACKEND 2026-06-24)
+    // ----------------------------------------------------------------
+
+    /**
+     * Bestpass je Fahrer auf einer Kante (MIN duration_ms), optional nach bike_class.
+     *
+     * @return list<array{user_id:int,duration_ms:int,avg_speed_kmh:float,ridden_at:string,bike_class:?string}>
+     */
+    public function bestRecordPassesForEdge(int $edgeId, string $bikeClass, ?string $sinceDate): array
+    {
+        $filterBike = $bikeClass !== BikeClass::ALL;
+        $sql =
+            'SELECT user_id, duration_ms, avg_speed_kmh, ridden_at, bike_class FROM (
+                SELECT user_id, duration_ms, avg_speed_kmh, ridden_at, bike_class,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY user_id
+                           ORDER BY duration_ms ASC, ridden_at ASC, id ASC
+                       ) AS rn
+                  FROM game_edge_pass
+                 WHERE edge_id = ? AND invalidated_at IS NULL AND duration_ms IS NOT NULL';
+        $params = [$edgeId];
+        if ($filterBike) {
+            $sql .= ' AND bike_class = ?';
+            $params[] = $bikeClass;
+        }
+        if ($sinceDate !== null) {
+            $sql .= ' AND ridden_on >= ?';
+            $params[] = $sinceDate;
+        }
+        $sql .= ') t WHERE rn = 1';
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($params);
+        $out = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $out[] = [
+                'user_id'       => (int)$r['user_id'],
+                'duration_ms'   => (int)$r['duration_ms'],
+                'avg_speed_kmh' => (float)$r['avg_speed_kmh'],
+                'ridden_at'     => (string)$r['ridden_at'],
+                'bike_class'    => $r['bike_class'] !== null ? (string)$r['bike_class'] : null,
+            ];
+        }
+        return $out;
+    }
+
+    /**
+     * Crown-Anzahl je Fahrer: Rang 1 je (edge_id, bike_class).
+     *
+     * @return array<int,int> user_id => crowns
+     */
+    public function crownsByUser(?string $sinceDate): array
+    {
+        $sql =
+            'SELECT user_id, COUNT(*) AS crowns FROM (
+                SELECT edge_id, bike_class, user_id,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY edge_id, bike_class
+                           ORDER BY best_ms ASC, user_id ASC
+                       ) AS rn
+                  FROM (
+                    SELECT edge_id, bike_class, user_id, MIN(duration_ms) AS best_ms
+                      FROM game_edge_pass
+                     WHERE invalidated_at IS NULL AND duration_ms IS NOT NULL';
+        $params = [];
+        if ($sinceDate !== null) {
+            $sql .= ' AND ridden_on >= ?';
+            $params[] = $sinceDate;
+        }
+        $sql .=
+            '     GROUP BY edge_id, bike_class, user_id
+                  ) user_bests
+             ) leaders
+             WHERE rn = 1
+             GROUP BY user_id';
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($params);
+        $out = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $out[(int)$r['user_id']] = (int)$r['crowns'];
+        }
+        return $out;
+    }
+
+    public function countCrownsForUser(int $userId, ?string $sinceDate): int
+    {
+        $all = $this->crownsByUser($sinceDate);
+        return $all[$userId] ?? 0;
+    }
+
+    /** @return array{user_id:int,handle:?string,avg_speed_kmh:float,duration_ms:int}|null */
+    public function fastestRecordHolder(int $edgeId, string $bikeClass, ?string $sinceDate): ?array
+    {
+        $rows = $this->bestRecordPassesForEdge($edgeId, $bikeClass, $sinceDate);
+        if ($rows === []) {
+            return null;
+        }
+        usort($rows, static fn (array $a, array $b): int =>
+            ($b['avg_speed_kmh'] <=> $a['avg_speed_kmh'])
+            ?: ($a['duration_ms'] <=> $b['duration_ms'])
+            ?: ($a['user_id'] <=> $b['user_id']));
+        $top = $rows[0];
+        $handles = $this->handlesFor([$top['user_id']]);
+        return [
+            'user_id'       => $top['user_id'],
+            'handle'        => $handles[$top['user_id']] ?? null,
+            'avg_speed_kmh' => $top['avg_speed_kmh'],
+            'duration_ms'   => $top['duration_ms'],
+        ];
+    }
+
+    /**
+     * @return list<int> Route-IDs mit Pässen ohne Rekord-Daten (Backfill §6).
+     */
+    public function routeIdsNeedingRecordBackfill(int $limit, int $afterRouteId = 0): array
+    {
+        $limit = max(1, $limit);
+        $stmt = $this->pdo->prepare(
+            'SELECT DISTINCT p.route_id
+               FROM game_edge_pass p
+              WHERE p.duration_ms IS NULL AND p.invalidated_at IS NULL AND p.route_id > ?
+              ORDER BY p.route_id ASC
+              LIMIT ' . (int)$limit
+        );
+        $stmt->execute([$afterRouteId]);
+        return array_map(static fn ($id): int => (int)$id, $stmt->fetchAll(PDO::FETCH_COLUMN));
+    }
+
+    /** @return array{duration_ms:?int,avg_speed_kmh:?float,bike_class:?string}|null */
+    public function passRecordForUserEdgeDay(int $edgeId, int $userId, string $riddenOn): ?array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT duration_ms, avg_speed_kmh, bike_class FROM game_edge_pass
+              WHERE edge_id = ? AND user_id = ? AND ridden_on = ? AND invalidated_at IS NULL
+              LIMIT 1'
+        );
+        $stmt->execute([$edgeId, $userId, $riddenOn]);
+        $r = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($r === false) {
+            return null;
+        }
+        return [
+            'duration_ms'   => $r['duration_ms'] !== null ? (int)$r['duration_ms'] : null,
+            'avg_speed_kmh' => $r['avg_speed_kmh'] !== null ? (float)$r['avg_speed_kmh'] : null,
+            'bike_class'    => $r['bike_class'] !== null ? (string)$r['bike_class'] : null,
+        ];
     }
 }

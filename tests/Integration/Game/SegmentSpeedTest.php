@@ -28,6 +28,7 @@ final class SegmentSpeedTest extends IntegrationTestCase
     protected function setUp(): void
     {
         parent::setUp();
+        $this->markTestSkipped('Legacy game_segment_effort — ersetzt durch EdgeRecordTest (Spec 2026-06-24).');
         $this->repo = new GameRepository($this->pdo);
         $this->config = new GameConfig($this->pdo);
         $this->speed = new SegmentSpeedService($this->repo, $this->config);

@@ -159,7 +159,60 @@ final class GeometryParser
             startedAt: $startedAt,
             endedAt: $endedAt,
             elevationGainOverrideM: self::readElevationGainOverride($xml),
+            bikeClass: self::readBikeClass($xml),
+            hasRecordingMarkers: self::hasRecordingMarkers($xml),
         );
+    }
+
+    private static function readBikeClass(string $gpx): string
+    {
+        $raw = self::readGeExtension($gpx, 'bikeType');
+        return \App\Game\BikeClass::normalize($raw);
+    }
+
+    private static function hasRecordingMarkers(string $gpx): bool
+    {
+        $prev = libxml_use_internal_errors(true);
+        libxml_clear_errors();
+        try {
+            $xml = simplexml_load_string($gpx);
+        } catch (\Throwable) {
+            return false;
+        } finally {
+            libxml_clear_errors();
+            libxml_use_internal_errors($prev);
+        }
+        if ($xml === false) {
+            return false;
+        }
+        $xml->registerXPathNamespace('ge', 'http://grava.world/gpx/1');
+        $nodes = $xml->xpath('//ge:surfaceScore');
+        return is_array($nodes) && count($nodes) > 0;
+    }
+
+    /** @return ?string Rohtext einer `<ge:*>`-Extension (metadata oder trk). */
+    private static function readGeExtension(string $gpx, string $localName): ?string
+    {
+        $prev = libxml_use_internal_errors(true);
+        libxml_clear_errors();
+        try {
+            $xml = simplexml_load_string($gpx);
+        } catch (\Throwable) {
+            return null;
+        } finally {
+            libxml_clear_errors();
+            libxml_use_internal_errors($prev);
+        }
+        if ($xml === false) {
+            return null;
+        }
+        $xml->registerXPathNamespace('ge', 'http://grava.world/gpx/1');
+        $nodes = $xml->xpath("//ge:{$localName}");
+        if (!is_array($nodes) || $nodes === []) {
+            return null;
+        }
+        $v = trim((string)$nodes[0]);
+        return $v === '' ? null : $v;
     }
 
     /**

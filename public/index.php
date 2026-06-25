@@ -104,9 +104,12 @@ use App\Game\GameIngestionService;
 use App\Game\TerritoryTakeoverNotifier;
 use App\Game\GameReadService;
 use App\Game\GameRecomputeService;
+use App\Game\EdgeRecordService;
+use App\Game\EdgeRecordBackfillService;
 use App\Game\PlayerLeaderboardService;
 use App\Game\SegmentSpeedService;
 use App\Controllers\Api\GameController;
+use App\Controllers\Api\EdgeRecordController;
 use App\Controllers\Api\PlayerLeaderboardController;
 use App\Controllers\Api\SegmentSpeedController;
 use App\Database\Db;
@@ -224,7 +227,8 @@ $gameValhalla = new ValhallaClient(
 $gameMatcher   = new ValhallaEdgeMatcher($gameValhalla);
 $gameTakeovers = new TerritoryTakeoverNotifier($gameRepo, $notifServ);
 $gameIngest    = new GameIngestionService($gameMatcher, $gameRepo, $gameRecalc, $gameConfig, Db::pdo(), $gameTakeovers, $privacyZoneRepo);
-$gameRead      = new GameReadService($gameRepo, $gameConfig);
+$edgeRecords   = new EdgeRecordService($gameRepo, $gameConfig);
+$gameRead      = new GameReadService($gameRepo, $gameConfig, $edgeRecords);
 $gameRecompute = new GameRecomputeService($gameRepo, $gameRecalc);
 $privacyZoneSvc = new \App\Privacy\PrivacyZoneService($privacyZoneRepo, $gameRepo, $gameRecalc, Db::pdo());
 
@@ -257,6 +261,7 @@ $routeRepo    = new RouteRepository();
 $routeHints   = new RouteHintService(new RouteHintParser(), new RouteHintRepository());
 $elevationThresholdM = (float)($config->get('ROUTE_ELEVATION_THRESHOLD_M', GeometryStats::DEFAULT_ELEVATION_HYSTERESIS_M) ?? GeometryStats::DEFAULT_ELEVATION_HYSTERESIS_M);
 $routeService = new RouteService($routeRepo, $routeStorage, new GeometryParser(), new GeometryStats($elevationThresholdM), $routeHints, $gameEnabled ? $gameIngest : null);
+$edgeBackfill = new EdgeRecordBackfillService($gameRepo, $gameIngest, $routeService, new GeometryParser());
 $shareTokens  = new ShareTokenService($routeRepo);
 // GeoJSON-Konverter für die Web-Karten (eigener Parser, zustandslos).
 // SurfaceTrack färbt GPX-Tracks mit <ge:surfaceScore> ein.
@@ -306,7 +311,7 @@ $routeSurface = new RouteSurfaceService(
 // CLI dispatch
 // ---------------------------------------------------------------------------
 if (PHP_SAPI === 'cli') {
-    $cli = new Commands($basePath, $tokens, $routeService, $config, new NotificationService(), new HeatmapService(), $heatmapLines, $gameRecompute, $gameRushSvc, $gameCrewSvc);
+    $cli = new Commands($basePath, $tokens, $routeService, $config, new NotificationService(), new HeatmapService(), $heatmapLines, $gameRecompute, $gameRushSvc, $gameCrewSvc, $edgeBackfill);
     exit($cli->run($_SERVER['argv'] ?? []));
 }
 
@@ -401,6 +406,7 @@ $apiMeHeatmap = new \App\Controllers\Api\MeHeatmapController($personalHeatmap);
 $apiHeatmapLines = new HeatmapLinesController($heatmapLines);
 $apiReferral = new ReferralController($referrals);
 $apiGame = new GameController($gameRead, $gameRepo, $gameIngest, $gameConfig, $routeService, new GeometryParser(), $gameRideSummary, $gameAtRisk);
+$apiEdgeRecords = new EdgeRecordController($edgeRecords);
 $apiPlayerBoard = new PlayerLeaderboardController(new PlayerLeaderboardService($gameRepo, $gameConfig));
 $apiSegment = new SegmentSpeedController(new SegmentSpeedService($gameRepo, $gameConfig));
 $apiPrivacyZone = new \App\Controllers\Api\PrivacyZoneController($privacyZoneSvc);
@@ -593,6 +599,7 @@ $router->get("{$apiBase}/referrals/me",                           fn($r) => $api
 // ---- Game (Stufe 1 — Territorialspiel) ----
 $router->get("{$apiBase}/game/edges",              fn($r) => $apiGame->edges($r),    [$optionalBearer]);
 $router->get("{$apiBase}/game/edges/{id}",         fn($r) => $apiGame->edge($r),     [$optionalBearer]);
+$router->get("{$apiBase}/game/edges/{id}/records", fn($r) => $apiEdgeRecords->records($r), [$optionalBearer]);
 $router->get("{$apiBase}/game/me",                 fn($r) => $apiGame->me($r),       [$requireBearer]);
 $router->get("{$apiBase}/game/me/at-risk",         fn($r) => $apiGame->atRisk($r),   [$requireBearer]);
 $router->get("{$apiBase}/game/config",             fn($r) => $apiGame->config($r),   [$requireBearer]);
@@ -755,7 +762,7 @@ $router->post('/u/{handle}/r/{id}/comments/{cid}/delete', fn($r) => $webEngage->
 // und verhalten sich wie eine unbekannte Route (404).
 $internalToken = (string)($config->get('INTERNAL_TOKEN', '') ?? '');
 $runInternal = function (Request $r, string $command)
-    use ($internalToken, $basePath, $tokens, $routeService, $config, $heatmapLines, $gameRecompute, $gameRushSvc, $gameCrewSvc) {
+    use ($internalToken, $basePath, $tokens, $routeService, $config, $heatmapLines, $gameRecompute, $gameRushSvc, $gameCrewSvc, $edgeBackfill) {
     if ($internalToken === '') {
         Response::error('not_found', 'Nicht gefunden.', 404);
     }
@@ -763,10 +770,16 @@ $runInternal = function (Request $r, string $command)
     if ($provided === '' || !hash_equals($internalToken, $provided)) {
         Response::error('not_found', 'Nicht gefunden.', 404);
     }
-    $cli = new Commands($basePath, $tokens, $routeService, $config, new NotificationService(), new HeatmapService(), $heatmapLines, $gameRecompute, $gameRushSvc, $gameCrewSvc);
+    $cli = new Commands($basePath, $tokens, $routeService, $config, new NotificationService(), new HeatmapService(), $heatmapLines, $gameRecompute, $gameRushSvc, $gameCrewSvc, $edgeBackfill);
+    $argv = ['internal', $command];
+    foreach (['limit', 'sleep-ms', 'after-route-id', 'bbox'] as $opt) {
+        if (isset($r->query[$opt]) && (string)$r->query[$opt] !== '') {
+            $argv[] = '--' . $opt . '=' . (string)$r->query[$opt];
+        }
+    }
     ob_start();
     try {
-        $code = $cli->run(['internal', $command]);
+        $code = $cli->run($argv);
         $output = trim((string)ob_get_clean());
     } catch (\Throwable $e) {
         // Aufräumen des Buffers, dann den ECHTEN Fehler an den (per Token
@@ -800,6 +813,8 @@ $router->get('/internal/cron/heatmap-lines',  fn($r) => $runInternal($r, 'cron:h
 $router->post('/internal/cron/heatmap-lines', fn($r) => $runInternal($r, 'cron:heatmap-lines'));
 $router->get('/internal/cron/game-recompute',  fn($r) => $runInternal($r, 'game:recompute'));
 $router->post('/internal/cron/game-recompute', fn($r) => $runInternal($r, 'game:recompute'));
+$router->get('/internal/cron/game-backfill-speed',  fn($r) => $runInternal($r, 'game:backfill-speed'));
+$router->post('/internal/cron/game-backfill-speed', fn($r) => $runInternal($r, 'game:backfill-speed'));
 $router->get('/internal/cron/rush-tick',  fn($r) => $runInternal($r, 'game:rush-tick'));
 $router->post('/internal/cron/rush-tick', fn($r) => $runInternal($r, 'game:rush-tick'));
 $router->get('/internal/game/heal-crews',  fn($r) => $runInternal($r, 'game:heal-crews'));

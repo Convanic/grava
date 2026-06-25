@@ -25,6 +25,10 @@ final class ParsedRoute
      *        aus einer `<ge:elevationGain>`-Extension (z. B. barometrisch vom
      *        iOS-Client). Wenn gesetzt, bevorzugt {@see GeometryStats} ihn
      *        gegenüber dem aus `<ele>` berechneten Wert.
+     * @param string                 $bikeClass Normalisierte Klasse aus `<ge:bikeType>`
+     *        (fehlt → `other`).
+     * @param bool                   $hasRecordingMarkers true wenn mindestens ein
+     *        `<ge:surfaceScore>` an einem Trackpunkt (echte App-Aufzeichnung).
      */
     public function __construct(
         public readonly array $points,
@@ -32,6 +36,8 @@ final class ParsedRoute
         public readonly ?DateTimeImmutable $startedAt = null,
         public readonly ?DateTimeImmutable $endedAt = null,
         public readonly ?float $elevationGainOverrideM = null,
+        public readonly string $bikeClass = 'other',
+        public readonly bool $hasRecordingMarkers = false,
     ) {
     }
 

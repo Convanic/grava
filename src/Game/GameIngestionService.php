@@ -70,6 +70,8 @@ final class GameIngestionService
             'chunks_total' => 0, 'chunks_ok' => 0, 'chunks_failed' => 0,
             'efforts_new' => 0, 'skipped_effort_no_timing' => 0,
             'skipped_effort_short' => 0, 'skipped_effort_implausible' => 0,
+            'skipped_record_speed' => 0, 'skipped_record_hacc' => 0,
+            'skipped_record_short' => 0, 'skipped_record_no_rec' => 0,
         ];
 
         if ($this->repo->isUserBanned($userId)) {
@@ -95,14 +97,12 @@ final class GameIngestionService
         }
 
         $claimantId = $this->repo->riderClaimantId($userId);
+        $routeMeta = $this->repo->routeForIngest($routeId);
+        $routeSource = $routeMeta['source'] ?? 'app';
+        $bikeClass = BikeClass::normalize($route->bikeClass);
         $minSpeed = $this->config->float('auth_min_speed_kmh');
         $maxHacc = $this->config->float('auth_max_hacc_m');
         $requireMotion = $this->config->bool('auth_require_motion');
-
-        // Tempo-Wertung (GAME_SEGMENT_SPEED_BACKEND): Schwellen für Efforts.
-        $effortMinLength = $this->config->float('segment_min_length_m');
-        $effortMinSpeed  = $this->config->float('segment_min_speed_kmh');
-        $effortMaxSpeed  = $this->config->float('segment_max_speed_kmh');
 
         // Rush-Auto-Tag (§3.1): einmal die offenen Rushes der Crew des Fahrers
         // laden; das Fenster-/Announcement-Matching passiert je Segment in PHP
@@ -161,19 +161,20 @@ final class GameIngestionService
                 $rushId = $openRushes === []
                     ? null
                     : $this->matchRush($openRushes, $riddenAt, $rushRequiresAnnouncement);
-                if ($this->repo->insertPassIfAbsent($edgeId, $claimantId, $userId, $routeId, $riddenOn, $riddenAt, $rushId)) {
+                [$durationMs, $avgRecordKmh, $recordBike, $recordSkip] = $this->evaluateRecord(
+                    $seg, $seg->lengthM, $routeSource, $route->hasRecordingMarkers, $sourceHasMotion, $bikeClass,
+                );
+                if ($recordSkip !== null) {
+                    $summary['skipped_record_' . $recordSkip]++;
+                }
+                if ($this->repo->upsertPass(
+                    $edgeId, $claimantId, $userId, $routeId, $riddenOn, $riddenAt, $rushId,
+                    $durationMs, $avgRecordKmh, $recordBike,
+                )) {
                     $summary['passes_new']++;
                 } else {
                     $summary['skipped_day_cap']++;
                 }
-
-                // Tempo-Wertung: jede getimte, plausible Befahrung wird als Effort
-                // gebucht — UNABHÄNGIG vom Tages-Deckel des Passes (eine zweite,
-                // schnellere Fahrt am selben Tag soll zählen).
-                $this->recordEffort(
-                    $seg, $edgeId, $claimantId, $userId, $routeId, $riddenAt,
-                    $effortMinLength, $effortMinSpeed, $effortMaxSpeed, $summary,
-                );
 
                 $touched[$edgeId] = true;
                 $edgeGeoms[$edgeId] = $geom;
@@ -283,54 +284,45 @@ final class GameIngestionService
     }
 
     /**
-     * Bucht einen Segment-Effort (Tempo-Wertung), sofern die Befahrung getimt und
-     * plausibel ist. Gates per Config; nur ein Skip-Grund pro Segment. Der Pass
-     * hat die Auth-Filter bereits passiert, wenn wir hier sind.
+     * Rekord-Felder für den Tages-Pass (Spec §3). Pass bleibt für Präsenz gültig,
+     * auch wenn Rekord-Auth fehlschlägt (duration_ms = NULL).
      *
-     * @param array<string,mixed> $summary
+     * @return array{0:?int,1:?float,2:?string,3:?string} [durationMs, avgKmh, bikeClass, skipKey|null]
      */
-    private function recordEffort(
+    private function evaluateRecord(
         MatchedSegment $seg,
-        int $edgeId,
-        int $claimantId,
-        int $userId,
-        int $routeId,
-        string $riddenAt,
-        float $minLength,
-        float $minSpeed,
-        float $maxSpeed,
-        array &$summary,
-    ): void {
-        // Ohne Timing (z. B. Strava-/GPX-Import) keine Tempo-Wertung.
-        if (!$seg->hasMotion || $seg->avgSpeedKmh === null) {
-            $summary['skipped_effort_no_timing']++;
-            return;
+        float $edgeLengthM,
+        string $routeSource,
+        bool $hasRecordingMarkers,
+        bool $sourceHasMotion,
+        string $bikeClass,
+    ): array {
+        if (!$seg->hasMotion || $seg->durationS === null) {
+            return [null, null, null, 'no_rec'];
         }
-        if ($seg->lengthM < $minLength) {
-            $summary['skipped_effort_short']++;
-            return;
+        $computed = EdgeRecordMath::fromDurationSeconds($edgeLengthM, $seg->durationS);
+        if ($computed === null) {
+            return [null, null, null, 'no_rec'];
         }
-        $speed = $seg->avgSpeedKmh;
-        if ($speed < $minSpeed || $speed > $maxSpeed) {
-            $summary['skipped_effort_implausible']++;
-            return;
+        if ($edgeLengthM < $this->config->float('record_min_edge_length_m')) {
+            return [null, null, null, 'short'];
         }
-
-        // Dauer aus dem Matcher (Ein-/Austritt) oder aus Länge/Tempo abgeleitet.
-        $duration = $seg->durationS ?? ($seg->lengthM / ($speed / 3.6));
-        if ($duration <= 0.0) {
-            $summary['skipped_effort_implausible']++;
-            return;
+        $avg = $computed['avg_speed_kmh'];
+        if ($avg > $this->config->float('record_max_speed_kmh')) {
+            return [null, null, null, 'speed'];
         }
-
-        $this->repo->insertSegmentEffort(
-            $edgeId, $claimantId, $userId, $routeId, $riddenAt,
-            $duration, $speed, $seg->lengthM,
-        );
-        $summary['efforts_new']++;
+        if ($seg->maxHaccM !== null && $seg->maxHaccM > $this->config->float('record_max_hacc_m')) {
+            return [null, null, null, 'hacc'];
+        }
+        if ($this->config->bool('record_require_recording')
+            && ($routeSource !== 'app' || !$hasRecordingMarkers || !$sourceHasMotion)
+        ) {
+            return [null, null, null, 'no_rec'];
+        }
+        return [$computed['duration_ms'], $avg, $bikeClass, null];
     }
 
-    /** @param array{matched:int,passes_new:int,skipped_day_cap:int,skipped_auth_speed:int,skipped_auth_hacc:int,skipped_no_motion:int,skipped_privacy_zone:int,banned:bool,chunks_total:int,chunks_ok:int,chunks_failed:int,efforts_new:int,skipped_effort_no_timing:int,skipped_effort_short:int,skipped_effort_implausible:int} $summary */
+    /** @param array{matched:int,passes_new:int,skipped_day_cap:int,skipped_auth_speed:int,skipped_auth_hacc:int,skipped_no_motion:int,skipped_privacy_zone:int,banned:bool,chunks_total:int,chunks_ok:int,chunks_failed:int,efforts_new:int,skipped_effort_no_timing:int,skipped_effort_short:int,skipped_effort_implausible:int,skipped_record_speed:int,skipped_record_hacc:int,skipped_record_short:int,skipped_record_no_rec:int} $summary */
     private function logOk(int $routeId, int $userId, array $summary, float $startedAt): void
     {
         $this->repo->insertIngestLog(
@@ -352,6 +344,10 @@ final class GameIngestionService
                 'effort_no_timing'   => $summary['skipped_effort_no_timing'],
                 'effort_short'       => $summary['skipped_effort_short'],
                 'effort_implausible' => $summary['skipped_effort_implausible'],
+                'record_speed'       => $summary['skipped_record_speed'],
+                'record_hacc'        => $summary['skipped_record_hacc'],
+                'record_short'       => $summary['skipped_record_short'],
+                'record_no_rec'      => $summary['skipped_record_no_rec'],
             ],
             null,
             (int) round((microtime(true) - $startedAt) * 1000),

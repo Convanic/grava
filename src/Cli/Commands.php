@@ -24,6 +24,7 @@ final class Commands
         private readonly ?\App\Game\GameRecomputeService $gameRecompute = null,
         private readonly ?\App\Game\Rush\RushService $rushService = null,
         private readonly ?\App\Game\Crew\CrewService $crewService = null,
+        private readonly ?\App\Game\EdgeRecordBackfillService $edgeBackfill = null,
     ) {}
 
     public function run(array $argv): int
@@ -64,6 +65,9 @@ final class Commands
 
             case 'game:heal-crews':
                 return $this->healCrews();
+
+            case 'game:backfill-speed':
+                return $this->backfillSpeed($argv);
 
             case 'internal:logtail':
             case 'logtail':
@@ -465,6 +469,27 @@ final class Commands
         return $opts;
     }
 
+    /** @param list<string> $argv */
+    private function backfillSpeed(array $argv): int
+    {
+        if ($this->edgeBackfill === null) {
+            fwrite(STDERR, "game:backfill-speed nicht verfügbar (Service nicht verdrahtet).\n");
+            return 1;
+        }
+        $opts = $this->parseOptions($argv);
+        $limit = max(1, (int)($opts['limit'] ?? 100));
+        $sleepMs = max(0, (int)($opts['sleep-ms'] ?? 500));
+        $after = max(0, (int)($opts['after-route-id'] ?? 0));
+        $res = $this->edgeBackfill->run($limit, $sleepMs, $after);
+        echo sprintf(
+            "Backfill: %d Route(n) verarbeitet, %d Fehler, letzte route_id=%d\n",
+            $res['processed'],
+            $res['errors'],
+            $res['last_route_id'],
+        );
+        return $res['errors'] > 0 ? 1 : 0;
+    }
+
     private function help(): void
     {
         echo "GRAVA Backend CLI\n";
@@ -480,6 +505,7 @@ final class Commands
         echo "  game:recompute      Berechnet alle Spiel-Kanten aus den Pässen neu [--bbox=minLon,minLat,maxLon,maxLat]\n";
         echo "  game:rush-tick      Aktualisiert fällige Rush-Status (planned→active→completed/expired)\n";
         echo "  game:heal-crews     Heilt captain-lose Crews (promotet ältestes Mitglied)\n";
+        echo "  game:backfill-speed Rekord-Daten auf Bestands-Pässe [--limit=100] [--sleep-ms=500] [--after-route-id=0]\n";
         echo "  help                Zeigt diese Hilfe\n";
     }
 }

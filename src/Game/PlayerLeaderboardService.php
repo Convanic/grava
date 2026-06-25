@@ -26,7 +26,7 @@ final class PlayerLeaderboardService
     /** @var list<string> */
     public const WINDOWS = ['week', 'season', 'all'];
     /** @var list<string> */
-    public const METRICS = ['area', 'pioneer', 'value', 'distance'];
+    public const METRICS = ['area', 'pioneer', 'value', 'distance', 'records'];
 
     public function __construct(
         private readonly GameRepository $repo,
@@ -53,6 +53,7 @@ final class PlayerLeaderboardService
 
         $presenceWindow = $this->config->int('presence_window_days');
         $isPioneerCount = $metric === 'pioneer';
+        $isRecordsCount = $metric === 'records';
 
         // Pro-Fahrer-Kennzahl bestimmen.
         $valueByUser = match ($metric) {
@@ -61,6 +62,9 @@ final class PlayerLeaderboardService
             'distance' => $this->repo->distanceByUserSince($this->windowSince($window, $presenceWindow, $now, false)),
             'pioneer'  => $this->intToFloatMap(
                 $this->repo->pioneerCountByUserSince($this->windowSince($window, $presenceWindow, $now, false), self::PIONEER_COHORT),
+            ),
+            'records'  => $this->intToFloatMap(
+                $this->repo->crownsByUser($this->recordsWindowSince($window, $presenceWindow, $now)),
             ),
             default    => [],
         };
@@ -107,14 +111,14 @@ final class PlayerLeaderboardService
             $entries[] = [
                 'rank'   => $i + 1,
                 'handle' => $handles[$r['user_id']] ?? null,
-                'value'  => $this->formatValue($r['value'], $isPioneerCount),
+                'value'  => $this->formatValue($r['value'], $isPioneerCount || $isRecordsCount),
                 'is_me'  => $userId !== null && $r['user_id'] === $userId,
             ];
         }
 
         $me = null;
         if ($userId !== null && $meRank !== null) {
-            $me = ['rank' => $meRank, 'value' => $this->formatValue((float)$meValue, $isPioneerCount)];
+            $me = ['rank' => $meRank, 'value' => $this->formatValue((float)$meValue, $isPioneerCount || $isRecordsCount)];
         }
 
         return ['entries' => $entries, 'me' => $me];
@@ -158,8 +162,19 @@ final class PlayerLeaderboardService
         return $out;
     }
 
+    /** Fenster für metric=records: week/season/all wie Spec §4.2 (Pässe filtern). */
+    private function recordsWindowSince(string $window, int $presenceWindow, DateTimeImmutable $now): ?string
+    {
+        if ($window === 'week') {
+            return $now->modify('-7 days')->format('Y-m-d');
+        }
+        if ($window === 'season') {
+            return $now->modify("-{$presenceWindow} days")->format('Y-m-d');
+        }
+        return null;
+    }
+
     /**
-     * Startdatum (Y-m-d) des Datenfensters. Für präsenzbasierte Kennzahlen
      * (area/value, $presenceBound=true) ist season/all = 90 Tage; week = 7.
      * Für distance/pioneer ($presenceBound=false) ist all = null (kein Limit).
      */

@@ -17,6 +17,7 @@ final class GameReadService
     public function __construct(
         private readonly GameRepository $repo,
         private readonly GameConfig $config,
+        private readonly ?EdgeRecordService $records = null,
     ) {}
 
     /**
@@ -67,17 +68,22 @@ final class GameReadService
             'traffic_factor'        => $base['traffic_factor'],
             'traffic_class'         => $base['traffic_class'],
             'geom'                  => $base['geom'],
+            'fastest'               => (object)($this->records !== null ? $this->records->fastestByClass($edgeId) : []),
         ];
     }
 
     /** @return array<string,mixed> */
-    public function me(int $claimantId): array
+    public function me(int $claimantId, ?int $userId = null): array
     {
         $s = $this->repo->meStats($claimantId);
+        $recordsHeld = ($userId !== null && $this->records !== null)
+            ? $this->records->recordsHeld($userId)
+            : 0;
         return [
             'held_edges'      => $s['held'],
             'pioneered_edges' => $s['pioneered'],
             'held_length_m'   => $s['held_length_m'],
+            'records_held'    => $recordsHeld,
         ];
     }
 

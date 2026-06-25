@@ -76,7 +76,7 @@ final class GameController
         // Crew-Mitglied held_edges=0, obwohl seine Kanten als owner_is_me=true
         // erscheinen (Besitz liegt nach Beitritt beim Group-Claimant).
         $claimant = $this->repo->effectiveClaimantId($uid);
-        Response::json($this->read->me($claimant));
+        Response::json($this->read->me($claimant, $uid));
     }
 
     /** GET /game/me/at-risk — gefährdete eigene Kanten (Bearer). */

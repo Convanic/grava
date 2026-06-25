@@ -79,6 +79,12 @@ final class GameConfig
         'risk_threshold'               => '0.85',
         'fade_threshold'               => '0.2',
         'at_risk_list_limit'           => '10',
+        // Segment-Rekorde (GAME_SEGMENT_SPEED_BACKEND.md 2026-06-24).
+        'record_max_speed_kmh'         => '70',
+        'record_min_edge_length_m'     => '50',
+        'record_max_hacc_m'            => '20',
+        'record_require_recording'     => '1',
+        'edge_records_list_limit'      => '10',
     ];
 
     public function __construct(private readonly PDO $pdo) {}
