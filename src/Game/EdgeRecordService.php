@@ -10,7 +10,7 @@ use DateTimeImmutable;
  * Segment-Bestzeiten auf game_edge_pass (GAME_SEGMENT_SPEED_BACKEND.md 2026-06-24):
  * Pro-Kante-Rekorde, Crowns (records_held) und fastest-Block — reine Lese-Aggregation.
  *
- * Crowns sind all-time je (edge_id, bike_class); window filtert nur die
+ * Crowns sind all-time je (edge_id, Motor-Gruppe); window filtert nur die
  * qualifizierenden Pässe beim Lesen (Spec §4.2).
  */
 final class EdgeRecordService
@@ -99,7 +99,7 @@ final class EdgeRecordService
         return $out;
     }
 
-    /** Anzahl gehaltener Crowns (Rang 1 je edge_id + bike_class). */
+    /** Anzahl gehaltener Crowns (Rang 1 je edge_id + Motor-Gruppe). */
     public function recordsHeld(int $userId, ?string $sinceDate = null): int
     {
         return $this->repo->countCrownsForUser($userId, $sinceDate);
@@ -112,22 +112,22 @@ final class EdgeRecordService
     }
 
     /**
-     * Kurzanzeige je Fahrrad-Klasse für GET /game/edges/{id}.
+     * Kurzanzeige je Motor-Gruppe für GET /game/edges/{id}.
      *
      * @return array<string,array{handle:?string,avg_speed_kmh:float,bike:string}>
      */
     public function fastestByClass(int $edgeId): array
     {
         $out = [];
-        foreach (BikeClass::ALLOWED as $bike) {
-            $holder = $this->repo->fastestRecordHolder($edgeId, $bike, null);
+        foreach (BikeClass::MOTOR_GROUPS as $group) {
+            $holder = $this->repo->fastestRecordHolder($edgeId, $group, null);
             if ($holder === null) {
                 continue;
             }
-            $out[$bike] = [
+            $out[$group] = [
                 'handle'        => $holder['handle'],
                 'avg_speed_kmh' => round($holder['avg_speed_kmh'], 2),
-                'bike'          => $bike,
+                'bike'          => $group,
             ];
         }
         return $out;

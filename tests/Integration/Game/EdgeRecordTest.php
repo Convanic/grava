@@ -38,7 +38,7 @@ final class EdgeRecordTest extends IntegrationTestCase
         $this->read = new GameReadService($this->repo, $this->config, $this->records);
     }
 
-    private function parsedRoute(string $bikeClass = 'muscle', bool $recordingMarkers = true): ParsedRoute
+    private function parsedRoute(string $bikeClass = 'gravel', bool $recordingMarkers = true): ParsedRoute
     {
         $base = (new GeometryParser())->parse(
             '{"type":"LineString","coordinates":[[9.65,47.12],[9.66,47.13],[9.67,47.14]]}'
@@ -136,7 +136,7 @@ final class EdgeRecordTest extends IntegrationTestCase
         $this->ingest(
             [$this->segment(durationS: 30.0, at: '2026-06-21 08:00:00')],
             $u,
-            $this->parsedRoute('muscle'),
+            $this->parsedRoute('gravel'),
             $this->now('2026-06-21T08:00:00Z'),
         );
 

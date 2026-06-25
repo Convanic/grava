@@ -1255,13 +1255,13 @@ final class GameRepository
     // ----------------------------------------------------------------
 
     /**
-     * Bestpass je Fahrer auf einer Kante (MIN duration_ms), optional nach bike_class.
+     * Bestpass je Fahrer auf einer Kante (MIN duration_ms), optional nach Motor-Gruppe.
      *
+     * @param string $queryBike muscle|ebike|all (Filter, nicht exakter Speicherwert)
      * @return list<array{user_id:int,duration_ms:int,avg_speed_kmh:float,ridden_at:string,bike_class:?string}>
      */
-    public function bestRecordPassesForEdge(int $edgeId, string $bikeClass, ?string $sinceDate): array
+    public function bestRecordPassesForEdge(int $edgeId, string $queryBike, ?string $sinceDate): array
     {
-        $filterBike = $bikeClass !== BikeClass::ALL;
         $sql =
             'SELECT user_id, duration_ms, avg_speed_kmh, ridden_at, bike_class FROM (
                 SELECT user_id, duration_ms, avg_speed_kmh, ridden_at, bike_class,
@@ -1272,9 +1272,12 @@ final class GameRepository
                   FROM game_edge_pass
                  WHERE edge_id = ? AND invalidated_at IS NULL AND duration_ms IS NOT NULL';
         $params = [$edgeId];
-        if ($filterBike) {
-            $sql .= ' AND bike_class = ?';
-            $params[] = $bikeClass;
+        $motorFilter = BikeClass::sqlMotorFilter($queryBike);
+        if ($motorFilter !== null) {
+            $sql .= $motorFilter[0];
+            foreach ($motorFilter[1] as $p) {
+                $params[] = $p;
+            }
         }
         if ($sinceDate !== null) {
             $sql .= ' AND ridden_on >= ?';
@@ -1297,7 +1300,7 @@ final class GameRepository
     }
 
     /**
-     * Crown-Anzahl je Fahrer: Rang 1 je (edge_id, bike_class).
+     * Crown-Anzahl je Fahrer: Rang 1 je (edge_id, Motor-Gruppe).
      *
      * @return array<int,int> user_id => crowns
      */
@@ -1305,22 +1308,25 @@ final class GameRepository
     {
         $sql =
             'SELECT user_id, COUNT(*) AS crowns FROM (
-                SELECT edge_id, bike_class, user_id,
+                SELECT edge_id, motor_group, user_id,
                        ROW_NUMBER() OVER (
-                           PARTITION BY edge_id, bike_class
+                           PARTITION BY edge_id, motor_group
                            ORDER BY best_ms ASC, user_id ASC
                        ) AS rn
                   FROM (
-                    SELECT edge_id, bike_class, user_id, MIN(duration_ms) AS best_ms
+                    SELECT edge_id,
+                           CASE WHEN bike_class = ? THEN ? ELSE ? END AS motor_group,
+                           user_id,
+                           MIN(duration_ms) AS best_ms
                       FROM game_edge_pass
                      WHERE invalidated_at IS NULL AND duration_ms IS NOT NULL';
-        $params = [];
+        $params = [BikeClass::EBIKE, BikeClass::EBIKE, BikeClass::MUSCLE];
         if ($sinceDate !== null) {
             $sql .= ' AND ridden_on >= ?';
             $params[] = $sinceDate;
         }
         $sql .=
-            '     GROUP BY edge_id, bike_class, user_id
+            '     GROUP BY edge_id, motor_group, user_id
                   ) user_bests
              ) leaders
              WHERE rn = 1
@@ -1341,9 +1347,9 @@ final class GameRepository
     }
 
     /** @return array{user_id:int,handle:?string,avg_speed_kmh:float,duration_ms:int}|null */
-    public function fastestRecordHolder(int $edgeId, string $bikeClass, ?string $sinceDate): ?array
+    public function fastestRecordHolder(int $edgeId, string $queryBike, ?string $sinceDate): ?array
     {
-        $rows = $this->bestRecordPassesForEdge($edgeId, $bikeClass, $sinceDate);
+        $rows = $this->bestRecordPassesForEdge($edgeId, $queryBike, $sinceDate);
         if ($rows === []) {
             return null;
         }
