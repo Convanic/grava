@@ -44,4 +44,35 @@ interface StravaClient
      * @return array{latlng:list<array{0:float,1:float}>, altitude:list<float>}
      */
     public function getActivityStreams(string $accessToken, string $activityId): array;
+
+    /**
+     * Lädt eine GPX/TCX-Datei hoch (asynchron).
+     *
+     * @return array{upload_id:string, external_id:?string}
+     */
+    public function uploadActivity(
+        string $accessToken,
+        string $fileContents,
+        string $dataType,
+        string $name,
+        string $description,
+        string $externalId,
+    ): array;
+
+    /**
+     * Pollt den Upload-Status.
+     *
+     * @return array{activity_id:?string, error:?string, status:int}
+     */
+    public function getUploadStatus(string $accessToken, string $uploadId): array;
+
+    /**
+     * Aktualisiert Beschreibung/Sichtbarkeit einer bestehenden Aktivität.
+     */
+    public function updateActivity(
+        string $accessToken,
+        string $activityId,
+        ?string $description,
+        ?string $visibility,
+    ): void;
 }

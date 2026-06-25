@@ -14,17 +14,24 @@ namespace App\Integrations\Strava;
  */
 final class FakeStravaClient implements StravaClient
 {
+    /** @var array<string,array{activity_id:string,description:?string,visibility:?string}> */
+    private array $uploadsByExternal = [];
+
+    /** @var array<string,string> upload_id → external_id */
+    private array $uploadExternal = [];
+
+    /** @var array<string,int> Poll-Zähler je upload_id */
+    private array $uploadPolls = [];
+
     public function exchangeCode(string $code): array
     {
-        // Der Fake akzeptiert jeden Code; athlete_id ist stabil, damit
-        // Re-Connect denselben Account trifft.
         return [
             'access_token'     => 'fake-access-' . substr(sha1($code), 0, 12),
             'refresh_token'    => 'fake-refresh-token',
             'expires_at'       => time() + 3600,
             'athlete_id'       => '99000001',
             'athlete_username' => 'fake_athlete',
-            'scope'            => 'read,activity:read_all',
+            'scope'            => 'read,activity:read_all,activity:write',
         ];
     }
 
@@ -57,12 +64,10 @@ final class FakeStravaClient implements StravaClient
 
     public function getActivityStreams(string $accessToken, string $activityId): array
     {
-        // Aktivität 2 hat keine GPS-Spur → leere latlng.
         if ($activityId === '7000000002') {
             return ['latlng' => [], 'altitude' => []];
         }
 
-        // Aktivität 1: kleine Spur im Kraichgau.
         return [
             'latlng' => [
                 [49.1000, 8.7000],
@@ -72,5 +77,90 @@ final class FakeStravaClient implements StravaClient
             ],
             'altitude' => [180.0, 192.0, 205.0, 198.0],
         ];
+    }
+
+    public function uploadActivity(
+        string $accessToken,
+        string $fileContents,
+        string $dataType,
+        string $name,
+        string $description,
+        string $externalId,
+    ): array {
+        if ($externalId !== '' && isset($this->uploadsByExternal[$externalId])) {
+            $existing = $this->uploadsByExternal[$externalId]['activity_id'];
+            if ($description !== '') {
+                $this->uploadsByExternal[$externalId]['description'] = $description;
+            }
+            return [
+                'upload_id'   => 'fake-upload-existing-' . substr(sha1($externalId), 0, 8),
+                'external_id' => $externalId,
+                'activity_id' => $existing,
+            ];
+        }
+
+        $uploadId = 'fake-upload-' . substr(sha1($externalId . $name), 0, 10);
+        $activityId = (string)(8800000000 + hexdec(substr(sha1($externalId), 0, 6)) % 1000000);
+        $this->uploadPolls[$uploadId] = 0;
+        if ($externalId !== '') {
+            $this->uploadsByExternal[$externalId] = [
+                'activity_id' => $activityId,
+                'description' => $description,
+                'visibility'  => null,
+            ];
+            $this->uploadExternal[$uploadId] = $externalId;
+        }
+
+        return ['upload_id' => $uploadId, 'external_id' => $externalId];
+    }
+
+    public function getUploadStatus(string $accessToken, string $uploadId): array
+    {
+        $this->uploadPolls[$uploadId] = ($this->uploadPolls[$uploadId] ?? 0) + 1;
+        if (($this->uploadPolls[$uploadId] ?? 0) < 1) {
+            return ['activity_id' => null, 'error' => null, 'status' => 202];
+        }
+
+        $ext = $this->uploadExternal[$uploadId] ?? null;
+        if ($ext !== null && isset($this->uploadsByExternal[$ext])) {
+            return [
+                'activity_id' => $this->uploadsByExternal[$ext]['activity_id'],
+                'error'       => null,
+                'status'      => 200,
+            ];
+        }
+
+        return ['activity_id' => '8800000001', 'error' => null, 'status' => 200];
+    }
+
+    public function updateActivity(
+        string $accessToken,
+        string $activityId,
+        ?string $description,
+        ?string $visibility,
+    ): void {
+        foreach ($this->uploadsByExternal as $ext => $row) {
+            if ($row['activity_id'] === $activityId) {
+                if ($description !== null) {
+                    $this->uploadsByExternal[$ext]['description'] = $description;
+                }
+                if ($visibility !== null) {
+                    $this->uploadsByExternal[$ext]['visibility'] = $visibility;
+                }
+                return;
+            }
+        }
+    }
+
+    /** Test-Helfer: gespeicherte Beschreibung je external_id. */
+    public function fakeDescriptionForExternal(string $externalId): ?string
+    {
+        return $this->uploadsByExternal[$externalId]['description'] ?? null;
+    }
+
+    /** Test-Helfer: activity_id je external_id. */
+    public function fakeActivityForExternal(string $externalId): ?string
+    {
+        return $this->uploadsByExternal[$externalId]['activity_id'] ?? null;
     }
 }

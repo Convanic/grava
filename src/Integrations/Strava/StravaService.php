@@ -4,6 +4,11 @@ declare(strict_types=1);
 namespace App\Integrations\Strava;
 
 use App\Database\Db;
+use App\Game\GameRepository;
+use App\Routes\RouteExportException;
+use App\Routes\RouteGpxExportService;
+use App\Routes\RouteNotFoundException;
+use App\Routes\RouteRepository;
 use App\Routes\RouteService;
 use App\Support\Clock;
 use App\Support\Crypto;
@@ -30,6 +35,9 @@ final class StravaService
         private readonly string $redirectUri,
         private readonly bool $fakeMode,
         private readonly string $appUrl,
+        private readonly RouteGpxExportService $gpxExport,
+        private readonly RouteRepository $routeRepo,
+        private readonly GameRepository $gameRepo,
     ) {}
 
     public function isConfigured(): bool
@@ -57,7 +65,7 @@ final class StravaService
 
         if ($this->fakeMode) {
             return rtrim($this->appUrl, '/') . '/auth/strava/callback'
-                . '?state=' . $state . '&code=fake-auth-code&scope=read,activity:read_all';
+                . '?state=' . $state . '&code=fake-auth-code&scope=read,activity:read_all,activity:write';
         }
 
         $params = http_build_query([
@@ -65,10 +73,8 @@ final class StravaService
             'redirect_uri'    => $this->redirectUri,
             'response_type'   => 'code',
             'approval_prompt' => 'auto',
-            // activity:read_all ist nötig, um auch PRIVATE Aktivitäten und
-            // deren GPS-Streams zu importieren (activity:read deckt nur
-            // öffentliche/Follower-sichtbare ab).
-            'scope'           => 'read,activity:read_all',
+            // activity:read_all für Import; activity:write für Upload (Share).
+            'scope'           => 'read,activity:read_all,activity:write',
             'state'           => $state,
         ]);
         return 'https://www.strava.com/oauth/authorize?' . $params;
@@ -193,6 +199,84 @@ final class StravaService
         return ['imported' => $imported, 'skipped' => $skipped, 'total' => count($activities)];
     }
 
+    /**
+     * Lädt eine Cloud-Route als Strava-Aktivität hoch (STRAVA_SHARE_BACKEND.md §3).
+     *
+     * @return array{strava_activity_id:string, activity_url:string, updated:bool}
+     */
+    public function share(int $userId, string $routePublicId, string $description, ?string $visibility = null): array
+    {
+        $conn = $this->connectionRow($userId);
+        if ($conn === null) {
+            throw new StravaException('not_connected', 'Strava ist nicht verbunden.', 409);
+        }
+        if (!self::scopeHasWrite((string)($conn['scope'] ?? ''))) {
+            throw new StravaException('scope_missing', 'Bitte Strava neu verbinden, um Uploads zu erlauben.', 403);
+        }
+
+        $route = $this->gameRepo->resolveRouteForIngest($routePublicId);
+        if ($route === null) {
+            throw new StravaException('not_found', 'Route nicht gefunden.', 404);
+        }
+        if ($route['user_id'] !== $userId) {
+            throw new StravaException('forbidden', 'Nur der Eigentümer kann teilen.', 403);
+        }
+
+        try {
+            $export = $this->gpxExport->exportForStrava($userId, $routePublicId);
+        } catch (RouteNotFoundException) {
+            throw new StravaException('not_found', 'Route nicht gefunden.', 404);
+        } catch (RouteExportException $e) {
+            throw new StravaException('empty_track', $e->getMessage(), 422);
+        }
+
+        $description = mb_substr(trim($description), 0, 8000);
+        $stravaVis = self::resolveVisibility($export['visibility'], $visibility);
+        $accessToken = $this->freshAccessToken($userId, $conn);
+        $routeId = (int)$route['route_id'];
+        $externalId = 'grava-' . $route['public_id'];
+
+        $existingId = $this->routeRepo->stravaActivityId($routeId);
+        if ($existingId !== null) {
+            $this->client->updateActivity($accessToken, $existingId, $description, $stravaVis);
+            return [
+                'strava_activity_id' => $existingId,
+                'activity_url'       => 'https://www.strava.com/activities/' . $existingId,
+                'updated'            => true,
+            ];
+        }
+
+        try {
+            $upload = $this->client->uploadActivity(
+                $accessToken,
+                $export['gpx'],
+                'gpx',
+                $export['title'],
+                $description,
+                $externalId,
+            );
+        } catch (StravaException $e) {
+            if ($e->httpStatus === 429) {
+                throw $e;
+            }
+            throw new StravaException('upload_failed', 'Strava-Upload fehlgeschlagen, bitte erneut versuchen.', 502);
+        }
+
+        $activityId = $upload['activity_id'] ?? null;
+        if ($activityId === null || $activityId === '') {
+            $activityId = $this->pollUpload($accessToken, (string)$upload['upload_id']);
+        }
+
+        $this->routeRepo->setStravaActivityId($routeId, $activityId);
+        $this->client->updateActivity($accessToken, $activityId, $description, $stravaVis);
+
+        return [
+            'strava_activity_id' => $activityId,
+            'activity_url'       => 'https://www.strava.com/activities/' . $activityId,
+            'updated'            => false,
+        ];
+    }
+
     public function disconnect(int $userId): void
     {
         Db::pdo()->prepare('DELETE FROM oauth_connections WHERE user_id = ? AND provider = "strava"')
@@ -298,6 +382,50 @@ final class StravaService
             'expires_at'    => $new['expires_at'],
         ]);
         return $new['access_token'];
+    }
+
+    private function pollUpload(string $accessToken, string $uploadId): string
+    {
+        $deadline = time() + 45;
+        $delayMs = 500;
+        while (time() < $deadline) {
+            usleep($delayMs * 1000);
+            $delayMs = min(3000, (int)($delayMs * 1.5));
+            try {
+                $status = $this->client->getUploadStatus($accessToken, $uploadId);
+            } catch (StravaException $e) {
+                if ($e->httpStatus === 429) {
+                    throw $e;
+                }
+                throw new StravaException('upload_failed', 'Strava-Upload fehlgeschlagen, bitte erneut versuchen.', 502);
+            }
+            if (($status['error'] ?? null) !== null && $status['error'] !== '') {
+                throw new StravaException('upload_failed', 'Strava-Upload fehlgeschlagen, bitte erneut versuchen.', 502);
+            }
+            $aid = $status['activity_id'] ?? null;
+            if ($aid !== null && $aid !== '') {
+                return (string)$aid;
+            }
+        }
+        throw new StravaException('upload_failed', 'Strava-Upload fehlgeschlagen, bitte erneut versuchen.', 502);
+    }
+
+    public static function scopeHasWrite(string $scope): bool
+    {
+        foreach (explode(',', $scope) as $part) {
+            if (trim($part) === 'activity:write') {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static function resolveVisibility(string $routeVisibility, ?string $requested): string
+    {
+        if ($requested !== null && in_array($requested, ['everyone', 'followers_only', 'only_me'], true)) {
+            return $requested;
+        }
+        return $routeVisibility === 'private' ? 'only_me' : 'everyone';
     }
 
     private function routeExists(int $userId, string $clientUuid): bool

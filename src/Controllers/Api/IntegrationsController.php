@@ -14,6 +14,7 @@ use App\Integrations\Strava\StravaService;
  *   GET    /api/v1/integrations/strava             Status der Verbindung
  *   GET    /api/v1/integrations/strava/connect-url  Mobile-Connect (Authorize-URL)
  *   POST   /api/v1/integrations/strava/import       importiert Activities
+ *   POST   /api/v1/integrations/strava/share          Route als Aktivität hochladen
  *   DELETE /api/v1/integrations/strava             trennt die Verbindung
  *
  * Der eigentliche OAuth-Callback läuft weiterhin über die Web-Route
@@ -65,6 +66,29 @@ final class IntegrationsController
         $userId = (int)($req->user->internal_id ?? 0);
         try {
             $res = $this->strava->import($userId);
+        } catch (StravaException $e) {
+            Response::error($e->errorCode, $e->getMessage(), $e->httpStatus);
+        }
+        Response::json($res);
+    }
+
+    public function stravaShare(Request $req): void
+    {
+        $userId = (int)($req->user->internal_id ?? 0);
+        $routeId = trim((string)($req->input('route_id') ?? ''));
+        $description = (string)($req->input('description') ?? '');
+        $visibility = $req->input('visibility');
+        $vis = is_string($visibility) && $visibility !== '' ? $visibility : null;
+
+        if ($routeId === '') {
+            Response::error('validation_error', 'route_id ist erforderlich.', 422);
+        }
+        if ($description === '') {
+            Response::error('validation_error', 'description ist erforderlich.', 422);
+        }
+
+        try {
+            $res = $this->strava->share($userId, $routeId, $description, $vis);
         } catch (StravaException $e) {
             Response::error($e->errorCode, $e->getMessage(), $e->httpStatus);
         }

@@ -92,6 +92,118 @@ final class RealStravaClient implements StravaClient
         return ['latlng' => $latlng, 'altitude' => $altitude];
     }
 
+    public function uploadActivity(
+        string $accessToken,
+        string $fileContents,
+        string $dataType,
+        string $name,
+        string $description,
+        string $externalId,
+    ): array {
+        $fields = [
+            'data_type'    => $dataType,
+            'name'         => $name,
+            'description'  => $description,
+            'external_id'  => $externalId,
+        ];
+        $res = $this->postMultipart(
+            self::API_BASE . '/uploads',
+            $accessToken,
+            $fields,
+            'file',
+            $fileContents,
+            'route.' . $dataType,
+        );
+        return [
+            'upload_id'   => (string)($res['id'] ?? ''),
+            'external_id' => isset($res['external_id']) ? (string)$res['external_id'] : $externalId,
+            'activity_id' => isset($res['activity_id']) ? (string)$res['activity_id'] : null,
+        ];
+    }
+
+    public function getUploadStatus(string $accessToken, string $uploadId): array
+    {
+        $res = $this->get(self::API_BASE . '/uploads/' . rawurlencode($uploadId), $accessToken);
+        $status = isset($res['status']) ? (string)$res['status'] : '';
+        return [
+            'activity_id' => isset($res['activity_id']) ? (string)$res['activity_id'] : null,
+            'error'       => isset($res['error']) ? (string)$res['error'] : null,
+            'status'      => $status === 'Your activity is ready.' ? 200 : 202,
+        ];
+    }
+
+    public function updateActivity(
+        string $accessToken,
+        string $activityId,
+        ?string $description,
+        ?string $visibility,
+    ): void {
+        $fields = [];
+        if ($description !== null) {
+            $fields['description'] = $description;
+        }
+        if ($visibility !== null) {
+            $fields['visibility'] = $visibility;
+        }
+        if ($fields === []) {
+            return;
+        }
+        $this->putForm(self::API_BASE . '/activities/' . rawurlencode($activityId), $accessToken, $fields);
+    }
+
+    /**
+     * @param array<string,string> $fields
+     * @return array<string,mixed>
+     */
+    private function putForm(string $url, string $accessToken, array $fields): array
+    {
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_CUSTOMREQUEST  => 'PUT',
+            CURLOPT_POSTFIELDS     => http_build_query($fields),
+            CURLOPT_HTTPHEADER     => [
+                'Authorization: Bearer ' . $accessToken,
+                'Content-Type: application/x-www-form-urlencoded',
+            ],
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => 30,
+        ]);
+        return $this->exec($ch);
+    }
+
+    /**
+     * @param array<string,string> $fields
+     * @return array<string,mixed>
+     */
+    private function postMultipart(
+        string $url,
+        string $accessToken,
+        array $fields,
+        string $fileField,
+        string $fileContents,
+        string $filename,
+    ): array {
+        $tmp = tempnam(sys_get_temp_dir(), 'grava-gpx-');
+        if ($tmp === false) {
+            throw new StravaException('strava_api_error', 'Temp-Datei konnte nicht erstellt werden.', 502);
+        }
+        file_put_contents($tmp, $fileContents);
+        try {
+            $fields[$fileField] = new \CURLFile($tmp, 'application/gpx+xml', $filename);
+            $ch = curl_init($url);
+            curl_setopt_array($ch, [
+                CURLOPT_POST           => true,
+                CURLOPT_POSTFIELDS     => $fields,
+                CURLOPT_HTTPHEADER     => ['Authorization: Bearer ' . $accessToken],
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_TIMEOUT        => 60,
+            ]);
+            return $this->exec($ch, true);
+        } finally {
+            @unlink($tmp);
+        }
+    }
+
     /**
      * @param array<string,string> $fields
      * @return array<string,mixed>
@@ -121,16 +233,19 @@ final class RealStravaClient implements StravaClient
     }
 
     /** @return array<string,mixed> */
-    private function exec(\CurlHandle $ch): array
+    private function exec(\CurlHandle $ch, bool $allow429 = false): array
     {
         $body = curl_exec($ch);
         $status = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $err = curl_error($ch);
         curl_close($ch);
 
+        if ($allow429 && $status === 429) {
+            throw new StravaException('rate_limit', 'Strava-Limit erreicht, bitte später erneut.', 429);
+        }
         if ($body === false || $status >= 400) {
             throw new StravaException('strava_api_error',
-                'Strava-API-Fehler (HTTP ' . $status . '): ' . $err, 502);
+                'Strava-API-Fehler (HTTP ' . $status . '): ' . $err, $status >= 500 ? 502 : 502);
         }
         $decoded = json_decode((string)$body, true);
         return is_array($decoded) ? $decoded : [];

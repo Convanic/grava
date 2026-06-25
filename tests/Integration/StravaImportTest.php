@@ -6,8 +6,12 @@ namespace Tests\Integration;
 use App\Config\Config;
 use App\Integrations\Strava\FakeStravaClient;
 use App\Integrations\Strava\StravaService;
+use App\Privacy\PrivacyZoneRepository;
+use App\Privacy\RoutePrivacyTrimmer;
 use App\Routes\GeometryParser;
 use App\Routes\GeometryStats;
+use App\Routes\RouteGeoJson;
+use App\Routes\RouteGpxExportService;
 use App\Routes\RouteRepository;
 use App\Routes\RouteService;
 use App\Routes\RouteStorage;
@@ -31,6 +35,12 @@ final class StravaImportTest extends IntegrationTestCase
             new GeometryStats(),
         );
         $this->crypto = new Crypto(base64_encode(str_repeat("\x07", 32)));
+        $gpxExport = new RouteGpxExportService(
+            $this->routes,
+            new RouteGeoJson(new GeometryParser()),
+            new RoutePrivacyTrimmer(),
+            new PrivacyZoneRepository($this->pdo),
+        );
         $this->strava = new StravaService(
             new FakeStravaClient(),
             $this->crypto,
@@ -39,12 +49,21 @@ final class StravaImportTest extends IntegrationTestCase
             'http://localhost/auth/strava/callback',
             true,
             'http://localhost',
+            $gpxExport,
+            new RouteRepository(),
+            new \App\Game\GameRepository($this->pdo),
         );
     }
 
     /** Service im ECHTEN Modus (fakeMode=false) — für die Authorize-URL. */
     private function realModeService(): StravaService
     {
+        $gpxExport = new RouteGpxExportService(
+            $this->routes,
+            new RouteGeoJson(new GeometryParser()),
+            new RoutePrivacyTrimmer(),
+            new PrivacyZoneRepository($this->pdo),
+        );
         return new StravaService(
             new FakeStravaClient(),
             $this->crypto,
@@ -53,6 +72,9 @@ final class StravaImportTest extends IntegrationTestCase
             'https://grava.world/auth/strava/callback',
             false,
             'https://grava.world',
+            $gpxExport,
+            new RouteRepository(),
+            new \App\Game\GameRepository($this->pdo),
         );
     }
 
@@ -77,8 +99,8 @@ final class StravaImportTest extends IntegrationTestCase
         parse_str((string)parse_url($url, PHP_URL_QUERY), $q);
 
         $this->assertStringStartsWith('https://www.strava.com/oauth/authorize', $url);
-        $this->assertSame('read,activity:read_all', $q['scope'] ?? null,
-            'Privatе Aktivitäten + GPS-Streams brauchen activity:read_all.');
+        $this->assertSame('read,activity:read_all,activity:write', $q['scope'] ?? null,
+            'Import + Upload brauchen activity:read_all und activity:write.');
     }
 
     public function testStatusExposesModeFlags(): void
@@ -137,7 +159,7 @@ final class StravaImportTest extends IntegrationTestCase
         $this->connect($userId);
         $status = $this->strava->status($userId);
         $this->assertTrue($status['connected']);
-        $this->assertSame('read,activity:read_all', $status['scope'],
+        $this->assertSame('read,activity:read_all,activity:write', $status['scope'],
             'Gewährter Scope wird gespeichert und im Status gemeldet.');
 
         // Activity 1 hat GPS -> importiert; Activity 2 (Indoor) -> skip.

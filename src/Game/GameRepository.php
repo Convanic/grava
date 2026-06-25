@@ -1054,4 +1054,84 @@ final class GameRepository
         $stmt->execute($params);
         return (int)$stmt->fetchColumn();
     }
+
+    /**
+     * Spiel-Zusammenfassung einer Route (STRAVA_SHARE_BACKEND.md §2).
+     *
+     * @return array{
+     *   edges_total:int, edges_new:int, edges_taken_over:int,
+     *   pioneer_names:list<string>
+     * }
+     */
+    public function rideSummaryStats(int $routeId, int $userId, int $claimantId): array
+    {
+        $base = 'FROM game_edge_pass p
+                 JOIN game_edge e ON e.id = p.edge_id
+                 WHERE p.route_id = ? AND p.user_id = ? AND p.invalidated_at IS NULL';
+
+        $stmt = $this->pdo->prepare("SELECT COUNT(DISTINCT p.edge_id) {$base}");
+        $stmt->execute([$routeId, $userId]);
+        $edgesTotal = (int)$stmt->fetchColumn();
+
+        $stmt = $this->pdo->prepare(
+            "SELECT COUNT(DISTINCT p.edge_id) {$base}
+               AND p.ridden_at = (
+                   SELECT MIN(p2.ridden_at) FROM game_edge_pass p2
+                    WHERE p2.edge_id = p.edge_id AND p2.invalidated_at IS NULL
+               )"
+        );
+        $stmt->execute([$routeId, $userId]);
+        $edgesNew = (int)$stmt->fetchColumn();
+
+        $stmt = $this->pdo->prepare(
+            "SELECT COUNT(DISTINCT p.edge_id) {$base}
+               AND e.owner_claimant_id = ?
+               AND e.discoverer_claimant_id IS NOT NULL
+               AND e.discoverer_claimant_id != ?
+               AND EXISTS (
+                   SELECT 1 FROM game_edge_pass p2
+                    WHERE p2.edge_id = p.edge_id
+                      AND p2.invalidated_at IS NULL
+                      AND p2.claimant_id != ?
+                      AND p2.ridden_at < p.ridden_at
+               )"
+        );
+        $stmt->execute([$routeId, $userId, $claimantId, $claimantId, $claimantId]);
+        $edgesTakenOver = (int)$stmt->fetchColumn();
+
+        return [
+            'edges_total'      => $edgesTotal,
+            'edges_new'        => $edgesNew,
+            'edges_taken_over' => $edgesTakenOver,
+            'pioneer_names'    => [],
+        ];
+    }
+
+    /** @return array{rush_id:int,edges_rushed:int}|null */
+    public function rideRushAggregate(int $routeId, int $userId): ?array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT rush_id, COUNT(DISTINCT edge_id) AS edges_rushed
+               FROM game_edge_pass
+              WHERE route_id = ? AND user_id = ? AND invalidated_at IS NULL
+                AND rush_id IS NOT NULL
+              GROUP BY rush_id
+              ORDER BY edges_rushed DESC
+              LIMIT 1'
+        );
+        $stmt->execute([$routeId, $userId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($row === false) {
+            return null;
+        }
+        return ['rush_id' => (int)$row['rush_id'], 'edges_rushed' => (int)$row['edges_rushed']];
+    }
+
+    public function crewNameById(int $crewId): ?string
+    {
+        $stmt = $this->pdo->prepare('SELECT name FROM game_crew WHERE id = ? LIMIT 1');
+        $stmt->execute([$crewId]);
+        $name = $stmt->fetchColumn();
+        return $name === false ? null : (string)$name;
+    }
 }

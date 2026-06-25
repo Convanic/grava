@@ -745,6 +745,21 @@ final class RouteRepository
         ];
     }
 
+    public function stravaActivityId(int $routeId): ?string
+    {
+        $stmt = Db::pdo()->prepare('SELECT strava_activity_id FROM routes WHERE id = ? LIMIT 1');
+        $stmt->execute([$routeId]);
+        $v = $stmt->fetchColumn();
+        return $v === false || $v === null ? null : (string)$v;
+    }
+
+    public function setStravaActivityId(int $routeId, string $activityId): void
+    {
+        Db::pdo()->prepare(
+            'UPDATE routes SET strava_activity_id = ?, updated_at = ? WHERE id = ?'
+        )->execute([$activityId, Clock::nowUtcString(), $routeId]);
+    }
+
     /** Wandelt 'YYYY-MM-DD HH:MM:SS' in ISO-8601 mit UTC-Suffix. */
     private static function isoUtc(string $datetime): string
     {

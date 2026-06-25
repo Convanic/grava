@@ -261,6 +261,12 @@ $shareTokens  = new ShareTokenService($routeRepo);
 // GeoJSON-Konverter für die Web-Karten (eigener Parser, zustandslos).
 // SurfaceTrack färbt GPX-Tracks mit <ge:surfaceScore> ein.
 $routeGeoJson = new RouteGeoJson(new GeometryParser(), new SurfaceTrack());
+$routeGpxExport = new \App\Routes\RouteGpxExportService(
+    $routeService,
+    $routeGeoJson,
+    $privacyTrimmer,
+    $privacyZoneRepo,
+);
 // Höhenprofil + Untergrund-Verteilung für die Detail-Seiten.
 $routeInsights = new RouteInsights(new GeometryParser(), new SurfaceTrack());
 
@@ -365,7 +371,11 @@ $stravaServ    = new StravaService(
     $stravaRedirectUri,
     $stravaFake,
     (string)$config->get('APP_URL', ''),
+    $routeGpxExport,
+    $routeRepo,
+    $gameRepo,
 );
+$gameRideSummary = new \App\Game\GameRideSummaryService($gameRepo, $gameRushRepo);
 
 $apiAuth    = new AuthController($auth, $rate);
 $apiUsers   = new UserController($auth);
@@ -386,7 +396,7 @@ $personalHeatmap = new \App\Heatmap\PersonalHeatmapService($routeStorage, new Ge
 $apiMeHeatmap = new \App\Controllers\Api\MeHeatmapController($personalHeatmap);
 $apiHeatmapLines = new HeatmapLinesController($heatmapLines);
 $apiReferral = new ReferralController($referrals);
-$apiGame = new GameController($gameRead, $gameRepo, $gameIngest, $gameConfig, $routeService, new GeometryParser());
+$apiGame = new GameController($gameRead, $gameRepo, $gameIngest, $gameConfig, $routeService, new GeometryParser(), $gameRideSummary);
 $apiPlayerBoard = new PlayerLeaderboardController(new PlayerLeaderboardService($gameRepo, $gameConfig));
 $apiSegment = new SegmentSpeedController(new SegmentSpeedService($gameRepo, $gameConfig));
 $apiPrivacyZone = new \App\Controllers\Api\PrivacyZoneController($privacyZoneSvc);
@@ -560,6 +570,7 @@ $router->delete("{$apiBase}/users/me/avatar",                     fn($r) => $api
 $router->get("{$apiBase}/integrations/strava",                    fn($r) => $apiIntegr->stravaStatus($r),     [$requireBearer]);
 $router->get("{$apiBase}/integrations/strava/connect-url",        fn($r) => $apiIntegr->stravaConnectUrl($r), [$requireBearer]);
 $router->post("{$apiBase}/integrations/strava/import",            fn($r) => $apiIntegr->stravaImport($r),     [$requireBearer, $requireVerified]);
+$router->post("{$apiBase}/integrations/strava/share",             fn($r) => $apiIntegr->stravaShare($r),      [$requireBearer]);
 $router->delete("{$apiBase}/integrations/strava",                 fn($r) => $apiIntegr->stravaDisconnect($r), [$requireBearer]);
 
 $router->get("{$apiBase}/heatmap",                                fn($r) => $apiHeatmap->index($r));
@@ -582,6 +593,7 @@ $router->get("{$apiBase}/game/leaderboard",        fn($r) => $apiPlayerBoard->in
 $router->get("{$apiBase}/game/segments/{id}/leaderboard", fn($r) => $apiSegment->leaderboard($r), [$optionalBearer]);
 $router->get("{$apiBase}/game/me/segments",        fn($r) => $apiSegment->mySegments($r), [$requireBearer]);
 $router->post("{$apiBase}/game/ingest/{route_id}", fn($r) => $apiGame->reingest($r), [$requireBearer]);
+$router->get("{$apiBase}/game/rides/{route_id}/summary", fn($r) => $apiGame->rideSummary($r), [$requireBearer]);
 $router->get ("{$apiBase}/game/crews/me",          fn($r) => $apiCrew->me($r),       [$requireBearer]);
 $router->post("{$apiBase}/game/crews/join",        fn($r) => $apiCrew->join($r),     [$requireBearer]);
 $router->post("{$apiBase}/game/crews/leave",       fn($r) => $apiCrew->leave($r),    [$requireBearer]);

@@ -7,7 +7,9 @@ use App\Game\GameConfig;
 use App\Game\GameIngestionService;
 use App\Game\GameReadService;
 use App\Game\GameRepository;
+use App\Game\GameRideSummaryService;
 use App\Game\MatchUnavailableException;
+use App\Game\RideSummaryNotIngestedException;
 use App\Http\Request;
 use App\Http\Response;
 use App\Routes\GeometryParseException;
@@ -29,6 +31,7 @@ final class GameController
         private readonly GameConfig $config,
         private readonly RouteService $routes,
         private readonly GeometryParser $parser,
+        private readonly GameRideSummaryService $rideSummary,
     ) {}
 
     public function edges(Request $req): void
@@ -126,6 +129,22 @@ final class GameController
             // Routing-Engine (Valhalla) nicht erreichbar/kein Match → kein 500,
             // sondern ein ehrliches 503: der Client darf später erneut.
             Response::error('routing_unavailable', 'Map-Matching derzeit nicht möglich (Routing-Engine nicht erreichbar). Bitte später erneut versuchen.', 503);
+        }
+        Response::json($summary);
+    }
+
+    /** GET /game/rides/{routeId}/summary — Per-Ride Eroberungs-Zusammenfassung. */
+    public function rideSummary(Request $req): void
+    {
+        $uid = $this->userId($req);
+        $routeRef = trim((string)($req->routeParams['route_id'] ?? ''));
+        try {
+            $summary = $this->rideSummary->summary($uid, $routeRef);
+        } catch (RideSummaryNotIngestedException) {
+            Response::error('not_ingested', 'Route ist noch nicht ins Spiel aufgenommen.', 404);
+        }
+        if ($summary === null) {
+            Response::error('not_found', 'Route nicht gefunden.', 404);
         }
         Response::json($summary);
     }
