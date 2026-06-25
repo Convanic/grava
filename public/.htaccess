@@ -59,7 +59,7 @@ DirectoryIndex index.php
     # img-src erlaubt zusätzlich OSM-Raster-Tiles für die Leaflet-Karten
     # (Map-Tiles sind <img>-Elemente von einem fremden Host). Wechselt der
     # Tile-Provider, muss hier der neue Host eingetragen werden.
-    Header always set Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://*.tile.openstreetmap.org; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'self'; object-src 'none'"
+    Header always set Content-Security-Policy "default-src 'self'; script-src 'self' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://*.tile.openstreetmap.org https://www.googletagmanager.com https://*.google-analytics.com; connect-src 'self' https://www.googletagmanager.com https://*.google-analytics.com https://*.analytics.google.com; form-action 'self'; frame-ancestors 'none'; base-uri 'self'; object-src 'none'"
 </IfModule>
 
 # Versteckte Dateien verbieten

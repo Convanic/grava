@@ -16,6 +16,9 @@ $_pageScripts = $_pageScripts ?? [];
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title><?= htmlspecialchars($_title ?? 'GRAVA', ENT_QUOTES, 'UTF-8') ?></title>
+    <!-- Google tag (gtag.js) — Loader extern, Init aus same-origin /assets/js/ga.js (CSP) -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-HVRGQSKQNV"></script>
+    <script src="/assets/js/ga.js"></script>
     <link rel="stylesheet" href="/assets/style.css">
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/assets/brand/apple-touch-icon.png">

@@ -328,8 +328,11 @@ if ($requestIsHttps) {
     header('Strict-Transport-Security: max-age=31536000; includeSubDomains');
 }
 header(
-    "Content-Security-Policy: default-src 'self'; script-src 'self'; "
-  . "style-src 'self' 'unsafe-inline'; img-src 'self' data: https://*.tile.openstreetmap.org; connect-src 'self'; "
+    "Content-Security-Policy: default-src 'self'; "
+  . "script-src 'self' https://www.googletagmanager.com; "
+  . "style-src 'self' 'unsafe-inline'; "
+  . "img-src 'self' data: https://*.tile.openstreetmap.org https://www.googletagmanager.com https://*.google-analytics.com; "
+  . "connect-src 'self' https://www.googletagmanager.com https://*.google-analytics.com https://*.analytics.google.com; "
   . "form-action 'self'; frame-ancestors 'none'; base-uri 'self'; object-src 'none'"
 );
 
