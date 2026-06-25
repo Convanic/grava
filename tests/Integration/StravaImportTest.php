@@ -101,6 +101,8 @@ final class StravaImportTest extends IntegrationTestCase
         $this->assertStringStartsWith('https://www.strava.com/oauth/authorize', $url);
         $this->assertSame('read,activity:read_all,activity:write', $q['scope'] ?? null,
             'Import + Upload brauchen activity:read_all und activity:write.');
+        $this->assertSame('force', $q['approval_prompt'] ?? null,
+            'Re-Consent für activity:write erzwingen.');
     }
 
     public function testStatusExposesModeFlags(): void

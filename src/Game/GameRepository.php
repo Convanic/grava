@@ -1107,6 +1107,50 @@ final class GameRepository
         ];
     }
 
+    /**
+     * Kanten dieser Route inkl. Kategorie für die Share-Karte (STRAVA_SHARE_BACKEND.md §2.1).
+     *
+     * @return list<array{edge_id:int,category:string,geom_geojson:string}>
+     */
+    public function rideSummaryEdges(int $routeId, int $userId, int $claimantId): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT p.edge_id, e.geom_geojson,
+                    CASE
+                      WHEN p.ridden_at = (
+                          SELECT MIN(p2.ridden_at) FROM game_edge_pass p2
+                           WHERE p2.edge_id = p.edge_id AND p2.invalidated_at IS NULL
+                      ) THEN "pioneer"
+                      WHEN e.owner_claimant_id = ?
+                       AND e.discoverer_claimant_id IS NOT NULL
+                       AND e.discoverer_claimant_id != ?
+                       AND EXISTS (
+                          SELECT 1 FROM game_edge_pass p2
+                           WHERE p2.edge_id = p.edge_id
+                             AND p2.invalidated_at IS NULL
+                             AND p2.claimant_id != ?
+                             AND p2.ridden_at < p.ridden_at
+                       ) THEN "captured"
+                      ELSE "held"
+                    END AS category
+               FROM game_edge_pass p
+               JOIN game_edge e ON e.id = p.edge_id
+              WHERE p.route_id = ? AND p.user_id = ? AND p.invalidated_at IS NULL
+              GROUP BY p.edge_id, e.geom_geojson, category
+              ORDER BY p.edge_id'
+        );
+        $stmt->execute([$claimantId, $claimantId, $claimantId, $routeId, $userId]);
+        $out = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $out[] = [
+                'edge_id'       => (int)$r['edge_id'],
+                'category'      => (string)$r['category'],
+                'geom_geojson'  => (string)$r['geom_geojson'],
+            ];
+        }
+        return $out;
+    }
+
     /** @return array{rush_id:int,edges_rushed:int}|null */
     public function rideRushAggregate(int $routeId, int $userId): ?array
     {

@@ -4,6 +4,9 @@ declare(strict_types=1);
 namespace App\Game;
 
 use App\Game\Rush\RushRepository;
+use App\Privacy\PrivacyZone;
+use App\Privacy\PrivacyZoneRepository;
+use App\Privacy\RoutePrivacyTrimmer;
 
 /**
  * Per-Ride Eroberungs-Zusammenfassung (STRAVA_SHARE_BACKEND.md §2).
@@ -14,6 +17,8 @@ final class GameRideSummaryService
     public function __construct(
         private readonly GameRepository $repo,
         private readonly RushRepository $rushes,
+        private readonly PrivacyZoneRepository $privacyZones,
+        private readonly RoutePrivacyTrimmer $trimmer,
     ) {}
 
     /**
@@ -35,6 +40,8 @@ final class GameRideSummaryService
             throw new RideSummaryNotIngestedException();
         }
 
+        $zone = $this->privacyZone($userId);
+
         return [
             'edges_total'        => $stats['edges_total'],
             'edges_new'          => $stats['edges_new'],
@@ -45,7 +52,80 @@ final class GameRideSummaryService
             'points_awarded'     => null,
             'rank_after'         => null,
             'rush'               => $this->rushBlock($routeId, $userId),
+            'edges'              => $this->edgeBlocks($routeId, $userId, $claimantId, $zone),
         ];
+    }
+
+    /** @return list<array{category:string,geom:array<string,mixed>}> */
+    private function edgeBlocks(int $routeId, int $userId, int $claimantId, ?PrivacyZone $zone): array
+    {
+        $out = [];
+        foreach ($this->repo->rideSummaryEdges($routeId, $userId, $claimantId) as $row) {
+            $geom = $this->maskedGeom($row['geom_geojson'], $zone);
+            if ($geom === null) {
+                continue;
+            }
+            $out[] = [
+                'category' => $row['category'],
+                'geom'     => $geom,
+            ];
+        }
+        return $out;
+    }
+
+    private function privacyZone(int $userId): ?PrivacyZone
+    {
+        $row = $this->privacyZones->find($userId);
+        if ($row === null || !$row['enabled']) {
+            return null;
+        }
+        return new PrivacyZone($row['lat'], $row['lon'], $row['radius_m']);
+    }
+
+    /**
+     * @return array<string,mixed>|null GeoJSON LineString [lon,lat], privatzonen-getrimmt
+     */
+    private function maskedGeom(string $geomJson, ?PrivacyZone $zone): ?array
+    {
+        $geom = json_decode($geomJson, true);
+        if (!is_array($geom) || ($geom['type'] ?? null) !== 'LineString'
+            || !is_array($geom['coordinates'] ?? null)) {
+            return null;
+        }
+
+        $fc = [
+            'type' => 'FeatureCollection',
+            'features' => [[
+                'type' => 'Feature',
+                'properties' => new \stdClass(),
+                'geometry' => $geom,
+            ]],
+        ];
+        if ($zone !== null) {
+            $fc = $this->trimmer->trim($fc, $zone);
+        }
+
+        $best = null;
+        $bestLen = 0;
+        foreach ($fc['features'] ?? [] as $feature) {
+            if (!is_array($feature)) {
+                continue;
+            }
+            $g = $feature['geometry'] ?? null;
+            if (!is_array($g) || ($g['type'] ?? null) !== 'LineString') {
+                continue;
+            }
+            $coords = $g['coordinates'] ?? [];
+            if (!is_array($coords) || count($coords) < 2) {
+                continue;
+            }
+            if (count($coords) > $bestLen) {
+                $bestLen = count($coords);
+                $best = $g;
+            }
+        }
+
+        return $best;
     }
 
     /** @return array<string,mixed>|null */

@@ -72,7 +72,7 @@ final class StravaService
             'client_id'       => $this->clientId,
             'redirect_uri'    => $this->redirectUri,
             'response_type'   => 'code',
-            'approval_prompt' => 'auto',
+            'approval_prompt' => 'force',
             // activity:read_all für Import; activity:write für Upload (Share).
             'scope'           => 'read,activity:read_all,activity:write',
             'state'           => $state,

@@ -111,6 +111,7 @@ final class StravaShareTest extends IntegrationTestCase
         $url = $svc->authorizeUrl($userId);
         parse_str((string)parse_url($url, PHP_URL_QUERY), $q);
         $this->assertSame('read,activity:read_all,activity:write', $q['scope'] ?? null);
+        $this->assertSame('force', $q['approval_prompt'] ?? null);
     }
 
     public function testShareUploadsAndPersistsActivityId(): void

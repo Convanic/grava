@@ -375,7 +375,7 @@ $stravaServ    = new StravaService(
     $routeRepo,
     $gameRepo,
 );
-$gameRideSummary = new \App\Game\GameRideSummaryService($gameRepo, $gameRushRepo);
+$gameRideSummary = new \App\Game\GameRideSummaryService($gameRepo, $gameRushRepo, $privacyZoneRepo, $privacyTrimmer);
 
 $apiAuth    = new AuthController($auth, $rate);
 $apiUsers   = new UserController($auth);
