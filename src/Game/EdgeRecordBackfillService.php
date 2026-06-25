@@ -5,6 +5,7 @@ namespace App\Game;
 
 use App\Routes\GeometryParseException;
 use App\Routes\GeometryParser;
+use App\Routes\RouteNotFoundException;
 use App\Routes\RouteService;
 
 /**
@@ -40,7 +41,7 @@ final class EdgeRecordBackfillService
             try {
                 $loaded = $this->routes->loadPayloadByPublicId($meta['public_id']);
                 $parsed = $this->parser->parse($loaded['payload']);
-            } catch (GeometryParseException) {
+            } catch (GeometryParseException|RouteNotFoundException) {
                 $errors++;
                 continue;
             }
@@ -48,6 +49,9 @@ final class EdgeRecordBackfillService
             try {
                 $this->ingest->ingest($routeId, $meta['user_id'], $parsed, $hasMotion);
             } catch (MatchUnavailableException) {
+                $errors++;
+                continue;
+            } catch (\Throwable) {
                 $errors++;
                 continue;
             }
