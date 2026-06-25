@@ -21,6 +21,29 @@ final class EdgeRecalculator
         private readonly GameConfig $config,
     ) {}
 
+    /** @return array<int,float> Präsenz je effektivem Claimant (read-only, on-demand). */
+    public function presenceByClaimant(int $edgeId, ?DateTimeImmutable $now = null): array
+    {
+        $now ??= new DateTimeImmutable('now', new DateTimeZone('UTC'));
+        if ($this->repo->edgeById($edgeId) === null) {
+            return [];
+        }
+        return $this->computePresenceState($edgeId, $now)['presence'];
+    }
+
+    /** Frische 0…1 des Besitzer-Claimants (letzter Pass auf der Kante). */
+    public function ownerFreshness(int $edgeId, int $ownerClaimantId, ?DateTimeImmutable $now = null): float
+    {
+        $now ??= new DateTimeImmutable('now', new DateTimeZone('UTC'));
+        $state = $this->computePresenceState($edgeId, $now);
+        $last = $state['last_pass_by_claimant'][$ownerClaimantId] ?? null;
+        if ($last === null) {
+            return 0.0;
+        }
+        $windowDays = $this->config->int('presence_window_days');
+        return min(1.0, GameMath::presenceWeight($this->ageDays($last, $now), $windowDays));
+    }
+
     public function recalculate(int $edgeId, ?DateTimeImmutable $now = null): void
     {
         $now ??= new DateTimeImmutable('now', new DateTimeZone('UTC'));
@@ -30,93 +53,11 @@ final class EdgeRecalculator
         }
 
         $windowDays = $this->config->int('presence_window_days');
-        $passes = $this->repo->passesForEdge($edgeId);
-
-        // Stufe 2: effektiver Claimant je user_id (Crew-Group-Claimant, sonst Rider).
-        // Besitz wird nach dem effektiven Claimant gruppiert — nicht nach dem
-        // (historisch gestempelten) game_edge_pass.claimant_id.
-        $userIds = [];
-        foreach ($passes as $p) {
-            $userIds[] = $p['user_id'];
-        }
-        $effMap = $this->repo->effectiveClaimantMap($userIds);
-
-        $bonus      = $this->config->float('group_ride_bonus');
-        $minMembers = $this->config->int('group_ride_min_members');
-
-        // Rush (§3): qualifizierte, getaggte Pässe bekommen statt des
-        // Gruppenfahrt-Bonus einen Multiplikator. Welche rush_id auf DIESER
-        // Kante "zieht", wird einmal vorab bestimmt (Qualifikation + Edge-Cap).
-        [$rushApplies, $rushMult, $rushStacks] = $this->resolveRush($edgeId, $passes);
-
-        // Tages-Aggregation je (effektiver Claimant, ridden_on): regulärer und
-        // gerushter Gewicht-Anteil getrennt, plus distinct Mitglieder.
-        $dayNonRush = [];   // [cid][ridden_on] => float (regulärer Anteil)
-        $dayRush    = [];   // [cid][ridden_on][rush_id] => float (gerushter Anteil)
-        $dayMembers = [];   // [cid][ridden_on] => array<int,true>
-        $isGroup    = [];   // [cid] => bool
-        $lastPassByClaimant = [];
-        $lastPassOverall = null;
-        // Entdecker (Pionier) = effektiver Claimant des Users mit dem
-        // FRÜHESTEN Pass. Wichtig: über den effektiven Claimant (Crew), nicht
-        // den historisch gestempelten game_edge_pass.claimant_id — sonst zählt
-        // meStats() für eine Crew 0 pionierte Kanten, obwohl ihre Mitglieder
-        // die Kanten entdeckt haben (gleiche Logik wie beim Besitz).
-        $discovererClaimant = null;
-        $firstPassAt = null;
-        $firstUser = null;
-        foreach ($passes as $p) {
-            $uid = $p['user_id'];
-            $eff = $effMap[$uid] ?? ['claimant_id' => $p['claimant_id'], 'is_group' => false];
-            $cid = $eff['claimant_id'];
-            $isGroup[$cid] = $eff['is_group'];
-            $on = $p['ridden_on'];
-            $w = GameMath::presenceWeight($this->ageDays($p['ridden_at'], $now), $windowDays);
-            $dayMembers[$cid][$on][$uid] = true;
-            $rid = $p['rush_id'];
-            if ($rid !== null && ($rushApplies[$rid] ?? false)) {
-                $dayRush[$cid][$on][$rid] = ($dayRush[$cid][$on][$rid] ?? 0.0) + $w;
-            } else {
-                $dayNonRush[$cid][$on] = ($dayNonRush[$cid][$on] ?? 0.0) + $w;
-            }
-            if (!isset($lastPassByClaimant[$cid]) || $p['ridden_at'] > $lastPassByClaimant[$cid]) {
-                $lastPassByClaimant[$cid] = $p['ridden_at'];
-            }
-            if ($lastPassOverall === null || $p['ridden_at'] > $lastPassOverall) {
-                $lastPassOverall = $p['ridden_at'];
-            }
-            // frühester Pass (Tie-Break: kleinste user_id) → konsistent mit
-            // discovered_at = MIN(ridden_at) aus refreshEdgeDiscovery.
-            if ($firstPassAt === null
-                || $p['ridden_at'] < $firstPassAt
-                || ($p['ridden_at'] === $firstPassAt && $uid < $firstUser)
-            ) {
-                $firstPassAt = $p['ridden_at'];
-                $firstUser = $uid;
-                $discovererClaimant = $cid;
-            }
-        }
-
-        // Präsenz je Claimant. Ohne gerushte Pässe reduziert sich der Term exakt
-        // auf die Stufe-1/2-Formel (Gruppenfahrt-Bonus als Tagesfaktor) →
-        // bit-identisch (§9.7). Gerushte Pässe ersetzen den Bonus durch den
-        // Multiplikator (rush_stacks_with_group_bonus=false) bzw. stapeln ihn.
-        $presence = [];
-        $cids = array_keys($dayNonRush + $dayRush);
-        foreach ($cids as $cid) {
-            $sum  = 0.0;
-            $days = array_keys(($dayNonRush[$cid] ?? []) + ($dayRush[$cid] ?? []));
-            foreach ($days as $on) {
-                $members = count($dayMembers[$cid][$on] ?? []);
-                $g = (($isGroup[$cid] ?? false) && $bonus !== 1.0 && $members >= $minMembers) ? $bonus : 1.0;
-                $sum += $g * ($dayNonRush[$cid][$on] ?? 0.0);
-                foreach (($dayRush[$cid][$on] ?? []) as $rid => $rw) {
-                    $m = $rushMult[$rid] ?? 1.0;
-                    $sum += ($rushStacks ? $m * $g : $m) * $rw;
-                }
-            }
-            $presence[(int)$cid] = $sum;
-        }
+        $state = $this->computePresenceState($edgeId, $now);
+        $presence = $state['presence'];
+        $lastPassByClaimant = $state['last_pass_by_claimant'];
+        $lastPassOverall = $state['last_pass_overall'];
+        $discovererClaimant = $state['discoverer_claimant'];
 
         $challenger = null;
         $challengerPresence = 0.0;
@@ -301,5 +242,95 @@ final class EdgeRecalculator
         $dt = new DateTimeImmutable($mysqlDatetime, new DateTimeZone('UTC'));
         $seconds = $now->getTimestamp() - $dt->getTimestamp();
         return max(0.0, $seconds / 86400.0);
+    }
+
+    /**
+     * Präsenz-Aggregation aus gültigen Pässen — identische Logik wie recalculate().
+     *
+     * @return array{
+     *   presence: array<int,float>,
+     *   last_pass_by_claimant: array<int,string>,
+     *   last_pass_overall: ?string,
+     *   discoverer_claimant: ?int
+     * }
+     */
+    private function computePresenceState(int $edgeId, DateTimeImmutable $now): array
+    {
+        $windowDays = $this->config->int('presence_window_days');
+        $passes = $this->repo->passesForEdge($edgeId);
+
+        $userIds = [];
+        foreach ($passes as $p) {
+            $userIds[] = $p['user_id'];
+        }
+        $effMap = $this->repo->effectiveClaimantMap($userIds);
+
+        $bonus      = $this->config->float('group_ride_bonus');
+        $minMembers = $this->config->int('group_ride_min_members');
+        [$rushApplies, $rushMult, $rushStacks] = $this->resolveRush($edgeId, $passes);
+
+        $dayNonRush = [];
+        $dayRush    = [];
+        $dayMembers = [];
+        $isGroup    = [];
+        $lastPassByClaimant = [];
+        $lastPassOverall = null;
+        $discovererClaimant = null;
+        $firstPassAt = null;
+        $firstUser = null;
+
+        foreach ($passes as $p) {
+            $uid = $p['user_id'];
+            $eff = $effMap[$uid] ?? ['claimant_id' => $p['claimant_id'], 'is_group' => false];
+            $cid = $eff['claimant_id'];
+            $isGroup[$cid] = $eff['is_group'];
+            $on = $p['ridden_on'];
+            $w = GameMath::presenceWeight($this->ageDays($p['ridden_at'], $now), $windowDays);
+            $dayMembers[$cid][$on][$uid] = true;
+            $rid = $p['rush_id'];
+            if ($rid !== null && ($rushApplies[$rid] ?? false)) {
+                $dayRush[$cid][$on][$rid] = ($dayRush[$cid][$on][$rid] ?? 0.0) + $w;
+            } else {
+                $dayNonRush[$cid][$on] = ($dayNonRush[$cid][$on] ?? 0.0) + $w;
+            }
+            if (!isset($lastPassByClaimant[$cid]) || $p['ridden_at'] > $lastPassByClaimant[$cid]) {
+                $lastPassByClaimant[$cid] = $p['ridden_at'];
+            }
+            if ($lastPassOverall === null || $p['ridden_at'] > $lastPassOverall) {
+                $lastPassOverall = $p['ridden_at'];
+            }
+            if ($firstPassAt === null
+                || $p['ridden_at'] < $firstPassAt
+                || ($p['ridden_at'] === $firstPassAt && $uid < $firstUser)
+            ) {
+                $firstPassAt = $p['ridden_at'];
+                $firstUser = $uid;
+                $discovererClaimant = $cid;
+            }
+        }
+
+        $presence = [];
+        $cids = array_keys($dayNonRush + $dayRush);
+        foreach ($cids as $cid) {
+            $sum  = 0.0;
+            $days = array_keys(($dayNonRush[$cid] ?? []) + ($dayRush[$cid] ?? []));
+            foreach ($days as $on) {
+                $members = count($dayMembers[$cid][$on] ?? []);
+                $g = (($isGroup[$cid] ?? false) && $bonus !== 1.0 && $members >= $minMembers) ? $bonus : 1.0;
+                $sum += $g * ($dayNonRush[$cid][$on] ?? 0.0);
+                foreach (($dayRush[$cid][$on] ?? []) as $rid => $rw) {
+                    $m = $rushMult[$rid] ?? 1.0;
+                    $sum += ($rushStacks ? $m * $g : $m) * $rw;
+                }
+            }
+            $presence[(int)$cid] = $sum;
+        }
+
+        return [
+            'presence'              => $presence,
+            'last_pass_by_claimant' => $lastPassByClaimant,
+            'last_pass_overall'     => $lastPassOverall,
+            'discoverer_claimant'   => $discovererClaimant,
+        ];
     }
 }

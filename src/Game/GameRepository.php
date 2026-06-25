@@ -124,6 +124,22 @@ final class GameRepository
         return array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
     }
 
+    /**
+     * @return list<array<string,mixed>> Gehaltene Kanten inkl. Geometrie (Lesepfad at-risk).
+     */
+    public function heldEdgesByClaimant(int $claimantId): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT id, way_id, length_m, geom_geojson, min_lat, min_lon, max_lat, max_lon,
+                    owner_claimant_id, last_pass_at
+               FROM game_edge
+              WHERE owner_claimant_id = ?
+              ORDER BY id'
+        );
+        $stmt->execute([$claimantId]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
+
     public function upsertNode(int $osmNodeId, float $lat, float $lon): int
     {
         $this->pdo->prepare(

@@ -379,6 +379,7 @@ $stravaServ    = new StravaService(
     $gameRepo,
 );
 $gameRideSummary = new \App\Game\GameRideSummaryService($gameRepo, $gameRushRepo, $privacyZoneRepo, $privacyTrimmer);
+$gameAtRisk      = new \App\Game\GameEdgesAtRiskService($gameRepo, $gameConfig, $gameRecalc, $privacyZoneRepo);
 
 $apiAuth    = new AuthController($auth, $rate);
 $apiUsers   = new UserController($auth);
@@ -399,7 +400,7 @@ $personalHeatmap = new \App\Heatmap\PersonalHeatmapService($routeStorage, new Ge
 $apiMeHeatmap = new \App\Controllers\Api\MeHeatmapController($personalHeatmap);
 $apiHeatmapLines = new HeatmapLinesController($heatmapLines);
 $apiReferral = new ReferralController($referrals);
-$apiGame = new GameController($gameRead, $gameRepo, $gameIngest, $gameConfig, $routeService, new GeometryParser(), $gameRideSummary);
+$apiGame = new GameController($gameRead, $gameRepo, $gameIngest, $gameConfig, $routeService, new GeometryParser(), $gameRideSummary, $gameAtRisk);
 $apiPlayerBoard = new PlayerLeaderboardController(new PlayerLeaderboardService($gameRepo, $gameConfig));
 $apiSegment = new SegmentSpeedController(new SegmentSpeedService($gameRepo, $gameConfig));
 $apiPrivacyZone = new \App\Controllers\Api\PrivacyZoneController($privacyZoneSvc);
@@ -412,6 +413,11 @@ $gameFactionSvc = new \App\Game\Faction\FactionService(
     new \App\Game\Admin\GameAuditService(Db::pdo()),
 );
 $apiFaction = new \App\Controllers\Api\FactionController($gameFactionSvc);
+$presenceRepo = new \App\Presence\PresenceRepository(Db::pdo());
+$presenceSvc  = new \App\Presence\PresenceService($presenceRepo, $gameConfig);
+$apiPresence  = new \App\Controllers\Api\PresenceController($presenceSvc);
+$communitySvc = new \App\Community\CommunityTodayService($routeRepo, $presenceSvc);
+$apiCommunity = new \App\Controllers\Api\CommunityTodayController($communitySvc);
 $webAuth    = new AuthPagesController($auth, $cookieAuth, $webSession, $rate, $basePath . '/views');
 $webHome    = new DashboardController($webSession, $auth, $basePath . '/views');
 $webFeatures = new \App\Controllers\Web\FeaturesPagesController($webSession, $auth, $basePath . '/views');
@@ -588,6 +594,7 @@ $router->get("{$apiBase}/referrals/me",                           fn($r) => $api
 $router->get("{$apiBase}/game/edges",              fn($r) => $apiGame->edges($r),    [$optionalBearer]);
 $router->get("{$apiBase}/game/edges/{id}",         fn($r) => $apiGame->edge($r),     [$optionalBearer]);
 $router->get("{$apiBase}/game/me",                 fn($r) => $apiGame->me($r),       [$requireBearer]);
+$router->get("{$apiBase}/game/me/at-risk",         fn($r) => $apiGame->atRisk($r),   [$requireBearer]);
 $router->get("{$apiBase}/game/config",             fn($r) => $apiGame->config($r),   [$requireBearer]);
 // Solo-/Spieler-Rangliste (S7): world anonym, friends/me brauchen Bearer.
 $router->get("{$apiBase}/game/leaderboard",        fn($r) => $apiPlayerBoard->index($r), [$optionalBearer]);
@@ -615,6 +622,14 @@ $router->delete("{$apiBase}/game/crews/{slug}/faction",  fn($r) => $apiFaction->
 $router->post  ("{$apiBase}/game/crews/{slug}/captain",  fn($r) => $apiCrew->claimCaptain($r), [$requireBearer]);
 $router->get ("{$apiBase}/game/crews/{slug}/leaderboard", fn($r) => $apiCrew->leaderboard($r), [$requireBearer]);
 $router->get ("{$apiBase}/game/crews/{slug}",      fn($r) => $apiCrew->show($r),     [$requireBearer]);
+
+// ---- Presence (Live-Aktiv-Zähler — PRESENCE_BACKEND.md) ----
+$router->post("{$apiBase}/presence/heartbeat",     fn($r) => $apiPresence->heartbeat($r), [$optionalBearer]);
+$router->post("{$apiBase}/presence/stop",          fn($r) => $apiPresence->stop($r),      [$optionalBearer]);
+$router->get ("{$apiBase}/presence/active",       fn($r) => $apiPresence->active($r));
+
+// ---- Community (Tages-Aggregat — COMMUNITY_TODAY_BACKEND.md) ----
+$router->get ("{$apiBase}/community/today",       fn($r) => $apiCommunity->today($r));
 
 // ---- Web pages ----
 $router->get('/',                  fn($r) => Response::redirect('/dashboard'));

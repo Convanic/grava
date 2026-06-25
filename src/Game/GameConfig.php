@@ -72,6 +72,13 @@ final class GameConfig
         'rush_require_colocation'      => '0',
         'rush_colocation_radius_m'     => '100',
         'rush_hysteresis_factor'       => '',
+        // Live-Aktiv-Zähler (PRESENCE_BACKEND.md).
+        'presence_ttl_seconds'         => '180',
+        'presence_count_anonymous'     => '1',
+        // Kanten in Gefahr (GAME_EDGES_AT_RISK_BACKEND.md).
+        'risk_threshold'               => '0.85',
+        'fade_threshold'               => '0.2',
+        'at_risk_list_limit'           => '10',
     ];
 
     public function __construct(private readonly PDO $pdo) {}

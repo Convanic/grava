@@ -760,6 +760,30 @@ final class RouteRepository
         )->execute([$activityId, Clock::nowUtcString(), $routeId]);
     }
 
+    /**
+     * Community-Tages-Aggregat (COMMUNITY_TODAY_BACKEND.md): alle nicht gelöschten
+     * Uploads im Fenster [dayStart, dayEnd) — inkl. privater Routen, nur Summen.
+     *
+     * @return array{rides_today:int,distance_today_m:int}
+     */
+    public function aggregateUploadedBetween(string $dayStartUtc, string $dayEndUtc): array
+    {
+        $stmt = Db::pdo()->prepare(
+            'SELECT COUNT(*) AS rides,
+                    COALESCE(SUM(COALESCE(distance_m, 0)), 0) AS distance_m
+               FROM routes
+              WHERE deleted_at IS NULL
+                AND created_at >= ?
+                AND created_at < ?'
+        );
+        $stmt->execute([$dayStartUtc, $dayEndUtc]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: ['rides' => 0, 'distance_m' => 0];
+        return [
+            'rides_today'      => (int)$row['rides'],
+            'distance_today_m' => (int)$row['distance_m'],
+        ];
+    }
+
     /** Wandelt 'YYYY-MM-DD HH:MM:SS' in ISO-8601 mit UTC-Suffix. */
     private static function isoUtc(string $datetime): string
     {

@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace App\Controllers\Api;
 
 use App\Game\GameConfig;
+use App\Game\GameEdgesAtRiskService;
 use App\Game\GameIngestionService;
 use App\Game\GameReadService;
 use App\Game\GameRepository;
@@ -32,6 +33,7 @@ final class GameController
         private readonly RouteService $routes,
         private readonly GeometryParser $parser,
         private readonly GameRideSummaryService $rideSummary,
+        private readonly GameEdgesAtRiskService $atRisk,
     ) {}
 
     public function edges(Request $req): void
@@ -75,6 +77,13 @@ final class GameController
         // erscheinen (Besitz liegt nach Beitritt beim Group-Claimant).
         $claimant = $this->repo->effectiveClaimantId($uid);
         Response::json($this->read->me($claimant));
+    }
+
+    /** GET /game/me/at-risk — gefährdete eigene Kanten (Bearer). */
+    public function atRisk(Request $req): void
+    {
+        $uid = $this->userId($req);
+        Response::json($this->atRisk->atRisk($uid));
     }
 
     public function config(Request $req): void
