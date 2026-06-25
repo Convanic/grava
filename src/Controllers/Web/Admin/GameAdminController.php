@@ -286,6 +286,8 @@ final class GameAdminController
                     'faction_color' => $r['faction_color'] !== null ? (string)$r['faction_color'] : null,
                     'value'         => round($value, 2),
                     'freshness'     => round((float)$r['freshness_cached'], 3),
+                    // Übernehmbarkeit: 0 = sicher (grün) … 1 = übernahmereif (rot).
+                    'vulnerability' => round((float)$r['vulnerability_cached'], 3),
                     'riders'        => (int)$r['distinct_riders_total'],
                     'length_m'      => round((float)$r['length_m'], 1),
                     'surface'       => $r['surface_character'] !== null ? (string)$r['surface_character'] : null,

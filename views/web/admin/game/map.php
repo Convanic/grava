@@ -32,6 +32,7 @@ $_pageScripts = [
         <select id="game-map-color">
             <option value="value">Wert</option>
             <option value="freshness">Frische</option>
+            <option value="vulnerability">Übernehmbarkeit</option>
             <option value="owner">Owner</option>
             <option value="crew">Crew</option>
             <option value="faction">Fraktion</option>
@@ -47,6 +48,8 @@ $_pageScripts = [
 <p class="muted map-hint">
     <strong>Wert</strong>: hell → niedrig, kräftig → hoch (relativ zum Ausschnitt).
     <strong>Frische</strong>: rot = alt, grün = frisch (0–1).
+    <strong>Übernehmbarkeit</strong>: grün = sicher (Owner klar vorn), rot =
+    übernahmereif (Verfolger nah an der Übernahme-Schwelle).
     <strong>Owner</strong>: feste Farbe je Fahrer (der die Kante erradelt hat), grau = niemand.
     <strong>Crew</strong>: feste Farbe je Crew, grau = solo / keine Crew.
     <strong>Fraktion</strong>: echte Fraktionsfarbe, grau = keiner Fraktion zugeordnet.

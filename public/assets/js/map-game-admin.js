@@ -24,6 +24,9 @@
   var VALUE_COLORS = ['#dcfce7', '#86efac', '#4ade80', '#22c55e', '#15803d'];
   var FRESH_COLORS = ['#b91c1c', '#f97316', '#eab308', '#84cc16', '#15803d'];
   var FRESH_LABELS = ['sehr alt', 'alt', 'mittel', 'frisch', 'sehr frisch'];
+  // Übernehmbarkeit: grün = sicher (Owner klar vorn) -> rot = übernahmereif.
+  var VULN_COLORS = ['#15803d', '#84cc16', '#eab308', '#f97316', '#b91c1c'];
+  var VULN_LABELS = ['sehr sicher', 'sicher', 'umkämpft', 'gefährdet', 'übernahmereif'];
   // Kategoriale Palette (10 gut unterscheidbare Töne) für Owner/Crew.
   var CATEGORY_COLORS = [
     '#2563eb', '#dc2626', '#16a34a', '#d97706', '#7c3aed',
@@ -42,6 +45,9 @@
   function colorForFreshness(f) {
     return FRESH_COLORS[clampIdx(Math.round((f || 0) * 4))];
   }
+  function colorForVulnerability(v) {
+    return VULN_COLORS[clampIdx(Math.round((v || 0) * 4))];
+  }
   function colorForCategory(id) {
     if (id === null || typeof id === 'undefined') {
       return NO_OWNER;
@@ -54,6 +60,7 @@
 
   function colorFor(p) {
     if (state.mode === 'freshness') { return colorForFreshness(p.freshness); }
+    if (state.mode === 'vulnerability') { return colorForVulnerability(p.vulnerability); }
     if (state.mode === 'owner') { return colorForCategory(p.rider_id); }
     if (state.mode === 'crew') { return colorForCategory(p.crew_id); }
     if (state.mode === 'faction') { return colorForFaction(p.faction_color); }
@@ -81,6 +88,9 @@
     lines.push('Fraktion: ' + (p.faction_key ? esc(p.faction_key) : '—'));
     lines.push('Wert: <strong>' + esc((p.value || 0).toFixed ? p.value.toFixed(1) : p.value) + '</strong>');
     lines.push('Frische: ' + esc((typeof p.freshness === 'number' ? p.freshness.toFixed(2) : p.freshness)));
+    if (typeof p.vulnerability === 'number') {
+      lines.push('Übernehmbarkeit: ' + Math.round(p.vulnerability * 100) + ' %');
+    }
     lines.push('Fahrer: ' + esc(p.riders || 0) + ' · ' + esc(p.length_m || 0) + ' m');
     if (p.surface) { lines.push('Belag: ' + esc(p.surface)); }
     return lines.join('<br>');
@@ -177,6 +187,10 @@
       title.textContent = 'Frische:';
       legend.appendChild(title);
       FRESH_COLORS.forEach(function (c, i) { legend.appendChild(legendItem(c, FRESH_LABELS[i])); });
+    } else if (state.mode === 'vulnerability') {
+      title.textContent = 'Übernehmbarkeit:';
+      legend.appendChild(title);
+      VULN_COLORS.forEach(function (c, i) { legend.appendChild(legendItem(c, VULN_LABELS[i])); });
     } else if (state.mode === 'owner') {
       title.textContent = 'Owner (Fahrer):';
       legend.appendChild(title);

@@ -429,7 +429,8 @@ final class GameRepository
             'UPDATE game_edge SET
                 owner_claimant_id = NULL, owner_since = NULL,
                 value_cached = 0, freshness_cached = 0, last_pass_at = NULL,
-                traffic_factor_cached = 1.0, traffic_pass_count = 0, traffic_observations = 0'
+                traffic_factor_cached = 1.0, traffic_pass_count = 0, traffic_observations = 0,
+                vulnerability_cached = 0'
         );
     }
 
@@ -444,7 +445,8 @@ final class GameRepository
             "UPDATE game_edge SET
                 owner_claimant_id = NULL, owner_since = NULL,
                 value_cached = 0, freshness_cached = 0, last_pass_at = NULL,
-                traffic_factor_cached = 1.0, traffic_pass_count = 0, traffic_observations = 0
+                traffic_factor_cached = 1.0, traffic_pass_count = 0, traffic_observations = 0,
+                vulnerability_cached = 0
              WHERE id IN ($in)"
         )->execute(array_values($edgeIds));
     }
@@ -460,6 +462,7 @@ final class GameRepository
         int $trafficPassCount = 0,
         int $trafficObservations = 0,
         ?int $discovererClaimantId = null,
+        float $vulnerability = 0.0,
     ): void {
         $this->pdo->prepare(
             'UPDATE game_edge SET
@@ -471,12 +474,13 @@ final class GameRepository
                 traffic_factor_cached = ?,
                 traffic_pass_count = ?,
                 traffic_observations = ?,
-                discoverer_claimant_id = ?
+                discoverer_claimant_id = ?,
+                vulnerability_cached = ?
              WHERE id = ?'
         )->execute([
             $ownerClaimantId, $ownerSince, $value, $freshness, $lastPassAt,
             $trafficFactor, $trafficPassCount, $trafficObservations,
-            $discovererClaimantId, $edgeId,
+            $discovererClaimantId, $vulnerability, $edgeId,
         ]);
     }
 
@@ -628,7 +632,8 @@ final class GameRepository
                        u.public_handle AS owner_handle,
                        cr.id AS crew_id, cr.name AS crew_name,
                        f.id AS faction_id, f.key_slug AS faction_key, f.color_hex AS faction_color,
-                       e.value_cached, e.freshness_cached, e.distinct_riders_total,
+                       e.value_cached, e.freshness_cached, e.vulnerability_cached,
+                       e.distinct_riders_total,
                        e.min_lat, e.min_lon, e.max_lat, e.max_lon,
                        fr.user_id AS rider_user_id, ru.public_handle AS rider_handle
                   FROM game_edge e

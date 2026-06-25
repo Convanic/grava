@@ -132,6 +132,7 @@ final class EdgeRecalculator
 
         $newOwner = null;
         $ownerSince = null;
+        $vulnerability = 0.0;
         if ($challenger !== null) {
             $currentPresence = $currentOwner !== null ? ($presence[$currentOwner] ?? 0.0) : 0.0;
             // Übernahme weiter ausschließlich über Hysterese (§9.4, kein
@@ -150,6 +151,7 @@ final class EdgeRecalculator
             if ($newOwner !== $currentOwner) {
                 $ownerSince = $now->format('Y-m-d H:i:s.v');
             }
+            $vulnerability = $this->vulnerability($presence, $newOwner, $hysteresis);
         }
 
         $n = $this->repo->distinctRidersTotal($edgeId);
@@ -203,7 +205,39 @@ final class EdgeRecalculator
             $traffic['pass_count'],
             $traffic['observations'],
             $discovererClaimant,
+            $vulnerability,
         );
+    }
+
+    /**
+     * Übernehmbarkeit ∈ [0,1] der Kante: wie nah der stärkste *Verfolger*
+     * (bester Nicht-Owner) an der Übernahme-Schwelle des Owners liegt.
+     * Schwelle = ownerPräsenz · hysteresis (Spec §5.2: Flip erst wenn
+     * Verfolger > Owner·hysteresis). 0 = niemand nah dran (grün),
+     * 1 = Verfolger an/über der Schwelle (rot).
+     *
+     * @param array<int,float> $presence Präsenz je Claimant
+     */
+    private function vulnerability(array $presence, ?int $ownerId, float $hysteresis): float
+    {
+        if ($ownerId === null) {
+            return 0.0;
+        }
+        $ownerPresence = $presence[$ownerId] ?? 0.0;
+        $topChallenger = 0.0;
+        foreach ($presence as $cid => $pres) {
+            if ((int)$cid !== $ownerId && $pres > $topChallenger) {
+                $topChallenger = $pres;
+            }
+        }
+        if ($topChallenger <= 0.0) {
+            return 0.0;
+        }
+        if ($ownerPresence <= 0.0) {
+            return 1.0;
+        }
+        $denom = $ownerPresence * max($hysteresis, 1e-9);
+        return min(1.0, $topChallenger / $denom);
     }
 
     /**
