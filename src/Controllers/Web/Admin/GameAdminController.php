@@ -248,8 +248,8 @@ final class GameAdminController
     {
         $this->requireAdmin();
         [$minLon, $minLat, $maxLon, $maxLat] = $this->parseBbox((string)($req->query['bbox'] ?? ''));
-        $limit = (int)($req->query['limit'] ?? 5000);
-        $limit = max(1, min(8000, $limit));
+        $limit = (int)($req->query['limit'] ?? 50000);
+        $limit = max(1, min(50000, $limit));
 
         $rows = $this->repo->edgesGeoForMap($minLon, $minLat, $maxLon, $maxLat, $limit);
 
