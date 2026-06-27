@@ -36,20 +36,33 @@ final class FollowService
         }
 
         $pdo = Db::pdo();
+        $isNew = true;
         try {
             $pdo->prepare(
                 'INSERT INTO follows (follower_id, followee_id) VALUES (?, ?)'
             )->execute([$viewerUserId, $targetUserId]);
-            // M4c: Notification an den Gefolgten (best effort).
-            $this->notifications?->notify($targetUserId, $viewerUserId, 'follow', 'user', $viewerUserId);
-            return true; // neu
         } catch (\PDOException $e) {
             // 1062 = Duplicate (PK-Verstoß) → bereits gefolgt
-            if ((int)($e->errorInfo[1] ?? 0) === 1062) {
-                return false;
+            if ((int)($e->errorInfo[1] ?? 0) !== 1062) {
+                throw $e;
             }
-            throw $e;
+            $isNew = false;
         }
+
+        // M4c: Notification an den Gefolgten — strikt best effort. Die
+        // follows-Zeile steht bereits; ein Fehler im Notification-/Push-
+        // Pfad (z. B. Schema-Drift, APNs) darf den Follow NICHT scheitern
+        // lassen. Siehe NotificationService-Doc: der Aufrufer kapselt
+        // notify() in try/catch.
+        if ($isNew) {
+            try {
+                $this->notifications?->notify($targetUserId, $viewerUserId, 'follow', 'user', $viewerUserId);
+            } catch (\Throwable $e) {
+                error_log('FollowService::follow notify failed: ' . $e->getMessage());
+            }
+        }
+
+        return $isNew;
     }
 
     public function unfollow(int $viewerUserId, int $targetUserId): void

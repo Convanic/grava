@@ -47,8 +47,14 @@ final class CommentService
         )->execute([$route['route_id'], $viewerUserId, $body]);
         $id = (int)$pdo->lastInsertId();
 
-        // M4c: Notification an den Routen-Owner (best effort).
-        $this->notifications?->notify($route['owner_id'], $viewerUserId, 'comment', 'route', $route['route_id']);
+        // M4c: Notification an den Routen-Owner — strikt best effort.
+        // Ein Fehler im Notification-/Push-Pfad darf das Kommentieren
+        // nicht scheitern lassen (der Kommentar steht bereits).
+        try {
+            $this->notifications?->notify($route['owner_id'], $viewerUserId, 'comment', 'route', $route['route_id']);
+        } catch (\Throwable $e) {
+            error_log('CommentService::create notify failed: ' . $e->getMessage());
+        }
 
         return $this->loadOne($id);
     }

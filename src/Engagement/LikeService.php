@@ -29,20 +29,30 @@ final class LikeService
     {
         $route = RouteVisibility::resolveVisibleOrThrow($routePublicId, $viewerUserId);
 
+        $isNew = true;
         try {
             Db::pdo()->prepare(
                 'INSERT INTO route_likes (user_id, route_id) VALUES (?, ?)'
             )->execute([$viewerUserId, $route['route_id']]);
-            // M4c: Notification an den Routen-Owner (best effort,
-            // notify() filtert Self-Like + Block selbst weg).
-            $this->notifications?->notify($route['owner_id'], $viewerUserId, 'like', 'route', $route['route_id']);
-            return true;
         } catch (\PDOException $e) {
-            if ((int)($e->errorInfo[1] ?? 0) === 1062) {
-                return false; // bereits geliked → idempotent
+            if ((int)($e->errorInfo[1] ?? 0) !== 1062) {
+                throw $e;
             }
-            throw $e;
+            $isNew = false; // bereits geliked → idempotent
         }
+
+        // M4c: Notification an den Routen-Owner — strikt best effort
+        // (notify() filtert Self-Like + Block selbst weg). Ein Fehler im
+        // Notification-/Push-Pfad darf das Like nicht scheitern lassen.
+        if ($isNew) {
+            try {
+                $this->notifications?->notify($route['owner_id'], $viewerUserId, 'like', 'route', $route['route_id']);
+            } catch (\Throwable $e) {
+                error_log('LikeService::like notify failed: ' . $e->getMessage());
+            }
+        }
+
+        return $isNew;
     }
 
     public function unlike(string $routePublicId, int $viewerUserId): void
