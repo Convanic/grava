@@ -878,7 +878,7 @@ $router->post('/internal/heatmap/import', function (Request $r) use ($internalTo
 // backend/UNIVERSAL_LINKS.md.
 
 // Healthcheck
-$router->get('/healthz', function ($r) use ($basePath, $gameValhalla): void {
+$router->get('/healthz', function ($r) use ($basePath, $gameValhalla, $apnsConfig): void {
     // Build-/Versionsinfo aus der vom Deploy geschriebenen VERSION-Datei
     // (Projekt-Root). Erlaubt zu prüfen, welcher Commit produktiv liegt —
     // ohne .git auf dem Server. Fehlt die Datei (z. B. lokal), ist version null.
@@ -898,13 +898,14 @@ $router->get('/healthz', function ($r) use ($basePath, $gameValhalla): void {
         'version' => $version,
     ];
 
-    // Opt-in Komponenten-Checks via ?check=valhalla (oder ?check=all). Der bare
-    // /healthz bleibt ein schlanker Liveness-Probe (kein externer Ping). Ist eine
-    // angeforderte Komponente unten, wird der Gesamtstatus "degraded" und der
+    // Opt-in Komponenten-Checks via ?check=valhalla,push (oder ?check=all). Der
+    // bare /healthz bleibt ein schlanker Liveness-Probe (kein externer Ping). Ist
+    // eine angeforderte Komponente unten, wird der Gesamtstatus "degraded" und der
     // HTTP-Code 503 — so können Uptime-Monitore direkt darauf reagieren.
     $check = strtolower((string)($r->query['check'] ?? ''));
     $wants = $check === '' ? [] : array_map('trim', explode(',', $check));
     $wantValhalla = in_array('valhalla', $wants, true) || in_array('all', $wants, true);
+    $wantPush     = in_array('push', $wants, true)     || in_array('all', $wants, true);
 
     $httpStatus = 200;
     if ($wantValhalla) {
@@ -914,6 +915,37 @@ $router->get('/healthz', function ($r) use ($basePath, $gameValhalla): void {
             $body['status'] = 'degraded';
             $httpStatus = 503;
         }
+    }
+
+    // Push-Readiness (siehe backend/PUSH_BACKEND.md): rein informativ, OHNE
+    // Secrets — nur Booleans/Zahlen, damit nach dem Deploy per URL prüfbar ist,
+    // ob der APNs-Versand scharf geschaltet ist. Verändert den Liveness-Status
+    // bewusst NICHT (fehlende Config bedeutet nicht "Server ungesund").
+    if ($wantPush) {
+        $curlHttp2 = false;
+        if (function_exists('curl_version')) {
+            $cv = curl_version();
+            $curlHttp2 = is_array($cv) && defined('CURL_VERSION_HTTP2')
+                && (bool)($cv['features'] & CURL_VERSION_HTTP2);
+        }
+        $devicesTable = false;
+        $registered   = null;
+        try {
+            $pdo = \App\Database\Db::pdo();
+            $devicesTable = $pdo->query("SHOW TABLES LIKE 'push_devices'")->fetchColumn() !== false;
+            if ($devicesTable) {
+                $registered = (int)$pdo->query('SELECT COUNT(*) FROM push_devices')->fetchColumn();
+            }
+        } catch (\Throwable $e) {
+            // best effort — DB-Fehler nicht nach außen tragen
+        }
+        $body['checks']['push'] = [
+            'apns_configured'    => $apnsConfig->usable(),
+            'key_present'        => $apnsConfig->keyPem !== '',
+            'curl_http2'         => $curlHttp2,
+            'devices_table'      => $devicesTable,
+            'registered_devices' => $registered,
+        ];
     }
 
     Response::json($body, $httpStatus);

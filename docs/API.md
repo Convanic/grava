@@ -482,6 +482,32 @@ für die Farbe; `surface` ist ein OSM/Valhalla-Fallback. Ungültige `bbox` ⇒ `
 |---------|------|------|-------|
 | GET | `/healthz` | — | Liveness (nicht unter `/api/v1`) |
 
+Der bare `/healthz` ist ein schlanker Liveness-Probe (`{ status, time, version }`).
+Optionale Komponenten-Checks via Query `?check=…` (Komma-getrennt, oder `all`):
+
+- `?check=valhalla` — pingt den Routing-Dienst. Nicht erreichbar ⇒ `status: "degraded"` + HTTP `503`.
+- `?check=push` — Push-/APNs-Readiness (siehe `backend/PUSH_BACKEND.md`). Rein
+  informativ, **ohne Secrets** und **ohne** den Liveness-Status zu verändern (immer `200`):
+
+```json
+{
+  "status": "ok",
+  "checks": {
+    "push": {
+      "apns_configured": true,      // ApnsConfig::usable() — APNS_ENABLED + Key-ID/Team/Bundle + .p8 vorhanden
+      "key_present": true,          // .p8 lesbar (keyPem != "")
+      "curl_http2": true,           // ext-curl mit HTTP/2
+      "devices_table": true,        // Tabelle push_devices existiert (Migration 0021)
+      "registered_devices": 0       // Anzahl registrierter APNs-Tokens
+    }
+  }
+}
+```
+
+Eignet sich zur Verifikation nach dem Deploy: `GET https://grava.world/healthz?check=push`.
+`apns_configured`/`key_present` werden erst `true`, wenn die `APNS_*`-Werte in der
+Server-`.env` gesetzt sind und die `.p8` hochgeladen wurde (beides liegt außerhalb des Deploy-Pakets).
+
 ### 5.14 Game (Stufe 1 — Territorialspiel)
 
 - `GET /api/v1/game/edges?bbox=minLon,minLat,maxLon,maxLat[&mine=1]` — eingefärbte Kanten im Ausschnitt (OptionalBearer). Antwort: `{ "edges": [ { id, geom, owner, owner_is_me, value, freshness, distinct_riders_total, surface_character } ] }`.
