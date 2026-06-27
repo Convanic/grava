@@ -145,6 +145,24 @@ final class CrewRepository
     }
 
     // ----------------------------------------------------------------
+    // Crew-Logo (GAME_CREW_LOGO_BACKEND.md) — Spiegel des Avatar-Mechanismus
+    // ----------------------------------------------------------------
+
+    /** Setzt logo_path + logo_updated_at (Upload/Replace). */
+    public function setLogo(int $crewId, string $relPath, string $updatedAt): void
+    {
+        $this->pdo->prepare('UPDATE game_crew SET logo_path = ?, logo_updated_at = ? WHERE id = ?')
+            ->execute([$relPath, $updatedAt, $crewId]);
+    }
+
+    /** Entfernt logo_path + logo_updated_at (auf NULL). */
+    public function clearLogo(int $crewId): void
+    {
+        $this->pdo->prepare('UPDATE game_crew SET logo_path = NULL, logo_updated_at = NULL WHERE id = ?')
+            ->execute([$crewId]);
+    }
+
+    // ----------------------------------------------------------------
     // Captain-Invariante / Self-Healing (GAME_RUSH_BACKEND.md §12)
     // ----------------------------------------------------------------
 

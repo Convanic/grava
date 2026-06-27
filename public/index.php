@@ -413,6 +413,9 @@ $apiPrivacyZone = new \App\Controllers\Api\PrivacyZoneController($privacyZoneSvc
 // $gameCrewRepo, $gameFactionRepo, $gameCrewSvc wurden bereits oben (vor dem
 // CLI-Dispatch) verdrahtet.
 $apiCrew = new \App\Controllers\Api\CrewController($gameCrewSvc);
+$apiCrewLogo = new \App\Controllers\Api\CrewLogoController(
+    new \App\Game\Crew\CrewLogoService($gameCrewRepo, $config),
+);
 $apiRush = new \App\Controllers\Api\RushController($gameRushSvc);
 $gameFactionSvc = new \App\Game\Faction\FactionService(
     Db::pdo(), $gameCrewRepo, $gameFactionRepo, $gameCrewSvc, $gameConfig,
@@ -422,7 +425,7 @@ $apiFaction = new \App\Controllers\Api\FactionController($gameFactionSvc);
 $presenceRepo = new \App\Presence\PresenceRepository(Db::pdo());
 $presenceSvc  = new \App\Presence\PresenceService($presenceRepo, $gameConfig);
 $apiPresence  = new \App\Controllers\Api\PresenceController($presenceSvc);
-$communitySvc = new \App\Community\CommunityTodayService($routeRepo, $presenceSvc);
+$communitySvc = new \App\Community\CommunityTodayService($routeRepo, $presenceSvc, $gameRepo);
 $apiCommunity = new \App\Controllers\Api\CommunityTodayController($communitySvc);
 $webAuth    = new AuthPagesController($auth, $cookieAuth, $webSession, $rate, $basePath . '/views');
 $webHome    = new DashboardController($webSession, $auth, $basePath . '/views');
@@ -627,6 +630,9 @@ $router->get   ("{$apiBase}/game/factions",              fn($r) => $apiFaction->
 $router->post  ("{$apiBase}/game/crews/{slug}/faction",  fn($r) => $apiFaction->set($r),       [$requireBearer]);
 $router->delete("{$apiBase}/game/crews/{slug}/faction",  fn($r) => $apiFaction->clear($r),     [$requireBearer]);
 $router->post  ("{$apiBase}/game/crews/{slug}/captain",  fn($r) => $apiCrew->claimCaptain($r), [$requireBearer]);
+// ---- Crew-Logo (GAME_CREW_LOGO_BACKEND.md) — Captain schreibt; Serving public unten ----
+$router->post  ("{$apiBase}/game/crews/{slug}/logo",     fn($r) => $apiCrewLogo->upload($r),   [$requireBearer]);
+$router->delete("{$apiBase}/game/crews/{slug}/logo",     fn($r) => $apiCrewLogo->delete($r),   [$requireBearer]);
 $router->get ("{$apiBase}/game/crews/{slug}/leaderboard", fn($r) => $apiCrew->leaderboard($r), [$requireBearer]);
 $router->get ("{$apiBase}/game/crews/{slug}",      fn($r) => $apiCrew->show($r),     [$requireBearer]);
 
@@ -744,6 +750,9 @@ $router->get ('/notifications',                          fn($r) => $webDiscover-
 
 // Avatar-Serving (public, eigene Bytes/Placeholder). M4d.
 $router->get ('/u/{handle}/avatar',                      fn($r) => $apiAvatar->serve($r));
+// Crew-Logo-Serving (public, JPEG oder 404). Liegt am Web-Root, NICHT unter
+// /api/v1 — analog zur Avatar-Route (GAME_CREW_LOGO_BACKEND.md §3.3).
+$router->get ('/game/crews/{slug}/logo',                 fn($r) => $apiCrewLogo->serve($r));
 $router->post('/u/{handle}/follow',                      fn($r) => $webSocial->follow($r),    [$csrf]);
 $router->post('/u/{handle}/unfollow',                    fn($r) => $webSocial->unfollow($r),  [$csrf]);
 $router->post('/u/{handle}/block',                       fn($r) => $webSocial->block($r),     [$csrf]);

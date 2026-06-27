@@ -281,6 +281,21 @@ final class GameRepository
     }
 
     /**
+     * Community-Puls: distinct Spiel-Kanten, die im Fenster [$startUtc, $endUtc)
+     * von irgendeiner Fahrt befahren wurden (COMMUNITY_TODAY_BACKEND.md §1).
+     * Zählt jede Kante genau einmal; invalidierte Pässe bleiben außen vor.
+     */
+    public function distinctEdgesPassedBetween(string $startUtc, string $endUtc): int
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT COUNT(DISTINCT edge_id) FROM game_edge_pass
+              WHERE ridden_at >= ? AND ridden_at < ? AND invalidated_at IS NULL'
+        );
+        $stmt->execute([$startUtc, $endUtc]);
+        return (int)$stmt->fetchColumn();
+    }
+
+    /**
      * @return list<array{claimant_id:int,user_id:int,ridden_on:string,ridden_at:string,rush_id:?int}>
      */
     public function passesForEdge(int $edgeId): array

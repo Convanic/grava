@@ -24,14 +24,16 @@ $basePath = dirname(__DIR__);
 $tmpStorage = sys_get_temp_dir() . '/ge_test_storage';
 @mkdir($tmpStorage . '/routes', 0777, true);
 @mkdir($tmpStorage . '/avatars', 0777, true);
+@mkdir($tmpStorage . '/crew-logos', 0777, true);
 
 $forced = [
-    'APP_ENV'             => 'testing',
-    'DB_NAME'             => getenv('DB_NAME') ?: 'gravelexplorer_test',
-    'STRAVA_FAKE'         => '1',
-    'MAIL_HOST'           => '',
-    'STORAGE_ROUTES_DIR'  => $tmpStorage . '/routes',
-    'STORAGE_AVATARS_DIR' => $tmpStorage . '/avatars',
+    'APP_ENV'                => 'testing',
+    'DB_NAME'                => getenv('DB_NAME') ?: 'gravelexplorer_test',
+    'STRAVA_FAKE'            => '1',
+    'MAIL_HOST'              => '',
+    'STORAGE_ROUTES_DIR'     => $tmpStorage . '/routes',
+    'STORAGE_AVATARS_DIR'    => $tmpStorage . '/avatars',
+    'STORAGE_CREW_LOGOS_DIR' => $tmpStorage . '/crew-logos',
 ];
 foreach ($forced as $k => $v) {
     putenv("{$k}={$v}");

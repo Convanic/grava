@@ -426,6 +426,11 @@ final class CrewService
             'held_edges'      => $stats['held'],
             'pioneered_edges' => $stats['pioneered'],
             'held_length_m'   => $stats['held_length_m'],
+            // Crew-Logo (GAME_CREW_LOGO_BACKEND.md §4): Cache-Buster bzw.
+            // „Logo entfernen"-Sichtbarkeit. null = kein Logo.
+            'logo_updated_at' => isset($crew['logo_updated_at']) && $crew['logo_updated_at'] !== null
+                ? Clock::toIso8601(substr((string)$crew['logo_updated_at'], 0, 19))
+                : null,
             'members'         => array_map(
                 static fn (array $m): array => [
                     'user_id' => $m['user_id'],
