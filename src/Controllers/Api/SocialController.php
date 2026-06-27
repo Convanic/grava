@@ -121,7 +121,7 @@ final class SocialController
 
     private function resolveTargetRaw(string $handle): int
     {
-        if ($handle === '' || preg_match('/^[a-z0-9_]{3,30}$/', $handle) !== 1) {
+        if ($handle === '' || preg_match('/^[a-z0-9_]{2,30}$/', $handle) !== 1) {
             Response::error('not_found', 'Profil existiert nicht.', 404);
         }
         $stmt = Db::pdo()->prepare(

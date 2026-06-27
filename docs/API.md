@@ -221,7 +221,7 @@ ihn aus dem Universal-Link extrahieren und hier posten, oder den User den
 Web-Link öffnen lassen.
 
 **Handle setzen** — Request `{ "public_handle": "armin_gravel" }`.
-Regeln: `^[a-z0-9_]{3,30}$`, kein führender `_`, keine `__`, keine reservierten
+Regeln: `^[a-z0-9_]{2,30}$`, kein führender `_`, keine `__`, keine reservierten
 Wörter. `409 handle_locked`, wenn bereits gesetzt; `409 handle_taken`, wenn
 vergeben.
 

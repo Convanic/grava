@@ -312,7 +312,7 @@ final class Validator
      * M3 Phase 0: validiert einen public_handle für /u/{handle}-URLs.
      *
      * Regeln:
-     *  - regex `^[a-z0-9_]{3,30}$` (lowercase, alphanumeric + underscore)
+     *  - regex `^[a-z0-9_]{2,30}$` (lowercase, alphanumeric + underscore)
      *  - keine reservierten Wörter (URL-Konflikte mit /admin, /api, …)
      *  - kein Start mit `_` (visuell verwirrend, oft als Platzhalter
      *    interpretiert)
@@ -341,8 +341,8 @@ final class Validator
         // Uppercase silently nach lowercase zu mappen wäre user-freundlich,
         // verschleiert aber, was nachher tatsächlich als Profil-URL
         // entsteht — wir wollen keine `Foo123 → /u/foo123`-Überraschung.
-        if (preg_match('/^[a-z0-9_]{3,30}$/', $h) !== 1) {
-            $this->add($field, 'Handle muss 3–30 Zeichen lang sein und nur a–z (klein), 0–9 und _ enthalten.');
+        if (preg_match('/^[a-z0-9_]{2,30}$/', $h) !== 1) {
+            $this->add($field, 'Handle muss 2–30 Zeichen lang sein und nur a–z (klein), 0–9 und _ enthalten.');
             return null;
         }
         if (str_starts_with($h, '_')) {

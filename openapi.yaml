@@ -281,7 +281,7 @@ paths:
               properties:
                 public_handle:
                   type: string
-                  pattern: '^[a-z0-9_]{3,30}$'
+                  pattern: '^[a-z0-9_]{2,30}$'
       responses:
         "200":
           description: OK
@@ -1055,7 +1055,7 @@ components:
       name: handle
       in: path
       required: true
-      schema: { type: string, pattern: '^[a-z0-9_]{3,30}$' }
+      schema: { type: string, pattern: '^[a-z0-9_]{2,30}$' }
 
   responses:
     Error:

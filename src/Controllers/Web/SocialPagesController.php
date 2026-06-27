@@ -90,7 +90,7 @@ final class SocialPagesController
         }
         $viewer = $ctx['user_id'];
 
-        if ($handle === '' || preg_match('/^[a-z0-9_]{3,30}$/', $handle) !== 1) {
+        if ($handle === '' || preg_match('/^[a-z0-9_]{2,30}$/', $handle) !== 1) {
             $this->flash('Handle ist ungültig.');
             Response::redirect('/discover');
         }

@@ -148,7 +148,7 @@ final class AvatarService
      */
     public function resolveForHandle(string $handle): ?array
     {
-        if (preg_match('/^[a-z0-9_]{3,30}$/', $handle) !== 1) {
+        if (preg_match('/^[a-z0-9_]{2,30}$/', $handle) !== 1) {
             return null;
         }
         $stmt = Db::pdo()->prepare(

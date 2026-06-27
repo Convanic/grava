@@ -57,7 +57,7 @@ Konkret:
 
 | # | Entscheidung |
 |---|---|
-| 1 | **Public Handle:** separates `public_handle`-Feld auf `users`. UNIQUE, NULL erlaubt, regex `^[a-z0-9_]{3,30}$`. Profile-URL `/u/{handle}`, API `/api/v1/users/by-handle/{handle}`. |
+| 1 | **Public Handle:** separates `public_handle`-Feld auf `users`. UNIQUE, NULL erlaubt, regex `^[a-z0-9_]{2,30}$`. Profile-URL `/u/{handle}`, API `/api/v1/users/by-handle/{handle}`. |
 | 2 | **Discovery-Scope:** ausschließlich `visibility=public`. `unlisted` bleibt strikt link-only, wie in M2 §11/5 zementiert. |
 | 3 | **Follow-Modell:** asymmetrisch + Block-Liste (Strava/GitHub-Stil). Kein Approval-Workflow. |
 | 4 | **Anonymous Discovery:** ja. Alle GET-Endpoints unter `/discover/*` und `/users/by-handle/*` und `/u/{handle}` sind ohne Login zugänglich. |
@@ -74,7 +74,7 @@ ALTER TABLE users
     AFTER display_name;
 ```
 
-- Format: `^[a-z0-9_]{3,30}$` (Validator-seitig erzwungen, DB
+- Format: `^[a-z0-9_]{2,30}$` (Validator-seitig erzwungen, DB
   speichert wie-eingegeben).
 - NULL = User hat noch keinen Handle gesetzt → erscheint nicht in
   Discovery oder unter `/u/...`. Routen dieses Users sind über

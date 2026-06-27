@@ -50,13 +50,13 @@ $err = static function (string $field) use ($errors): string {
                 <label>
                     Dein Handle
                     <input type="text" name="public_handle"
-                           pattern="[a-z0-9_]{3,30}"
-                           minlength="3" maxlength="30"
+                           pattern="[a-z0-9_]{2,30}"
+                           minlength="2" maxlength="30"
                            required autocomplete="off"
                            placeholder="z. B. gravelfan"
                            value="<?= htmlspecialchars($value, ENT_QUOTES, 'UTF-8') ?>">
                     <small class="muted">
-                        3–30 Zeichen, nur a–z, 0–9 und _. Kein Doppel-_.
+                        2–30 Zeichen, nur a–z, 0–9 und _. Kein Doppel-_.
                     </small>
                     <?= $err('public_handle') ?>
                 </label>

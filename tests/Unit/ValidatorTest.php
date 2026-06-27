@@ -76,7 +76,8 @@ final class ValidatorTest extends TestCase
     public static function invalidHandles(): array
     {
         return [
-            'too short'        => ['ab'],
+            'too short'        => ['a'],
+            'empty'            => [''],
             'leading under'    => ['_bob'],
             'double under'     => ['foo__bar'],
             'uppercase'        => ['Bob'],
@@ -89,6 +90,14 @@ final class ValidatorTest extends TestCase
     {
         $v = new Validator();
         $this->assertSame('gravel_bob_42', $v->publicHandle('public_handle', 'gravel_bob_42'));
+        $this->assertFalse($v->fails());
+    }
+
+    /** Untergrenze ist jetzt 2 Zeichen (zuvor 3). */
+    public function testPublicHandleAcceptsTwoChars(): void
+    {
+        $v = new Validator();
+        $this->assertSame('ab', $v->publicHandle('public_handle', 'ab'));
         $this->assertFalse($v->fails());
     }
 
