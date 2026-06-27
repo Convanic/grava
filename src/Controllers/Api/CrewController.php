@@ -59,8 +59,14 @@ final class CrewController
 
     public function me(Request $req): void
     {
-        $uid = $this->userId($req);
-        Response::json(['crew' => $this->crews->me($uid)]);
+        $uid  = $this->userId($req);
+        $crew = $this->crews->me($uid);
+        // §5.2: my_rank_in_crew als Top-Level-Feld neben "crew" (iOS:
+        // GameCrewMe.myRankInCrew). null, wenn solo / nicht in einer Crew.
+        Response::json([
+            'crew'            => $crew,
+            'my_rank_in_crew' => $crew !== null ? $this->crews->myRankInCrew($uid) : null,
+        ]);
     }
 
     /** POST /game/crews/{slug}/captain — Notbesetzung (§12.3). */

@@ -283,6 +283,31 @@ final class CrewRepository
         return $stmt->fetchColumn() !== false;
     }
 
+    /**
+     * Weltweiter Rang dieser Crew (GAME_STAGE2_BACKEND.md §5.2): Position in der
+     * globalen Crew-Rangliste nach gehaltener Revierlänge (Σ length_m der
+     * crew-eigenen Kanten), absteigend. 1-basiert; Ties stabil per crew_id ASC.
+     *
+     * $myHeldLengthM wird vom Aufrufer (meStats) übergeben — exakt dieselbe
+     * Aggregat-Formel wie die Subquery hier, daher tie-sicher vergleichbar.
+     */
+    public function crewWorldRank(int $crewId, float $myHeldLengthM): int
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT 1 + COUNT(*) AS world_rank
+               FROM (
+                    SELECT c.id AS crew_id, COALESCE(SUM(e.length_m), 0) AS len
+                      FROM game_crew c
+                      LEFT JOIN game_edge e ON e.owner_claimant_id = c.claimant_id
+                     GROUP BY c.id
+               ) t
+              WHERE t.len > :lenGt
+                 OR (t.len = :lenEq AND t.crew_id < :crewId)'
+        );
+        $stmt->execute([':lenGt' => $myHeldLengthM, ':lenEq' => $myHeldLengthM, ':crewId' => $crewId]);
+        return (int)$stmt->fetchColumn();
+    }
+
     // ----------------------------------------------------------------
     // Rangliste (Leaderboard) — reine Lese-Aggregationen
     // ----------------------------------------------------------------

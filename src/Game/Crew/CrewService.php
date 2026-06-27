@@ -331,6 +331,58 @@ final class CrewService
         return ['members' => $out];
     }
 
+    /**
+     * Eigener Rang in der crew-internen Rangliste (GAME_STAGE2_BACKEND.md §5.2)
+     * — gleiche Metrik wie die Default-Sicht von GET /crews/{slug}/leaderboard:
+     * `presence_contribution` (90-Tage-Präsenz auf crew-eigenen Kanten),
+     * absteigend. 1-basiert; Ties stabil per user_id ASC. `null`, wenn der
+     * Fahrer in keiner Crew ist.
+     */
+    public function myRankInCrew(int $userId, ?DateTimeImmutable $now = null): ?int
+    {
+        $membership = $this->crews->membershipOf($userId);
+        if ($membership === null) {
+            return null;
+        }
+        $crew = $this->crews->crewById($membership['crew_id']);
+        if ($crew === null) {
+            return null;
+        }
+
+        $now ??= Clock::nowUtc();
+        $window = $this->config->int('presence_window_days');
+        $since  = $now->modify("-{$window} days")->format('Y-m-d');
+
+        $members = $this->crews->members($membership['crew_id']);
+        $userIds = array_map(static fn (array $m): int => $m['user_id'], $members);
+        $contribution = array_fill_keys($userIds, 0.0);
+
+        $ownedEdges = $this->crews->crewOwnedEdges((int)$crew['claimant_id']);
+        if ($ownedEdges !== [] && $userIds !== []) {
+            $passes = $this->crews->passesOnEdgesForUsers(array_keys($ownedEdges), $userIds, $since);
+            foreach ($passes as $p) {
+                $w = GameMath::presenceWeight($this->ageDays($p['ridden_at'], $now), $window);
+                $contribution[$p['user_id']] = ($contribution[$p['user_id']] ?? 0.0) + $w;
+            }
+        }
+
+        if (!array_key_exists($userId, $contribution)) {
+            return null;
+        }
+        $mine = $contribution[$userId];
+        $rank = 1;
+        foreach ($contribution as $uid => $c) {
+            $uid = (int)$uid;
+            if ($uid === $userId) {
+                continue;
+            }
+            if ($c > $mine || ($c === $mine && $uid < $userId)) {
+                $rank++;
+            }
+        }
+        return $rank;
+    }
+
     private function ageDays(string $mysqlDatetime, DateTimeImmutable $now): float
     {
         $dt = new DateTimeImmutable($mysqlDatetime, new DateTimeZone('UTC'));
@@ -426,6 +478,9 @@ final class CrewService
             'held_edges'      => $stats['held'],
             'pioneered_edges' => $stats['pioneered'],
             'held_length_m'   => $stats['held_length_m'],
+            // Weltweiter Crew-Rang (GAME_STAGE2_BACKEND.md §5.2): Metrik =
+            // gehaltene Revierlänge, 1-basiert. Additiv/optional für iOS.
+            'world_rank'      => $this->crews->crewWorldRank($crewId, (float)$stats['held_length_m']),
             // Crew-Logo (GAME_CREW_LOGO_BACKEND.md §4): Cache-Buster bzw.
             // „Logo entfernen"-Sichtbarkeit. null = kein Logo.
             'logo_updated_at' => isset($crew['logo_updated_at']) && $crew['logo_updated_at'] !== null

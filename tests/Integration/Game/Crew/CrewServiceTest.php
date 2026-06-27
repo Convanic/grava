@@ -213,6 +213,71 @@ final class CrewServiceTest extends IntegrationTestCase
     }
 
     // ----------------------------------------------------------------
+    // §5.2 — world_rank (Crew) + my_rank_in_crew (Mitglied)
+    // ----------------------------------------------------------------
+
+    private function makeEdgeLen(int $wayId, int $nodeA, int $nodeB, float $len): int
+    {
+        $a = $this->repo->upsertNode($nodeA, 47.12, 9.65);
+        $b = $this->repo->upsertNode($nodeB, 47.13, 9.66);
+        $geom = json_encode(['type' => 'LineString', 'coordinates' => [[9.65, 47.12], [9.66, 47.13]]]);
+        return $this->repo->upsertEdge($wayId, $a, $b, $len, $geom, null, 47.12, 9.65, 47.13, 9.66);
+    }
+
+    /** Lässt $userId die Kante an einem Tag befahren und rechnet den Besitz neu. */
+    private function ownEdgeByUser(int $edge, int $userId, DateTimeImmutable $now, string $day): void
+    {
+        $rider = $this->repo->riderClaimantId($userId);
+        $this->repo->insertPassIfAbsent($edge, $rider, $userId, 1, $day, $day . ' 08:00:00.000');
+        $this->repo->refreshEdgeDiscovery($edge);
+        $this->recalc->recalculate($edge, $now);
+    }
+
+    public function testWorldRankByHeldLength(): void
+    {
+        $now = $this->now('2026-06-20T12:00:00Z');
+        $ca  = $this->createUser('rank-a');
+        $cb  = $this->createUser('rank-b');
+        $this->svc->create($ca, 'Alpha', $now);
+        $this->svc->create($cb, 'Bravo', $now);
+
+        // Crew Alpha hält eine lange Kante, Bravo eine kurze.
+        $eA = $this->makeEdgeLen(4001, 40, 41, 500.0);
+        $eB = $this->makeEdgeLen(4002, 42, 43, 100.0);
+        $this->ownEdgeByUser($eA, $ca, $now, '2026-06-19');
+        $this->ownEdgeByUser($eB, $cb, $now, '2026-06-19');
+
+        $this->assertSame(1, $this->svc->me($ca)['world_rank'], 'Längeres Revier → Rang 1.');
+        $this->assertSame(2, $this->svc->me($cb)['world_rank']);
+    }
+
+    public function testMyRankInCrewByPresenceContribution(): void
+    {
+        $now  = $this->now('2026-06-20T12:00:00Z');
+        $cap  = $this->createUser('mr-cap');
+        $m1   = $this->createUser('mr-one');
+        $m2   = $this->createUser('mr-two');
+        $crew = $this->svc->create($cap, 'Rankers', $now);
+        $this->svc->join($m1, $crew['join_code'], $now);
+        $this->svc->join($m2, $crew['join_code'], $now);
+
+        $edge  = $this->makeEdgeLen(4100, 50, 51, 300.0);
+        $rCap  = $this->repo->riderClaimantId($cap);
+        $rM1   = $this->repo->riderClaimantId($m1);
+        // cap: 1 Pass; m1: 2 Pässe (zwei Tage) → höherer Präsenzbeitrag; m2: keiner.
+        $this->repo->insertPassIfAbsent($edge, $rCap, $cap, 1, '2026-06-19', '2026-06-19 08:00:00.000');
+        $this->repo->insertPassIfAbsent($edge, $rM1, $m1, 1, '2026-06-18', '2026-06-18 08:00:00.000');
+        $this->repo->insertPassIfAbsent($edge, $rM1, $m1, 1, '2026-06-19', '2026-06-19 09:00:00.000');
+        $this->repo->refreshEdgeDiscovery($edge);
+        $this->recalc->recalculate($edge, $now);
+
+        $this->assertSame(1, $this->svc->myRankInCrew($m1, $now), 'Meiste Präsenz → Rang 1.');
+        $this->assertSame(2, $this->svc->myRankInCrew($cap, $now));
+        $this->assertSame(3, $this->svc->myRankInCrew($m2, $now), 'Kein Beitrag → letzter Rang.');
+        $this->assertNull($this->svc->myRankInCrew($this->createUser('mr-solo'), $now), 'Solo → null.');
+    }
+
+    // ----------------------------------------------------------------
     // §12 — captain-lose Crew heilen (Self-Healing)
     // ----------------------------------------------------------------
 
