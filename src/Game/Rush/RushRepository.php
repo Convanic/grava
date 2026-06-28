@@ -23,12 +23,13 @@ final class RushRepository
         float $multiplier,
         ?float $meetupLat,
         ?float $meetupLon,
+        ?string $note = null,
     ): int {
         $this->pdo->prepare(
             'INSERT INTO game_rush
-                (crew_id, created_by, start_at, end_at, multiplier, meetup_lat, meetup_lon, status)
-             VALUES (?, ?, ?, ?, ?, ?, ?, "planned")'
-        )->execute([$crewId, $createdBy, $startAt, $endAt, $multiplier, $meetupLat, $meetupLon]);
+                (crew_id, created_by, start_at, end_at, multiplier, meetup_lat, meetup_lon, note, status)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, "planned")'
+        )->execute([$crewId, $createdBy, $startAt, $endAt, $multiplier, $meetupLat, $meetupLon, $note]);
         return (int)$this->pdo->lastInsertId();
     }
 

@@ -23,12 +23,15 @@ final class RushController
         $uid = $this->userId($req);
         $startAt = (string)$req->input('start_at', '');
         $windowHours = $req->input('window_hours');
+        $note = $req->input('note');
         $this->run(fn () => Response::json($this->rush->create(
             $uid,
             $startAt,
             $windowHours !== null ? (int)$windowHours : null,
             $this->floatOrNull($req->input('meetup_lat')),
             $this->floatOrNull($req->input('meetup_lon')),
+            null,
+            $note !== null ? (string)$note : null,
         ), 201));
     }
 

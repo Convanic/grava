@@ -529,4 +529,40 @@ final class RushServiceTest extends IntegrationTestCase
         $remaining->execute([$rid]);
         $this->assertSame(0, (int)$remaining->fetchColumn(), 'ON DELETE SET NULL: keine Pässe verweisen mehr auf den gelöschten Rush.');
     }
+
+    // --- §13: Rush-Hinweis (Freitext note) ----------------------------
+
+    /**
+     * §13.a — note wird getrimmt/auf 280 Zeichen gekappt (nicht abgelehnt),
+     * leer → null, und erscheint im DTO (create + GET …/rush).
+     */
+    public function testNoteTrimsCapsAndExposesInDto(): void
+    {
+        $now = $this->now('2026-06-20T08:00:00Z');
+        [, $users] = $this->makeCrew(0, $now);
+        $cap = $users[0];
+
+        // (1) Normaler Hinweis: getrimmt im DTO.
+        $rush = $this->svc->create($cap, '2026-06-20T18:00:00Z', 4, null, null, $now, '  Treffpunkt am Brunnen  ');
+        $this->assertSame('Treffpunkt am Brunnen', $rush['note']);
+        // Auch über GET …/rush sichtbar.
+        $detail = $this->svc->myRush($cap, $now);
+        $this->assertSame('Treffpunkt am Brunnen', $detail['rush']['note']);
+
+        // (2) Kein Hinweis → null.
+        [, $users2] = $this->makeCrew(0, $now);
+        $rush2 = $this->svc->create($users2[0], '2026-06-20T18:00:00Z', 4, null, null, $now);
+        $this->assertNull($rush2['note']);
+
+        // (3) Leer/Whitespace → null.
+        [, $users3] = $this->makeCrew(0, $now);
+        $rush3 = $this->svc->create($users3[0], '2026-06-20T18:00:00Z', 4, null, null, $now, '   ');
+        $this->assertNull($rush3['note']);
+
+        // (4) 281 Zeichen → auf 280 gekappt, nicht abgelehnt.
+        [, $users4] = $this->makeCrew(0, $now);
+        $long = str_repeat('x', 281);
+        $rush4 = $this->svc->create($users4[0], '2026-06-20T18:00:00Z', 4, null, null, $now, $long);
+        $this->assertSame(280, mb_strlen((string)$rush4['note']));
+    }
 }

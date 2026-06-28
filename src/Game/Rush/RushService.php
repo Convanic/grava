@@ -52,6 +52,7 @@ final class RushService
         ?float $meetupLat,
         ?float $meetupLon,
         ?DateTimeImmutable $now = null,
+        ?string $note = null,
     ): array {
         if (!$this->config->bool('rush_enabled')) {
             throw RushException::conflict('Rush ist derzeit deaktiviert.');
@@ -106,7 +107,10 @@ final class RushService
         }
 
         $multiplier = $this->config->float('rush_multiplier'); // Snapshot
-        $rushId = $this->rushes->create($crewId, $userId, $startStr, $endStr, $multiplier, $meetupLat, $meetupLon);
+        $rushId = $this->rushes->create(
+            $crewId, $userId, $startStr, $endStr, $multiplier, $meetupLat, $meetupLon,
+            $this->sanitizeNote($note),
+        );
 
         $this->audit?->record($userId, 'rush_create', 'crew:' . $crewId, [
             'rush_id' => $rushId, 'start_at' => $startStr, 'end_at' => $endStr,
@@ -295,6 +299,7 @@ final class RushService
             'multiplier'             => (float)$row['multiplier'],
             'meetup_lat'             => $row['meetup_lat'] !== null ? (float)$row['meetup_lat'] : null,
             'meetup_lon'             => $row['meetup_lon'] !== null ? (float)$row['meetup_lon'] : null,
+            'note'                   => isset($row['note']) && $row['note'] !== null ? (string)$row['note'] : null,
             'created_by_handle'      => $row['created_by_handle'] !== null ? (string)$row['created_by_handle'] : null,
             'participants_confirmed' => $this->rushes->confirmedCount($rushId),
             'participants_ridden'    => $ridden,
@@ -320,6 +325,26 @@ final class RushService
         } catch (Throwable $e) {
             error_log('rush push (' . $type . '): ' . $e->getMessage());
         }
+    }
+
+    /**
+     * Rush-Hinweis normalisieren (§13.2): trim, Steuerzeichen raus, auf 280
+     * Zeichen kappen (NICHT ablehnen), leer → NULL. Plaintext — kein HTML/
+     * Markdown; XSS-Sicherheit entsteht durch JSON-Auslieferung + Client-seitige
+     * Plaintext-Anzeige. Gleiche Politik wie andere User-Freitexte (Crew-Name).
+     */
+    private function sanitizeNote(?string $note): ?string
+    {
+        if ($note === null) {
+            return null;
+        }
+        // C0-Steuerzeichen entfernen, Tab/Zeilenumbruch aber erhalten.
+        $note = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u', '', $note) ?? '';
+        $note = trim($note);
+        if ($note === '') {
+            return null;
+        }
+        return mb_substr($note, 0, 280);
     }
 
     private function parseIso(string $iso): ?DateTimeImmutable
