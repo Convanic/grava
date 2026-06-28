@@ -53,6 +53,7 @@ use App\Controllers\Web\SurfaceCheckController;
 use App\Controllers\Web\LegalPagesController;
 use App\Controllers\Web\SocialPagesController;
 use App\Controllers\Web\WebRefreshController;
+use App\Controllers\Web\LandingController;
 use App\Http\Middleware\Csrf;
 use App\Discovery\BlockService;
 use App\Discovery\DiscoveryService;
@@ -442,6 +443,7 @@ $webSurface  = new SurfaceCheckController($webSession, $auth, $routeSurface, $co
 $webReferral = new ReferralPagesController($config, $basePath . '/views');
 $webLegal    = new LegalPagesController($basePath . '/views');
 $webAdminRef = new AdminReferralPagesController($webSession, $auth, $referrals, $config, $basePath . '/views');
+$webLanding  = new LandingController($basePath . '/views');
 
 // ---- Game-Admin-Dashboard (Stufe 1) — nur unter admin.grava.world erreichbar ----
 $adminGuard      = new \App\Game\Admin\AdminGuard((string)$config->get('ADMIN_EMAILS', ''));
@@ -646,6 +648,7 @@ $router->get ("{$apiBase}/community/today",       fn($r) => $apiCommunity->today
 
 // ---- Web pages ----
 $router->get('/',                  fn($r) => Response::redirect('/dashboard'));
+$router->get('/landing',           fn($r) => $webLanding->home());
 $router->get('/login',             fn($r) => $webAuth->showLogin($r));
 $router->post('/login',            fn($r) => $webAuth->doLogin($r),           [$csrf]);
 $router->get('/register',          fn($r) => $webAuth->showRegister($r));

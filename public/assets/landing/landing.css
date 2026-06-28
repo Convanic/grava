@@ -1,0 +1,466 @@
+/* ============================================
+   GRAVA Landing Page Styles
+   Basis: Designsystem "Trail" (style.css)
+   ============================================ */
+
+/* Hero Section */
+.hero {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 48px;
+    align-items: center;
+    padding: 64px 24px;
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+@media (min-width: 768px) {
+    .hero {
+        grid-template-columns: 1fr 1fr;
+        padding: 96px 48px;
+    }
+}
+
+.hero-content {
+    max-width: 560px;
+}
+
+.hero-title {
+    font-size: 40px;
+    font-weight: 700;
+    line-height: 1.1;
+    margin: 0 0 24px 0;
+    color: var(--text);
+}
+
+@media (min-width: 768px) {
+    .hero-title {
+        font-size: 52px;
+    }
+}
+
+.hero-subtitle {
+    font-size: 18px;
+    line-height: 1.6;
+    color: var(--muted);
+    margin: 0 0 24px 0;
+}
+
+.hero-trust-badge {
+    display: inline-block;
+    padding: 8px 16px;
+    background: rgba(47, 82, 51, 0.08);
+    border-radius: var(--radius-sm);
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--primary);
+    margin: 0 0 24px 0;
+}
+
+.hero-cta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    align-items: center;
+}
+
+.btn-appstore {
+    display: inline-block;
+    transition: opacity 0.2s;
+}
+
+.btn-appstore:hover {
+    opacity: 0.85;
+}
+
+.appstore-badge {
+    height: 48px;
+    width: auto;
+}
+
+.btn-appstore-large .appstore-badge {
+    height: 56px;
+}
+
+.hero-visual {
+    position: relative;
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    background: linear-gradient(135deg, rgba(47, 82, 51, 0.05) 0%, rgba(191, 122, 58, 0.05) 100%);
+    aspect-ratio: 4/3;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.hero-screenshots {
+    display: flex;
+    gap: 16px;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    height: 100%;
+}
+
+.hero-screenshot {
+    max-width: 45%;
+    height: auto;
+    border-radius: 12px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+    object-fit: contain;
+}
+
+@media (min-width: 768px) {
+    .hero-screenshots {
+        gap: 24px;
+        padding: 32px;
+    }
+
+    .hero-screenshot {
+        max-width: 280px;
+    }
+}
+
+/* Buttons */
+.btn-primary,
+.btn-secondary,
+.btn-link {
+    display: inline-block;
+    padding: 14px 28px;
+    border-radius: var(--radius-sm);
+    font-weight: 600;
+    font-size: 16px;
+    text-decoration: none;
+    transition: all 0.2s;
+}
+
+.btn-primary {
+    background: var(--primary);
+    color: var(--bg);
+    border: 2px solid var(--primary);
+}
+
+.btn-primary:hover {
+    background: var(--primary-hover);
+    border-color: var(--primary-hover);
+    text-decoration: none;
+}
+
+.btn-secondary {
+    background: transparent;
+    color: var(--primary);
+    border: 2px solid var(--border-strong);
+}
+
+.btn-secondary:hover {
+    border-color: var(--primary);
+    text-decoration: none;
+}
+
+.btn-link {
+    background: transparent;
+    color: var(--primary);
+    border: none;
+    padding: 14px 0;
+}
+
+.btn-large {
+    padding: 18px 36px;
+    font-size: 18px;
+}
+
+/* Stats Section */
+.stats-section {
+    background: var(--primary);
+    color: var(--bg);
+    padding: 80px 24px;
+}
+
+.stats-container {
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.stats-heading {
+    text-align: center;
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--primary-weak);
+    margin: 0 0 48px 0;
+}
+
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 32px;
+    max-width: 900px;
+    margin: 0 auto;
+}
+
+@media (min-width: 768px) {
+    .stats-grid {
+        grid-template-columns: repeat(4, 1fr);
+    }
+}
+
+.stat-card {
+    text-align: center;
+    padding: 32px 24px;
+    border: 1px solid rgba(244, 241, 234, 0.2);
+    border-radius: var(--radius);
+    background: rgba(244, 241, 234, 0.05);
+}
+
+.stat-number {
+    font-size: 48px;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--bg);
+    margin: 0 0 8px 0;
+}
+
+@media (min-width: 768px) {
+    .stat-number {
+        font-size: 56px;
+    }
+}
+
+.stat-label {
+    font-size: 13px;
+    font-weight: 400;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--primary-weak);
+}
+
+.stats-note {
+    text-align: center;
+    font-size: 14px;
+    color: var(--primary-weak);
+    margin: 32px 0 0 0;
+}
+
+/* Features Section */
+.features-section {
+    padding: 80px 24px;
+    background: var(--bg);
+}
+
+.features-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 48px;
+}
+
+@media (min-width: 768px) {
+    .features-container {
+        grid-template-columns: repeat(3, 1fr);
+        gap: 32px;
+    }
+}
+
+.feature-card {
+    text-align: center;
+    padding: 24px;
+}
+
+.feature-icon {
+    font-size: 48px;
+    margin-bottom: 16px;
+}
+
+.feature-title {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--text);
+    margin: 0 0 12px 0;
+}
+
+.feature-description {
+    font-size: 16px;
+    line-height: 1.6;
+    color: var(--muted);
+    margin: 0;
+}
+
+/* How it works Section */
+.how-section {
+    padding: 80px 24px;
+    background: var(--surface);
+}
+
+.how-container {
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.section-heading {
+    text-align: center;
+    font-size: 36px;
+    font-weight: 700;
+    color: var(--text);
+    margin: 0 0 64px 0;
+}
+
+.steps-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 48px;
+}
+
+@media (min-width: 768px) {
+    .steps-grid {
+        grid-template-columns: repeat(3, 1fr);
+        gap: 32px;
+    }
+}
+
+.step {
+    text-align: center;
+    padding: 24px;
+}
+
+.step-number {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    background: var(--primary);
+    color: var(--bg);
+    font-size: 28px;
+    font-weight: 700;
+    margin-bottom: 24px;
+}
+
+.step-title {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--text);
+    margin: 0 0 12px 0;
+}
+
+.step-description {
+    font-size: 16px;
+    line-height: 1.6;
+    color: var(--muted);
+    margin: 0;
+}
+
+/* FAQ Section */
+.faq-section {
+    padding: 80px 24px;
+    background: var(--bg);
+}
+
+.faq-container {
+    max-width: 1000px;
+    margin: 0 auto;
+}
+
+.faq-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 32px;
+    margin-bottom: 48px;
+}
+
+@media (min-width: 768px) {
+    .faq-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 40px;
+    }
+}
+
+.faq-item {
+    padding: 24px;
+    background: var(--surface);
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+}
+
+.faq-question {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text);
+    margin: 0 0 12px 0;
+}
+
+.faq-answer {
+    font-size: 16px;
+    line-height: 1.6;
+    color: var(--muted);
+    margin: 0;
+}
+
+.faq-trust-badges {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 24px;
+    padding-top: 32px;
+    border-top: 1px solid var(--border);
+}
+
+.trust-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 10px 20px;
+    background: var(--surface);
+    border-radius: var(--radius-sm);
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+    border: 1px solid var(--border);
+}
+
+/* CTA Section */
+.cta-section {
+    padding: 96px 24px;
+    background: var(--surface-alt);
+}
+
+.cta-container {
+    max-width: 800px;
+    margin: 0 auto;
+    text-align: center;
+}
+
+.cta-heading {
+    font-size: 36px;
+    font-weight: 700;
+    color: var(--text);
+    margin: 0 0 16px 0;
+}
+
+@media (min-width: 768px) {
+    .cta-heading {
+        font-size: 42px;
+    }
+}
+
+.cta-description {
+    font-size: 18px;
+    line-height: 1.6;
+    color: var(--muted);
+    margin: 0 0 32px 0;
+}
+
+.cta-buttons {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+}
+
+@media (min-width: 768px) {
+    .cta-buttons {
+        flex-direction: row;
+        justify-content: center;
+    }
+}
