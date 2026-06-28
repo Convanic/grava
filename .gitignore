@@ -18,3 +18,5 @@
 /scripts/.env.sync
 # Brainstorming-/Visual-Companion-Artefakte
 /.superpowers/
+# Lokale Ops-/Runbook-Notizen (enthalten Secrets wie INTERNAL_TOKEN — NIE committen)
+*.local.md
