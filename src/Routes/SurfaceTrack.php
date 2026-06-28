@@ -144,12 +144,14 @@ final class SurfaceTrack
     /**
      * Zerlegt die Punktfolge in Läufe gleichen Scores. Der Grenzpunkt
      * gehört zu beiden angrenzenden Segmenten, damit die Linie lückenlos
-     * bleibt.
+     * bleibt. Public, damit {@see RouteGeoJson} die (ggf. serverseitig
+     * ausgedünnte) Punktfolge in dieselben farbcodierten Features zerlegen
+     * kann — optisch deckungsgleich zur vollen Auflösung.
      *
      * @param list<array{lon:float,lat:float,score:?int}> $points
      * @return list<array<string,mixed>>
      */
-    private static function segmentize(array $points): array
+    public static function segmentize(array $points): array
     {
         $features = [];
         $run = [];

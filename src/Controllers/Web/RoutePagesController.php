@@ -369,6 +369,7 @@ final class RoutePagesController
                 $loaded['payload'],
                 [],
                 $this->routes->hintsForPublicId($publicId),
+                \App\Support\MapLod::lodFromQuery($req->query),
             );
         } catch (RouteNotFoundException) {
             GeoJsonResponse::error(404);

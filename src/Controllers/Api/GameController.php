@@ -60,7 +60,48 @@ final class GameController
                 static fn($e) => $e['owner'] !== null && $e['owner']['claimant_id'] === $viewer,
             ));
         }
+        // Optionale LOD-Stufe für weite Zooms: lange Kanten-Geometrien auf
+        // max_points_per_edge Stützpunkte ausdünnen (Bucket-Mittelung, optisch
+        // deckungsgleich). Ohne Parameter bleibt die volle Geometrie erhalten.
+        $mpe = isset($req->query['max_points_per_edge'])
+            ? max(2, (int)$req->query['max_points_per_edge'])
+            : null;
+        if ($mpe !== null) {
+            foreach ($edges as &$edge) {
+                $edge['geom'] = self::thinGeom($edge['geom'] ?? null, $mpe);
+            }
+            unset($edge);
+        }
         Response::json(['edges' => $edges]);
+    }
+
+    /**
+     * Dünnt eine GeoJSON-LineString-Geometrie auf höchstens `$cap` Stützpunkte
+     * aus (Bucket-Mittelung via {@see \App\Support\MapLod}). Andere
+     * Geometrietypen werden unverändert durchgereicht.
+     *
+     * @param mixed $geom
+     * @return mixed
+     */
+    private static function thinGeom($geom, int $cap)
+    {
+        if (!is_array($geom) || ($geom['type'] ?? null) !== 'LineString'
+            || !is_array($geom['coordinates'] ?? null)) {
+            return $geom;
+        }
+        $points = [];
+        foreach ($geom['coordinates'] as $c) {
+            if (is_array($c) && count($c) >= 2) {
+                $points[] = ['lon' => (float)$c[0], 'lat' => (float)$c[1], 'score' => null];
+            }
+        }
+        $lod = \App\Support\MapLod::simplifyTrack($points, null, $cap);
+        $coords = [];
+        foreach ($lod['points'] as $p) {
+            $coords[] = [$p['lon'], $p['lat']];
+        }
+        $geom['coordinates'] = $coords;
+        return $geom;
     }
 
     public function edge(Request $req): void

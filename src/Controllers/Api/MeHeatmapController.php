@@ -35,7 +35,12 @@ final class MeHeatmapController
             }
         }
 
-        Response::json($this->heatmap->queryForUser($userId, $bbox));
+        Response::json($this->heatmap->queryForUser(
+            $userId,
+            $bbox,
+            20000,
+            \App\Support\MapLod::gridFromQuery($req->query),
+        ));
     }
 
     /**

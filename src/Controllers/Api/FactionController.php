@@ -43,7 +43,9 @@ final class FactionController
             Response::error('bad_request', 'bbox erforderlich (minLon,minLat,maxLon,maxLat).', 400);
         }
         [$minLon, $minLat, $maxLon, $maxLat] = array_map('floatval', $parts);
-        Response::json($this->factions->map($minLon, $minLat, $maxLon, $maxLat));
+        // Optionale gröbere Gitterweite (Zoom-abhängig) — sonst Config-Default.
+        $grid = \App\Support\MapLod::gridFromQuery($req->query);
+        Response::json($this->factions->map($minLon, $minLat, $maxLon, $maxLat, $grid));
     }
 
     public function standings(Request $req): void

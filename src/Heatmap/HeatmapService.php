@@ -5,6 +5,7 @@ namespace App\Heatmap;
 
 use App\Database\Db;
 use App\Support\Clock;
+use App\Support\MapLod;
 use PDO;
 
 /**
@@ -83,9 +84,14 @@ final class HeatmapService
 
     /**
      * @param array{min_lat:float,min_lon:float,max_lat:float,max_lon:float}|null $bbox
+     * @param float|null $gridOverride Optionale gröbere Gitterweite (Grad): die
+     *        Basiszellen ({@see GRID}) werden serverseitig in dieses Gitter
+     *        aggregiert (Summe je Zelle) — deckungsgleich zur Client-Logik
+     *        ({@see MapLod::clusterHeat}). Wird auf ≥ {@see GRID} geklemmt
+     *        (feiner als die Quelle ist nicht möglich). `null` → unverändert.
      * @return array<string,mixed> GeoJSON FeatureCollection
      */
-    public function query(?array $bbox, int $limit = 5000): array
+    public function query(?array $bbox, int $limit = 5000, ?float $gridOverride = null): array
     {
         $limit = max(1, min(20000, $limit));
         $pdo = Db::pdo();
@@ -104,10 +110,34 @@ final class HeatmapService
         );
         $stmt->execute($args);
 
+        $points = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $points[] = ['lon' => (float)$row['lon'], 'lat' => (float)$row['lat'], 'weight' => (int)$row['weight']];
+        }
+
+        return self::buildResponse($points, self::GRID, $gridOverride);
+    }
+
+    /**
+     * Baut die FeatureCollection aus gewichteten Punkten und aggregiert sie
+     * optional in ein gröberes Gitter. Geteilt mit der persönlichen Heatmap.
+     *
+     * @param list<array{lon:float,lat:float,weight:int}> $points
+     * @return array<string,mixed>
+     */
+    public static function buildResponse(array $points, float $baseGrid, ?float $gridOverride): array
+    {
+        $grid = $baseGrid;
+        if ($gridOverride !== null && $gridOverride > $baseGrid) {
+            $grid = $gridOverride;
+            $clustered = MapLod::clusterHeat($points, $grid);
+            $points = $clustered['cells'];
+        }
+
         $features = [];
         $maxWeight = 0;
-        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-            $w = (int)$row['weight'];
+        foreach ($points as $p) {
+            $w = (int)$p['weight'];
             if ($w > $maxWeight) {
                 $maxWeight = $w;
             }
@@ -115,7 +145,7 @@ final class HeatmapService
                 'type' => 'Feature',
                 'geometry' => [
                     'type' => 'Point',
-                    'coordinates' => [(float)$row['lon'], (float)$row['lat']],
+                    'coordinates' => [round((float)$p['lon'], 6), round((float)$p['lat'], 6)],
                 ],
                 'properties' => ['weight' => $w],
             ];
@@ -125,7 +155,7 @@ final class HeatmapService
             'type'     => 'FeatureCollection',
             'features' => $features,
             'meta'     => [
-                'grid'       => self::GRID,
+                'grid'       => $grid,
                 'cell_count' => count($features),
                 'max_weight' => $maxWeight,
             ],

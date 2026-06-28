@@ -6,13 +6,15 @@ namespace App\Controllers\Api;
 use App\Heatmap\HeatmapService;
 use App\Http\Request;
 use App\Http\Response;
+use App\Support\MapLod;
 
 /**
  * M4f: GET /api/v1/heatmap?bbox=minLon,minLat,maxLon,maxLat
  *
  * Public (kein Auth). Liefert eine GeoJSON-FeatureCollection von
  * Punkt-Features mit `weight`. bbox ist optional; ungültige bbox →
- * 422.
+ * 422. Optional `grid=<grad>` aggregiert die Zellen serverseitig in ein
+ * gröberes Gitter (Summe je Zelle) — kleinere Payloads bei Übersichtszooms.
  */
 final class HeatmapController
 {
@@ -29,7 +31,7 @@ final class HeatmapController
                     'bbox muss "minLon,minLat,maxLon,maxLat" mit gültigen Koordinaten sein.', 422);
             }
         }
-        Response::json($this->heatmap->query($bbox));
+        Response::json($this->heatmap->query($bbox, 5000, MapLod::gridFromQuery($req->query)));
     }
 
     /**

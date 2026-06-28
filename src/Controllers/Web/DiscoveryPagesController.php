@@ -290,6 +290,7 @@ final class DiscoveryPagesController
                 $loaded['payload'],
                 [],
                 $this->routesService->hintsForPublicId($routePid),
+                \App\Support\MapLod::lodFromQuery($req->query),
             );
         } catch (\Throwable) {
             GeoJsonResponse::error(404);

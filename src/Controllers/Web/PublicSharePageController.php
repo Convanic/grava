@@ -88,6 +88,7 @@ final class PublicSharePageController
                 $loaded['payload'],
                 [],
                 $this->routes->hintsForPublicId((string)$route['id']),
+                \App\Support\MapLod::lodFromQuery($req->query),
             );
         } catch (\Throwable) {
             GeoJsonResponse::error(404);

@@ -39,9 +39,12 @@ final class PersonalHeatmapService
 
     /**
      * @param array{min_lat:float,min_lon:float,max_lat:float,max_lon:float}|null $bbox
+     * @param float|null $gridOverride Optionale gröbere Gitterweite (Grad) —
+     *        aggregiert die Basiszellen ({@see GRID}) in dieses Gitter (Summe
+     *        je Zelle), deckungsgleich zur Community-Heatmap. `null` → unverändert.
      * @return array<string,mixed> GeoJSON FeatureCollection (gleiche Form wie HeatmapService)
      */
-    public function queryForUser(int $userId, ?array $bbox, int $limit = 20000): array
+    public function queryForUser(int $userId, ?array $bbox, int $limit = 20000, ?float $gridOverride = null): array
     {
         $limit = max(1, min(20000, $limit));
         $grid  = self::GRID;
@@ -99,34 +102,15 @@ final class PersonalHeatmapService
         usort($cells, static fn (array $a, array $b): int => $b['weight'] <=> $a['weight']);
         $cells = array_slice($cells, 0, $limit);
 
-        $features = [];
-        $maxWeight = 0;
+        $points = [];
         foreach ($cells as $c) {
-            $w = (int)$c['weight'];
-            if ($w > $maxWeight) {
-                $maxWeight = $w;
-            }
-            $features[] = [
-                'type' => 'Feature',
-                'geometry' => [
-                    'type' => 'Point',
-                    'coordinates' => [
-                        round($c['ilon'] * $grid, 6),
-                        round($c['ilat'] * $grid, 6),
-                    ],
-                ],
-                'properties' => ['weight' => $w],
+            $points[] = [
+                'lon'    => round($c['ilon'] * $grid, 6),
+                'lat'    => round($c['ilat'] * $grid, 6),
+                'weight' => (int)$c['weight'],
             ];
         }
 
-        return [
-            'type'     => 'FeatureCollection',
-            'features' => $features,
-            'meta'     => [
-                'grid'       => self::GRID,
-                'cell_count' => count($features),
-                'max_weight' => $maxWeight,
-            ],
-        ];
+        return HeatmapService::buildResponse($points, self::GRID, $gridOverride);
     }
 }

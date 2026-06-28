@@ -85,11 +85,14 @@ final class FactionService
      * Meta-Karte: pro Zelle gewinnt die Fraktion mit der meisten gehaltenen
      * Kantenlänge. Zellen ohne fraktions-gebundene Kanten werden weggelassen.
      *
+     * @param float|null $gridOverride Optionale Gitterweite (Grad), sonst der
+     *        Config-Default. Erlaubt es dem Client, bei weiten Zooms gröbere
+     *        Zellen anzufordern (weniger Payload).
      * @return array{cells:list<array<string,mixed>>}
      */
-    public function map(float $minLon, float $minLat, float $maxLon, float $maxLat): array
+    public function map(float $minLon, float $minLat, float $maxLon, float $maxLat, ?float $gridOverride = null): array
     {
-        $grid  = $this->gridSize();
+        $grid  = ($gridOverride !== null && $gridOverride > 0.0) ? $gridOverride : $this->gridSize();
         $edges = $this->factions->edgesWithFaction($minLon, $minLat, $maxLon, $maxLat);
         $cells = [];
         foreach ($this->aggregateCells($edges, $grid) as $cell) {
