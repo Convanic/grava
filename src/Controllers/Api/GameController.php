@@ -44,8 +44,13 @@ final class GameController
         }
         $viewer = $this->viewerClaimant($req);
         $onlyMine = (string)($req->query['mine'] ?? '') === '1';
+        // Optionaler limit-Param (Spec §6): die App steuert die Kantenzahl
+        // selbst. Ohne Angabe greift ein großzügiger Default; ein expliziter
+        // Wert wird 1:1 übernommen (nur auf >= 1 normalisiert).
+        $defaultLimit = 10000;
+        $limit = isset($req->query['limit']) ? max(1, (int)$req->query['limit']) : $defaultLimit;
         try {
-            $edges = $this->read->edgesInBbox($bbox, $viewer, null, 1000);
+            $edges = $this->read->edgesInBbox($bbox, $viewer, null, $limit);
         } catch (\InvalidArgumentException $e) {
             Response::error('bad_request', $e->getMessage(), 400);
         }
