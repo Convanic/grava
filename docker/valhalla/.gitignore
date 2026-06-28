@@ -1,6 +1,8 @@
 # Gebaute Tiles, heruntergeladene PBFs und Valhalla-Arbeitsdateien.
 # Können mehrere GB groß sein und werden lokal/aus PBF reproduziert.
 custom_files/
+_dach_build/
+_europe_build/
 
 # Server-Secrets fuer das Prod-Hosting (Domain + Proxy-Token).
 .env.prod

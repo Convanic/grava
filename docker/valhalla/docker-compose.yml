@@ -8,9 +8,9 @@
 # Logs:    docker compose -f docker/valhalla/docker-compose.yml logs -f
 # Status:  curl http://localhost:8002/status
 #
-# Region wird über VALHALLA_TILE_URLS gesteuert (Default = Spike-Extrakt
-# Regierungsbezirk Karlsruhe, deckt die Kraichgau-Beispielroute ab).
-# Für volles DACH die drei Geofabrik-PBFs setzen — siehe README.md.
+# Region wird über das lokale PBF in custom_files/ gesteuert.
+# Default jetzt: volles DACH (DE+AT+CH) als EIN gemergtes custom_files/dach.osm.pbf
+# (erzeugt via `osmium merge`, siehe README.md). Kein tile_urls-Download nötig.
 
 services:
   valhalla:
@@ -21,14 +21,16 @@ services:
     volumes:
       - ./custom_files:/custom_files
     environment:
-      # NUR EIN PBF angeben. Mehrere getrennte Extrakte (DE+AT+CH) crashen
-      # valhalla_build_tiles sofort (std::exception/Aborted, 0 Tiles auf
-      # Level 0/1). Für volles DACH vorher mit `osmium merge` zusammenführen
-      # (siehe README.md). Default = Spike-Extrakt Regierungsbezirk Karlsruhe.
-      - tile_urls=${VALHALLA_TILE_URLS:-https://download.geofabrik.de/europe/germany/baden-wuerttemberg/karlsruhe-regbez-latest.osm.pbf}
+      # Kein Download: gebaut wird aus dem/den lokalen *.osm.pbf in custom_files/.
+      # WICHTIG: dort darf nur EIN PBF liegen (custom_files/dach.osm.pbf). Mehrere
+      # getrennte Extrakte (DE+AT+CH) crashen valhalla_build_tiles sofort
+      # (std::exception/Aborted, 0 Tiles auf Level 0/1) — daher vorher mergen.
+      # Optional per VALHALLA_TILE_URLS doch eine Download-URL erzwingen.
+      - tile_urls=${VALHALLA_TILE_URLS:-}
       - serve_tiles=True
-      # Vorhandene Tiles werden weiterverwendet; PBF nur beim Erstbau ziehen.
-      - use_tiles_ignore_pbf=True
+      # Aus dem PBF bauen (nicht nur vorhandene Tiles servieren). Nach dem
+      # Erstbau werden die Tiles dank force_rebuild=False weiterverwendet.
+      - use_tiles_ignore_pbf=False
       - force_rebuild=False
       - build_elevation=False
       # build_admins MUSS aus bleiben: mit unvollständigen Admin-Polygonen
