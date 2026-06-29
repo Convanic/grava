@@ -10,10 +10,11 @@ use App\Http\Request;
 use App\Http\Response;
 
 /**
- * Nutzerseitige „Funktionen & Neuigkeiten"-Seite (eingeloggt). Veröffentlicht
- * den Funktionsumfang + Changelog + Roadmap-Status für Nutzer. Inhalt ist
- * bewusst statisch in der View gepflegt (MVP) und sicherheitsbereinigt — keine
- * internen Endpunkte, Tokens, Infra- oder Build-Details.
+ * Öffentliche „Funktionen & Neuigkeiten"-Seite. Veröffentlicht
+ * den Funktionsumfang + Changelog + Roadmap-Status für alle Besucher.
+ * Inhalt ist bewusst statisch in der View gepflegt (MVP) und
+ * sicherheitsbereinigt — keine internen Endpunkte, Tokens, Infra- oder
+ * Build-Details.
  */
 final class FeaturesPagesController
 {
@@ -29,12 +30,13 @@ final class FeaturesPagesController
 
     public function show(Request $req): void
     {
+        // Optional: Load user if logged in, otherwise null
+        $user = null;
         $ctx = $this->webSession->resolve();
-        if ($ctx === null) {
-            Response::redirect('/auth/web-refresh?next=' . rawurlencode('/features'));
+        if ($ctx !== null) {
+            $user = $this->auth->loadUserPublic($ctx['user_id']);
+            Csrf::ensureStarted();
         }
-        $user = $this->auth->loadUserPublic($ctx['user_id']);
-        Csrf::ensureStarted();
 
         $this->view->render('features', [
             '_title'      => 'Funktionen & Neuigkeiten · GRAVA',
