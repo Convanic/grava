@@ -73,6 +73,9 @@ final class Commands
             case 'game:notify-dispatch':
                 return $this->notifyDispatch();
 
+            case 'game:test-push':
+                return $this->gameTestPush($argv);
+
             case 'internal:logtail':
             case 'logtail':
                 return $this->logTail($argv);
@@ -489,6 +492,84 @@ final class Commands
         return 0;
     }
 
+    /**
+     * Einmaliger Feldtest (GAME_PUSH_BACKEND.md): erzeugt für einen Empfänger
+     * eine echte edge_taken-Mitteilung (Inbox-Eintrag + APNs mit Deep-Link
+     * edge_id) — derselbe Zustell-Pfad wie der Dispatcher (notifyGame), ohne
+     * auf das Digest-Fenster zu warten. Push hängt am game_takeover-Schalter
+     * und an einem registrierten Gerät.
+     *
+     *   game:test-push --handle=<empfänger> [--actor=<auslöser-handle>] [--edge=<id>]
+     *   (alternativ --user=<id> / --actor-id=<id>)
+     *
+     * @param list<string> $argv
+     */
+    private function gameTestPush(array $argv): int
+    {
+        if ($this->notifications === null) {
+            echo "NotificationService nicht verfügbar.\n";
+            return 1;
+        }
+        $opts = $this->parseOptions($argv);
+        $pdo  = \App\Database\Db::pdo();
+
+        $recipientId = $this->resolveUserId($pdo, (string)($opts['handle'] ?? ''), (int)($opts['user'] ?? 0));
+        if ($recipientId === 0) {
+            echo "Empfänger nicht gefunden. Nutzung: game:test-push --handle=<@handle> | --user=<id> [--actor=<handle>] [--edge=<id>]\n";
+            return 1;
+        }
+        $actorId = $this->resolveUserId($pdo, (string)($opts['actor'] ?? ''), (int)($opts['actor-id'] ?? 0));
+        if ($actorId === $recipientId) {
+            $actorId = 0; // Self-Notification vermeiden → Digest-/aktorlose Form
+        }
+
+        $edgeId = (int)($opts['edge'] ?? 0);
+        if ($edgeId <= 0) {
+            // Bevorzugt eine vom Empfänger gehaltene Kante → Deep-Link landet im eigenen Revier.
+            $stmt = $pdo->prepare(
+                'SELECT e.id FROM game_edge e
+                   JOIN game_claimant c ON c.id = e.owner_claimant_id
+                  WHERE c.user_id = ? ORDER BY e.id LIMIT 1'
+            );
+            $stmt->execute([$recipientId]);
+            $edgeId = (int)($stmt->fetchColumn() ?: 0);
+            if ($edgeId <= 0) {
+                $edgeId = (int)($pdo->query('SELECT id FROM game_edge ORDER BY id LIMIT 1')->fetchColumn() ?: 0);
+            }
+        }
+        if ($edgeId <= 0) {
+            echo "Keine Kante gefunden — bitte --edge=<id> angeben.\n";
+            return 1;
+        }
+
+        $this->notifications->notifyGame($recipientId, $actorId > 0 ? $actorId : null, 'edge_taken', $edgeId, 1);
+
+        echo json_encode([
+            'ok'                => true,
+            'type'              => 'edge_taken',
+            'recipient_user_id' => $recipientId,
+            'actor_user_id'     => $actorId > 0 ? $actorId : null,
+            'edge_id'           => $edgeId,
+            'note'              => 'Inbox-Eintrag erstellt; APNs versandt, falls ein Gerät registriert und die game_takeover-Pref aktiv ist.',
+        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n";
+        return 0;
+    }
+
+    /** Löst eine User-ID aus expliziter ID oder public_handle (mit/ohne @) auf; 0 = nicht gefunden. */
+    private function resolveUserId(\PDO $pdo, string $handle, int $id): int
+    {
+        if ($id > 0) {
+            return $id;
+        }
+        $handle = ltrim(trim($handle), '@');
+        if ($handle === '') {
+            return 0;
+        }
+        $stmt = $pdo->prepare('SELECT id FROM users WHERE public_handle = ? LIMIT 1');
+        $stmt->execute([$handle]);
+        return (int)($stmt->fetchColumn() ?: 0);
+    }
+
     /** @param list<string> $argv */
     private function backfillSpeed(array $argv): int
     {
@@ -527,6 +608,7 @@ final class Commands
         echo "  game:heal-crews     Heilt captain-lose Crews (promotet ältestes Mitglied)\n";
         echo "  game:backfill-speed Rekord-Daten auf Bestands-Pässe [--limit=100] [--sleep-ms=500] [--after-route-id=0]\n";
         echo "  game:notify-dispatch Stellt den Spiel-Ereignis-Strom als Inbox+APNs zu (Digest-Fenster)\n";
+        echo "  game:test-push      (Feldtest) edge_taken-Mitteilung erzeugen: --handle=<@h>|--user=<id> [--actor=<@h>] [--edge=<id>]\n";
         echo "  help                Zeigt diese Hilfe\n";
     }
 }
