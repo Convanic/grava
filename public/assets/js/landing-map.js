@@ -1,6 +1,7 @@
 /**
  * Landing Page Map Initialization
  * Shows game edges (conquered territories) around Waldkraiburg
+ * Dynamically loads edges when user zooms or pans the map
  */
 
 (function() {
@@ -22,7 +23,6 @@
         const centerLat = parseFloat(mapContainer.dataset.centerLat) || 48.21;
         const centerLon = parseFloat(mapContainer.dataset.centerLon) || 12.40;
         const zoom = parseInt(mapContainer.dataset.zoom) || 11;
-        const radiusKm = parseFloat(mapContainer.dataset.radiusKm) || 50;
 
         // Initialize map
         const map = L.map('landing-map', {
@@ -38,65 +38,92 @@
             maxZoom: 19
         }).addTo(map);
 
-        // Calculate bounding box for API request (radius around center)
-        // Rough approximation: 1 degree lat ≈ 111km, 1 degree lon ≈ 111km * cos(lat)
-        const latDelta = radiusKm / 111;
-        const lonDelta = radiusKm / (111 * Math.cos(centerLat * Math.PI / 180));
-        const bbox = [
-            centerLon - lonDelta, // minLon
-            centerLat - latDelta, // minLat
-            centerLon + lonDelta, // maxLon
-            centerLat + latDelta  // maxLat
-        ].join(',');
+        // Layer group to hold all edge polylines (for easy removal)
+        let edgesLayer = L.layerGroup().addTo(map);
+        let loadTimeout = null;
 
-        // Load and display game edges
-        const edgesUrl = '/api/v1/game/edges?bbox=' + bbox + '&limit=5000';
+        // Function to load edges for current map bounds
+        function loadEdges() {
+            // Get current map bounds
+            const bounds = map.getBounds();
+            const bbox = [
+                bounds.getWest(),  // minLon
+                bounds.getSouth(), // minLat
+                bounds.getEast(),  // maxLon
+                bounds.getNorth()  // maxLat
+            ].join(',');
 
-        fetch(edgesUrl)
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error('Failed to load game edges');
-                }
-                return response.json();
-            })
-            .then(data => {
-                const edges = data.edges || [];
+            // Build API URL with bbox
+            const edgesUrl = '/api/v1/game/edges?bbox=' + bbox + '&limit=5000';
 
-                // Convert edges to GeoJSON and add to map
-                edges.forEach(edge => {
-                    if (!edge.geom || !edge.geom.coordinates) {
-                        return;
+            fetch(edgesUrl)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Failed to load game edges');
                     }
+                    return response.json();
+                })
+                .then(data => {
+                    const edges = data.edges || [];
 
-                    // Determine color based on ownership
-                    let color = '#2f5233'; // Default GRAVA green
-                    let ownerHandle = null;
+                    // Clear existing edges
+                    edgesLayer.clearLayers();
 
-                    if (edge.owner && edge.owner.handle) {
-                        ownerHandle = edge.owner.handle;
-                        // Could vary color by crew/faction here if needed
-                        color = edge.owner.crew_color || '#2f5233';
-                    }
+                    // Add new edges to map
+                    edges.forEach(edge => {
+                        if (!edge.geom || !edge.geom.coordinates) {
+                            return;
+                        }
 
-                    // Create Leaflet polyline
-                    const latLngs = edge.geom.coordinates.map(coord => [coord[1], coord[0]]);
-                    const polyline = L.polyline(latLngs, {
-                        color: color,
-                        weight: 4,
-                        opacity: 0.8,
-                        lineCap: 'round',
-                        lineJoin: 'round'
-                    }).addTo(map);
+                        // Determine color based on ownership
+                        let color = '#2f5233'; // Default GRAVA green
+                        let ownerHandle = null;
 
-                    // Add popup with owner info
-                    if (ownerHandle) {
-                        polyline.bindPopup('<strong>Erobert von:</strong> @' + ownerHandle);
-                    }
+                        if (edge.owner && edge.owner.handle) {
+                            ownerHandle = edge.owner.handle;
+                            // Could vary color by crew/faction here if needed
+                            color = edge.owner.crew_color || '#2f5233';
+                        }
+
+                        // Create Leaflet polyline
+                        const latLngs = edge.geom.coordinates.map(coord => [coord[1], coord[0]]);
+                        const polyline = L.polyline(latLngs, {
+                            color: color,
+                            weight: 4,
+                            opacity: 0.8,
+                            lineCap: 'round',
+                            lineJoin: 'round'
+                        });
+
+                        // Add popup with owner info
+                        if (ownerHandle) {
+                            polyline.bindPopup('<strong>Erobert von:</strong> @' + ownerHandle);
+                        }
+
+                        // Add to layer group
+                        edgesLayer.addLayer(polyline);
+                    });
+                })
+                .catch(error => {
+                    console.error('Error loading game edges:', error);
                 });
-            })
-            .catch(error => {
-                console.error('Error loading game edges:', error);
-            });
+        }
+
+        // Load edges on map move/zoom with debouncing (wait 500ms after user stops moving)
+        map.on('moveend', function() {
+            // Clear previous timeout
+            if (loadTimeout) {
+                clearTimeout(loadTimeout);
+            }
+
+            // Set new timeout to load after 500ms
+            loadTimeout = setTimeout(function() {
+                loadEdges();
+            }, 500);
+        });
+
+        // Initial load
+        loadEdges();
 
         // Enable scroll zoom on click (better mobile UX)
         map.on('click', function() {
