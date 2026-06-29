@@ -7,16 +7,21 @@
     'use strict';
 
     function initMap() {
+        console.log('[GRAVA Map] Initializing...');
+
         // Wait for Leaflet to be ready
         if (typeof L === 'undefined') {
-            console.error('Leaflet not loaded');
+            console.error('[GRAVA Map] ERROR: Leaflet not loaded');
             return;
         }
+        console.log('[GRAVA Map] Leaflet loaded OK');
 
         const mapContainer = document.getElementById('landing-map');
         if (!mapContainer) {
+            console.log('[GRAVA Map] Map container not found - not on landing page');
             return; // Map not on this page
         }
+        console.log('[GRAVA Map] Map container found');
 
         // Get configuration from data attributes
         const centerLat = parseFloat(mapContainer.dataset.centerLat) || 48.21;
@@ -113,9 +118,12 @@
     }
 
     // Wait for DOM to be ready
+    console.log('[GRAVA Map] Script loaded, readyState:', document.readyState);
     if (document.readyState === 'loading') {
+        console.log('[GRAVA Map] Waiting for DOMContentLoaded...');
         document.addEventListener('DOMContentLoaded', initMap);
     } else {
+        console.log('[GRAVA Map] DOM already ready, initializing now');
         initMap();
     }
 
