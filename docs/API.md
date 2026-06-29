@@ -390,10 +390,16 @@ Item:
   "route": { "id": "uuid", "title": "Kraichgau Loop" }
 }
 ```
-`type` ∈ `follow | like | comment`. `route` ist `null` bei `follow` (oder
-gelöschter Route).
+`type` ∈ `follow | like | comment | edge_taken | edge_reclaimed | record_beaten | pioneer_joined | rush_invite | rush_reminder | rush_result`. `route` ist `null` bei `follow` (oder gelöschter Route).
 
-**Per-Typ-Push-Präferenzen (S9):** steuern **nur** den APNs-Versand — der In-App-Eintrag (`GET /notifications`) und der Unread-Count bleiben immer erhalten, die Inbox wird nicht gefiltert. `GET /notifications/preferences` → `{ "preferences": { "follow": true, "like": true, "comment": true } }` (ohne gespeicherte Zeile alles `true`). `PUT` Body `{ "follow"?, "like"?, "comment"? }` (Booleans) → Upsert, fehlende Felder bleiben unverändert; Antwort `{ "preferences": {…} }` mit allen Feldern. Ist ein Typ `false`, wird beim Erzeugen einer `follow`/`like`/`comment`-Notification **keine** Push versendet. Forward-compat: neue Typen (`territory_taken`/`crew_invite`, Welle 2) lassen sich additiv ergänzen; noch nicht gegatete Typen pushen wie bisher.
+**Spiel-Mitteilungen (GAME_PUSH_BACKEND.md):** additive Felder, nur wenn gesetzt:
+`edge_id` (Deep-Link zur Kante; `null`/fehlt ⇒ Tap öffnet die Liste) und `count`
+(Digest, Anzahl gebündelter Ereignisse). Bei Digest ist `actor` `null`. Heimatzonen-
+maskierte Kanten liefern **kein** `edge_id`. Beispiel Einzel: `{ "type": "edge_taken",
+"actor": {…}, "edge_id": 4242, "count": 1 }`; Beispiel Digest: `{ "type": "edge_taken",
+"actor": null, "count": 5 }`.
+
+**Per-Typ-Push-Präferenzen (S9 + Spiel):** steuern **nur** den APNs-Versand — der In-App-Eintrag (`GET /notifications`) und der Unread-Count bleiben immer erhalten, die Inbox wird nicht gefiltert. `GET /notifications/preferences` → `{ "preferences": { "follow": true, "like": true, "comment": true, "rush": true, "game_takeover": true, "game_record": true, "game_pioneer": false } }` (ohne gespeicherte Zeile diese Defaults; `game_pioneer` ist Opt-in). `PUT` Body als Teilmenge dieser Booleans → Upsert, fehlende Felder bleiben unverändert; Antwort `{ "preferences": {…} }` mit allen Feldern. Mapping: `edge_taken`/`edge_reclaimed`/`territory_taken` → `game_takeover`, `record_beaten` → `game_record`, `pioneer_joined` → `game_pioneer`, `rush_*` → `rush`. Ist ein Schalter `false`, wird beim Erzeugen der Notification **keine** Push versendet (Inbox bleibt). Forward-compat: noch nicht gegatete Typen pushen wie bisher.
 
 ### 5.10 Avatare (M4)
 

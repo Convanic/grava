@@ -25,6 +25,7 @@ final class Commands
         private readonly ?\App\Game\Rush\RushService $rushService = null,
         private readonly ?\App\Game\Crew\CrewService $crewService = null,
         private readonly ?\App\Game\EdgeRecordBackfillService $edgeBackfill = null,
+        private readonly ?\App\Game\GameNotificationDispatcher $gameDispatcher = null,
     ) {}
 
     public function run(array $argv): int
@@ -68,6 +69,9 @@ final class Commands
 
             case 'game:backfill-speed':
                 return $this->backfillSpeed($argv);
+
+            case 'game:notify-dispatch':
+                return $this->notifyDispatch();
 
             case 'internal:logtail':
             case 'logtail':
@@ -469,6 +473,22 @@ final class Commands
         return $opts;
     }
 
+    /**
+     * Spiel-Push-Zustellung (GAME_PUSH_BACKEND.md): verarbeitet den
+     * Ereignis-Strom (game_event) zu Inbox-Mitteilungen + APNs, gebündelt über
+     * das Digest-Zeitfenster. Für Cron (z. B. minütlich) + /internal-Endpoint.
+     */
+    private function notifyDispatch(): int
+    {
+        if ($this->gameDispatcher === null) {
+            echo "GameNotificationDispatcher nicht verfügbar.\n";
+            return 1;
+        }
+        $sent = $this->gameDispatcher->dispatch(\App\Support\Clock::nowUtc());
+        echo "Spiel-Push-Dispatch: {$sent} Mitteilung(en) erzeugt.\n";
+        return 0;
+    }
+
     /** @param list<string> $argv */
     private function backfillSpeed(array $argv): int
     {
@@ -506,6 +526,7 @@ final class Commands
         echo "  game:rush-tick      Aktualisiert fällige Rush-Status (planned→active→completed/expired)\n";
         echo "  game:heal-crews     Heilt captain-lose Crews (promotet ältestes Mitglied)\n";
         echo "  game:backfill-speed Rekord-Daten auf Bestands-Pässe [--limit=100] [--sleep-ms=500] [--after-route-id=0]\n";
+        echo "  game:notify-dispatch Stellt den Spiel-Ereignis-Strom als Inbox+APNs zu (Digest-Fenster)\n";
         echo "  help                Zeigt diese Hilfe\n";
     }
 }

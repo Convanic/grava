@@ -93,6 +93,12 @@ final class GameConfig
         // ausgelassener Wochen je Kalendermonat, die die Serie NICHT brechen
         // ("Streak-Schoner"). 0 = Gnade aus.
         'streak_grace_per_month'       => '1',
+        // Spiel-Push-Digest (GAME_PUSH_BACKEND.md). Ab dieser Anzahl
+        // gleichartiger Ereignisse je Empfänger wird gebündelt (eine Digest-
+        // Mitteilung statt N Pushes). Fenster = max. Wartezeit (Minuten), bis
+        // auch unter der Schwelle einzeln zugestellt wird.
+        'push_game_digest_threshold'   => '3',
+        'push_game_digest_window_min'  => '60',
     ];
 
     public function __construct(private readonly PDO $pdo) {}

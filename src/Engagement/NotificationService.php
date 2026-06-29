@@ -67,6 +67,50 @@ final class NotificationService
     }
 
     /**
+     * Spiel-Mitteilung (GAME_PUSH_BACKEND.md) mit Kanten-Deep-Link (`edgeId`)
+     * und optionaler Bündelung (`count` > 1 ⇒ Digest). Der Auslöser ist
+     * optional: bei Digest ist `actorId = null` (kein einzelner Auslöser) —
+     * dann entfallen Self-/Block-Filter. Die Inbox-Zeile entsteht immer; der
+     * Push hängt am per-Typ-Schalter (Pref aus ⇒ Inbox ja, Push nein).
+     */
+    public function notifyGame(
+        int $recipientId,
+        ?int $actorId,
+        string $type,
+        ?int $edgeId = null,
+        ?int $count = null,
+    ): void {
+        if ($actorId !== null) {
+            if ($recipientId === $actorId) {
+                return; // keine Self-Notification
+            }
+            if (RouteVisibility::isBlockedEither($recipientId, $actorId)) {
+                return;
+            }
+        }
+
+        $notificationId = 0;
+        try {
+            $pdo = Db::pdo();
+            $pdo->prepare(
+                'INSERT INTO notifications (user_id, actor_id, type, edge_id, `count`)
+                 VALUES (?, ?, ?, ?, ?)'
+            )->execute([$recipientId, $actorId, $type, $edgeId, $count]);
+            $notificationId = (int)$pdo->lastInsertId();
+        } catch (\PDOException $e) {
+            if (!str_contains($e->getMessage(), '1146')) {
+                throw $e;
+            }
+            return;
+        }
+
+        if ($this->push !== null && $notificationId > 0
+            && ($this->prefs === null || $this->prefs->isPushEnabled($recipientId, $type))) {
+            $this->push->dispatch($notificationId, $recipientId, $actorId, $type, null, null, $edgeId, $count);
+        }
+    }
+
+    /**
      * @return array{
      *   notifications: list<array<string,mixed>>,
      *   pagination: array{limit:int, offset:int, total:int, has_more:bool}
@@ -85,14 +129,17 @@ final class NotificationService
         // Actor-Daten + (bei route-Subject) Routen-Titel/public_id
         // per LEFT JOIN. Verwaiste/gelöschte Routen liefern NULL und
         // werden in der Shape als route=null abgebildet.
+        // LEFT JOIN auf den Actor: Digest-Spiel-Mitteilungen haben keinen
+        // Auslöser (actor_id = NULL) — ein INNER JOIN würde sie ausblenden.
         $stmt = $pdo->prepare(
-            "SELECT n.id, n.type, n.subject_type, n.subject_id,
+            "SELECT n.id, n.type, n.subject_type, n.subject_id, n.actor_id,
+                    n.edge_id, n.`count`,
                     n.created_at, n.read_at,
                     a.public_handle AS actor_handle, a.display_name AS actor_name,
                     r.public_id AS route_public_id, r.title AS route_title,
                     r.deleted_at AS route_deleted_at
                FROM notifications n
-               JOIN users a ON a.id = n.actor_id
+               LEFT JOIN users a ON a.id = n.actor_id
                LEFT JOIN routes r
                       ON n.subject_type = 'route' AND r.id = n.subject_id
               WHERE n.user_id = ?
@@ -113,17 +160,27 @@ final class NotificationService
                     'title' => (string)$row['route_title'],
                 ];
             }
-            $items[] = [
+            // Digest (actor_id NULL) ⇒ actor=null (Spec); sonst Actor-Objekt.
+            $actor = $row['actor_id'] === null ? null : [
+                'handle'       => $row['actor_handle'] === null ? null : (string)$row['actor_handle'],
+                'display_name' => $row['actor_name'] === null ? null : (string)$row['actor_name'],
+            ];
+            $item = [
                 'id'         => (int)$row['id'],
                 'type'       => (string)$row['type'],
                 'created_at' => str_replace(' ', 'T', (string)$row['created_at']) . 'Z',
                 'read'       => $row['read_at'] !== null,
-                'actor'      => [
-                    'handle'       => $row['actor_handle'] === null ? null : (string)$row['actor_handle'],
-                    'display_name' => $row['actor_name'] === null ? null : (string)$row['actor_name'],
-                ],
+                'actor'      => $actor,
                 'route'      => $route,
             ];
+            // edge_id/count additiv — nur wenn gesetzt (Deep-Link/Digest).
+            if ($row['edge_id'] !== null) {
+                $item['edge_id'] = (int)$row['edge_id'];
+            }
+            if ($row['count'] !== null) {
+                $item['count'] = (int)$row['count'];
+            }
+            $items[] = $item;
         }
 
         return [

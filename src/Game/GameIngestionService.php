@@ -42,6 +42,7 @@ final class GameIngestionService
         private readonly PDO $pdo,
         private readonly ?TerritoryTakeoverNotifier $takeovers = null,
         private readonly ?PrivacyZoneRepository $privacyZones = null,
+        private readonly ?GameEventRecorder $events = null,
     ) {}
 
     /**
@@ -113,6 +114,7 @@ final class GameIngestionService
 
         $touched = [];
         $edgeGeoms = []; // [edgeId => list<[lon,lat]>] für das Radar-Map-Matching
+        $rideRiddenOn = null; // erster Fahrt-Tag (Y-m-d) für den Ereignis-Strom (Idempotenz)
         $this->pdo->beginTransaction();
         try {
             foreach ($segments as $seg) {
@@ -157,6 +159,7 @@ final class GameIngestionService
                 );
 
                 $riddenOn = $seg->riddenAt->format('Y-m-d');
+                $rideRiddenOn ??= $riddenOn;
                 $riddenAt = $seg->riddenAt->format('Y-m-d H:i:s.v');
                 $rushId = $openRushes === []
                     ? null
@@ -188,16 +191,27 @@ final class GameIngestionService
                 $this->recordTraffic($routeId, $radar, $edgeGeoms);
             }
 
-            // Welle 2 territory_taken: Besitzer VOR dem Recompute merken.
+            // Besitzer VOR dem Recompute merken (territory_taken-Vorläufer +
+            // Ereignis-Strom): Vorher/Nachher-Vergleich für edge_taken.
             $edgeIds = array_keys($touched);
-            $prevOwners = $this->takeovers !== null ? $this->repo->ownersForEdges($edgeIds) : [];
+            $trackOwners = $this->takeovers !== null || $this->events !== null;
+            $prevOwners = $trackOwners ? $this->repo->ownersForEdges($edgeIds) : [];
 
             foreach ($edgeIds as $edgeId) {
                 $this->repo->refreshEdgeDiscovery($edgeId);
                 $this->recalc->recalculate($edgeId, $now);
             }
 
-            $newOwners = $this->takeovers !== null ? $this->repo->ownersForEdges($edgeIds) : [];
+            $newOwners = $trackOwners ? $this->repo->ownersForEdges($edgeIds) : [];
+
+            // Ereignis-Strom (Phase A) innerhalb der Transaktion materialisieren —
+            // atomar mit den Pässen, idempotent über den UNIQUE-Key.
+            if ($this->events !== null && $edgeIds !== []) {
+                $this->events->record(
+                    $prevOwners, $newOwners, $edgeIds, $userId, $routeId,
+                    $rideRiddenOn ?? $now->format('Y-m-d'),
+                );
+            }
 
             $this->pdo->commit();
         } catch (Throwable $e) {

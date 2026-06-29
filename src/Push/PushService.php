@@ -25,10 +25,12 @@ final class PushService
     public function dispatch(
         int $notificationId,
         int $recipientId,
-        int $actorId,
+        ?int $actorId,
         string $type,
         ?string $subjectType = null,
         ?int $subjectId = null,
+        ?int $edgeId = null,
+        ?int $count = null,
     ): void {
         try {
             $devices = $this->devices->forUser($recipientId);
@@ -36,17 +38,24 @@ final class PushService
                 return;
             }
 
-            $actor = $this->loadActor($actorId);
+            $actor = $actorId !== null ? $this->loadActor($actorId) : ['handle' => null, 'name' => null];
             $routePublicId = ($subjectType === 'route' && $subjectId !== null)
                 ? $this->routePublicId($subjectId)
                 : null;
             $badge = $this->unreadCount($recipientId);
 
-            $payload = $this->buildPayload($notificationId, $type, $actor, $routePublicId, $badge);
+            $payload = $this->buildPayload($notificationId, $type, $actor, $routePublicId, $badge, $count);
             // Rush-Deep-Link (rush/{id}): subject_type='rush' trägt die Rush-ID
             // ins Payload, damit iOS direkt auf RushView springen kann.
             if ($subjectType === 'rush' && $subjectId !== null) {
                 $payload['rush_id'] = (string)$subjectId;
+            }
+            // Spiel-Deep-Link: edge_id ins Custom-Payload (Tap-Routing zur Kante).
+            if ($edgeId !== null) {
+                $payload['edge_id'] = (string)$edgeId;
+            }
+            if ($count !== null) {
+                $payload['count'] = (string)$count;
             }
             // Collapse je (Typ, Notification) — verhindert Duplikate bei Retries.
             $collapseId = substr($type . '-' . $notificationId, 0, 64);
@@ -73,8 +82,12 @@ final class PushService
         array $actor,
         ?string $routePublicId,
         int $badge,
+        ?int $count = null,
     ): array {
         $actorLabel = $actor['name'] ?? ($actor['handle'] !== null ? '@' . $actor['handle'] : 'Jemand');
+        // Digest: count > 1 ⇒ gebündelter Text ohne einzelnen Auslöser.
+        $isDigest = $count !== null && $count > 1;
+        $n = (int)$count;
 
         [$title, $body] = match ($type) {
             'follow'          => ['Neuer Follower', $actorLabel . ' folgt dir jetzt.'],
@@ -85,6 +98,18 @@ final class PushService
             'rush_invite'     => ['Rush angesetzt', $actorLabel . ' hat einen Rush angesetzt — fahrt jetzt zusammen!'],
             'rush_reminder'   => ['Rush startet bald', 'Euer Rush startet gleich.'],
             'rush_result'     => ['Rush beendet', 'Das Ergebnis eures Rushes steht fest.'],
+            'edge_taken'      => $isDigest
+                ? ['Reviere übernommen', $n . ' deiner Kanten wurden übernommen.']
+                : ['Kante übernommen', $actorLabel . ' hat dir eine Kante abgenommen.'],
+            'edge_reclaimed'  => $isDigest
+                ? ['Reviere zurückerobert', $n . ' deiner Kanten wurden zurückerobert.']
+                : ['Kante zurückerobert', $actorLabel . ' hat dir eine Kante wieder abgenommen.'],
+            'record_beaten'   => $isDigest
+                ? ['Rekorde gebrochen', $n . ' deiner Rekorde wurden gebrochen.']
+                : ['Rekord gebrochen', $actorLabel . ' hat deinen Kanten-Rekord gebrochen.'],
+            'pioneer_joined'  => $isDigest
+                ? ['Pionier-Kanten befahren', $n . ' deiner Pionier-Kanten wurden zum ersten Mal von anderen befahren.']
+                : ['Pionier-Kante befahren', $actorLabel . ' ist zum ersten Mal eine deiner Pionier-Kanten gefahren.'],
             default           => ['GRAVA', $actorLabel . ' hat eine Aktion ausgeführt.'],
         };
 

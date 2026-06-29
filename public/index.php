@@ -226,12 +226,20 @@ $gameValhalla = new ValhallaClient(
     (string)($config->get('VALHALLA_COSTING', 'bicycle') ?? 'bicycle'),
 );
 $gameMatcher   = new ValhallaEdgeMatcher($gameValhalla);
-$gameTakeovers = new TerritoryTakeoverNotifier($gameRepo, $notifServ);
-$gameIngest    = new GameIngestionService($gameMatcher, $gameRepo, $gameRecalc, $gameConfig, Db::pdo(), $gameTakeovers, $privacyZoneRepo);
+// Phase A Teil 1: Ereignis-Strom. Der GameEventRecorder löst den
+// TerritoryTakeoverNotifier ab — statt direkt Notifications zu schreiben,
+// materialisiert er game_event; die Zustellung übernimmt der Dispatcher (Phase B).
+$gameEventRepo     = new \App\Game\GameEventRepository(Db::pdo());
+$gameEventRecorder = new \App\Game\GameEventRecorder($gameRepo, $gameEventRepo);
+$gameIngest    = new GameIngestionService($gameMatcher, $gameRepo, $gameRecalc, $gameConfig, Db::pdo(), null, $privacyZoneRepo, $gameEventRecorder);
 $edgeRecords   = new EdgeRecordService($gameRepo, $gameConfig);
 $gameRead      = new GameReadService($gameRepo, $gameConfig, $edgeRecords);
 $gameRecompute = new GameRecomputeService($gameRepo, $gameRecalc);
 $privacyZoneSvc = new \App\Privacy\PrivacyZoneService($privacyZoneRepo, $gameRepo, $gameRecalc, Db::pdo());
+// Phase B: Spiel-Push-Dispatcher (Cron game:notify-dispatch + /internal).
+$gameDispatcher = new \App\Game\GameNotificationDispatcher(
+    $gameEventRepo, $notifServ, $gameRepo, $privacyZoneRepo, $gameConfig,
+);
 
 // Rush / Group-Ride-Übernahme (GAME_RUSH_BACKEND.md). Früh verdrahtet, weil der
 // Cron-Tick (game:rush-tick) bereits im CLI-Dispatch unten verfügbar sein muss.
@@ -312,7 +320,7 @@ $routeSurface = new RouteSurfaceService(
 // CLI dispatch
 // ---------------------------------------------------------------------------
 if (PHP_SAPI === 'cli') {
-    $cli = new Commands($basePath, $tokens, $routeService, $config, new NotificationService(), new HeatmapService(), $heatmapLines, $gameRecompute, $gameRushSvc, $gameCrewSvc, $edgeBackfill);
+    $cli = new Commands($basePath, $tokens, $routeService, $config, new NotificationService(), new HeatmapService(), $heatmapLines, $gameRecompute, $gameRushSvc, $gameCrewSvc, $edgeBackfill, $gameDispatcher);
     exit($cli->run($_SERVER['argv'] ?? []));
 }
 
@@ -776,7 +784,7 @@ $router->post('/u/{handle}/r/{id}/comments/{cid}/delete', fn($r) => $webEngage->
 // und verhalten sich wie eine unbekannte Route (404).
 $internalToken = (string)($config->get('INTERNAL_TOKEN', '') ?? '');
 $runInternal = function (Request $r, string $command)
-    use ($internalToken, $basePath, $tokens, $routeService, $config, $heatmapLines, $gameRecompute, $gameRushSvc, $gameCrewSvc, $edgeBackfill) {
+    use ($internalToken, $basePath, $tokens, $routeService, $config, $heatmapLines, $gameRecompute, $gameRushSvc, $gameCrewSvc, $edgeBackfill, $gameDispatcher) {
     if ($internalToken === '') {
         Response::error('not_found', 'Nicht gefunden.', 404);
     }
@@ -784,7 +792,7 @@ $runInternal = function (Request $r, string $command)
     if ($provided === '' || !hash_equals($internalToken, $provided)) {
         Response::error('not_found', 'Nicht gefunden.', 404);
     }
-    $cli = new Commands($basePath, $tokens, $routeService, $config, new NotificationService(), new HeatmapService(), $heatmapLines, $gameRecompute, $gameRushSvc, $gameCrewSvc, $edgeBackfill);
+    $cli = new Commands($basePath, $tokens, $routeService, $config, new NotificationService(), new HeatmapService(), $heatmapLines, $gameRecompute, $gameRushSvc, $gameCrewSvc, $edgeBackfill, $gameDispatcher);
     $argv = ['internal', $command];
     foreach (['limit', 'sleep-ms', 'after-route-id', 'bbox'] as $opt) {
         if (isset($r->query[$opt]) && (string)$r->query[$opt] !== '') {
@@ -831,6 +839,8 @@ $router->get('/internal/cron/game-backfill-speed',  fn($r) => $runInternal($r, '
 $router->post('/internal/cron/game-backfill-speed', fn($r) => $runInternal($r, 'game:backfill-speed'));
 $router->get('/internal/cron/rush-tick',  fn($r) => $runInternal($r, 'game:rush-tick'));
 $router->post('/internal/cron/rush-tick', fn($r) => $runInternal($r, 'game:rush-tick'));
+$router->get('/internal/cron/game-dispatch',  fn($r) => $runInternal($r, 'game:notify-dispatch'));
+$router->post('/internal/cron/game-dispatch', fn($r) => $runInternal($r, 'game:notify-dispatch'));
 $router->get('/internal/game/heal-crews',  fn($r) => $runInternal($r, 'game:heal-crews'));
 $router->post('/internal/game/heal-crews', fn($r) => $runInternal($r, 'game:heal-crews'));
 // Read-only Log-Tail für Diagnose ohne SSH (z. B. frischer PDO/SQLSTATE-Stacktrace).

@@ -73,7 +73,7 @@ final class NotificationController
         $userId = (int)($req->user->internal_id ?? 0);
         $prefs = $this->prefs !== null
             ? $this->prefs->get($userId)
-            : ['follow' => true, 'like' => true, 'comment' => true, 'rush' => true];
+            : self::defaultPrefs();
         Response::json(['preferences' => $prefs]);
     }
 
@@ -91,8 +91,17 @@ final class NotificationController
         }
         $prefs = $this->prefs !== null
             ? $this->prefs->upsert($userId, $patch)
-            : ['follow' => true, 'like' => true, 'comment' => true, 'rush' => true];
+            : self::defaultPrefs();
         Response::json(['preferences' => $prefs]);
+    }
+
+    /** @return array<string,bool> */
+    private static function defaultPrefs(): array
+    {
+        return [
+            'follow' => true, 'like' => true, 'comment' => true, 'rush' => true,
+            'game_takeover' => true, 'game_record' => true, 'game_pioneer' => false,
+        ];
     }
 
     private static function asBool(mixed $v): bool

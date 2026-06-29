@@ -39,26 +39,54 @@ final class NotificationPreferenceTest extends IntegrationTestCase
     public function testGetDefaultsAllTrueWithoutRow(): void
     {
         $u = $this->createUser('a');
-        $this->assertSame(['follow' => true, 'like' => true, 'comment' => true, 'rush' => true], $this->prefs->get($u));
+        // game_pioneer ist Opt-in (default aus); alles andere default an.
+        $this->assertSame([
+            'follow' => true, 'like' => true, 'comment' => true, 'rush' => true,
+            'game_takeover' => true, 'game_record' => true, 'game_pioneer' => false,
+        ], $this->prefs->get($u));
     }
 
     public function testUpsertPartialKeepsOthersUnchanged(): void
     {
         $u = $this->createUser('b');
         $res = $this->prefs->upsert($u, ['like' => false]);
-        $this->assertSame(['follow' => true, 'like' => false, 'comment' => true, 'rush' => true], $res);
-        $this->assertSame(['follow' => true, 'like' => false, 'comment' => true, 'rush' => true], $this->prefs->get($u));
+        $this->assertFalse($res['like']);
+        $this->assertTrue($res['follow']);
+        $this->assertTrue($res['game_takeover']);
+        $this->assertFalse($res['game_pioneer']);
 
         // Zweites Upsert ändert nur comment, like bleibt false.
         $this->prefs->upsert($u, ['comment' => false]);
-        $this->assertSame(['follow' => true, 'like' => false, 'comment' => false, 'rush' => true], $this->prefs->get($u));
+        $got = $this->prefs->get($u);
+        $this->assertFalse($got['like']);
+        $this->assertFalse($got['comment']);
+        $this->assertTrue($got['rush']);
+    }
+
+    public function testGamePrefsUpsertAndMapping(): void
+    {
+        $u = $this->createUser('gp');
+        // Pionier opt-in an, Übernahme aus.
+        $this->prefs->upsert($u, ['game_pioneer' => true, 'game_takeover' => false]);
+        $this->assertTrue($this->prefs->isPushEnabled($u, 'pioneer_joined'));
+        $this->assertFalse($this->prefs->isPushEnabled($u, 'edge_taken'));
+        $this->assertFalse($this->prefs->isPushEnabled($u, 'edge_reclaimed'));
+        // record_beaten hängt am game_record-Schalter (default an).
+        $this->assertTrue($this->prefs->isPushEnabled($u, 'record_beaten'));
+    }
+
+    public function testGamePioneerDefaultOff(): void
+    {
+        $u = $this->createUser('gp2');
+        // Ohne Opt-in kein Pionier-Push (AC5).
+        $this->assertFalse($this->prefs->isPushEnabled($u, 'pioneer_joined'));
     }
 
     public function testIsPushEnabledUnknownTypeIsTrue(): void
     {
         $u = $this->createUser('c');
         $this->prefs->upsert($u, ['like' => false]);
-        $this->assertTrue($this->prefs->isPushEnabled($u, 'territory_taken'));
+        $this->assertTrue($this->prefs->isPushEnabled($u, 'crew_invite'));
         $this->assertFalse($this->prefs->isPushEnabled($u, 'like'));
     }
 
