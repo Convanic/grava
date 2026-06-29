@@ -19,21 +19,63 @@ class LandingController
 
     public function home(): never
     {
-        // Mock-Stats für Layout-Test
-        // TODO: Durch echte DB-Abfragen ersetzen (siehe README.md)
-        $stats = [
-            'surface_percentage' => '42%',     // Prozent Schotter-Anteil
-            'signups_today' => 12,             // Anmeldungen heute
-            'regions_count' => '3',            // DE, AT, CH
-            'km_today' => 340,                 // Kilometer heute
-        ];
+        // Hole aktuelle öffentliche Fahrten für die Gallery
+        $recentRoutes = $this->getRecentPublicRoutes(10);
 
         $this->view->render('landing/home', [
-            '_title' => 'GRAVA — Finde, fahre und erobere Deine Tour',
+            '_title' => 'GRAVA — Oberfläche, Verkehr & Hinweise: Community-Map für Radfahrer',
             '_authedUser' => null, // Anonymer Besucher
-            '_pageStyles' => ['/assets/landing/landing.css'],
+            '_pageStyles' => [
+                'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
+                '/assets/landing/landing.css'
+            ],
+            '_pageScripts' => [
+                'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
+                '/assets/js/landing-map.js',
+                '/assets/js/landing-gallery.js'
+            ],
             '_layoutWide' => true,
-            'stats' => $stats,
+            'recentRoutes' => $recentRoutes,
+
+            // SEO Meta-Tags
+            '_metaDescription' => 'GRAVA misst automatisch Oberflächenqualität und Verkehr (Radarlicht). Speichere Hinweise wie Blockierungen oder Gefahrenstellen. Sammle dein Gebiet, hilf der Community die Datenbank aufzubauen. Die Daten, die in Komoot fehlen.',
+            '_metaKeywords' => 'Gravel, Bikepacking, Radfahren, Oberflächenqualität, Straßenbelag, Schotter, Verkehr, Radarlicht, Community-Hinweise, GPS-Tracking, Gamification, Territorialspiel, Rennrad, MTB, Komoot Alternative',
+            '_ogTitle' => 'GRAVA — Oberfläche, Verkehr & Community-Hinweise für Radfahrer',
+            '_ogDescription' => 'Automatisch per Radarlicht: Oberfläche & Verkehr. Manuell: Hinweise für alle. Erobere dein Gebiet, baue die Map auf. Launch-Phase — sei dabei!',
+            '_ogImage' => '/assets/landing/screenshot-game-map.webp',
+            '_ogUrl' => '/landing',
         ]);
+    }
+
+    private function getRecentPublicRoutes(int $limit): array
+    {
+        try {
+            $config = \App\Config\Config::instance();
+            $dsn = 'mysql:host=' . $config->get('DB_HOST') . ';dbname=' . $config->get('DB_NAME') . ';charset=utf8mb4';
+            $pdo = new \PDO($dsn, $config->get('DB_USER'), $config->get('DB_PASS'));
+            $pdo->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
+
+            $stmt = $pdo->prepare("
+                SELECT
+                    r.id,
+                    r.title,
+                    r.distance_m,
+                    r.created_at,
+                    u.public_handle as handle
+                FROM routes r
+                LEFT JOIN users u ON r.user_id = u.id
+                WHERE r.visibility = 'public'
+                ORDER BY r.created_at DESC
+                LIMIT :limit
+            ");
+            $stmt->bindValue(':limit', $limit, \PDO::PARAM_INT);
+            $stmt->execute();
+
+            return $stmt->fetchAll(\PDO::FETCH_ASSOC);
+        } catch (\PDOException $e) {
+            // Bei Fehler: leeres Array zurückgeben statt Fehler zu werfen
+            error_log("Failed to fetch recent routes: " . $e->getMessage());
+            return [];
+        }
     }
 }

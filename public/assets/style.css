@@ -92,6 +92,12 @@ a:hover { text-decoration: underline; }
     line-height: 1;
     letter-spacing: 0;
 }
+.site-header .brand-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    object-fit: cover;
+}
 .site-header nav a {
     margin-left: 16px;
     color: var(--muted);

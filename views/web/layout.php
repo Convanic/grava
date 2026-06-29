@@ -10,12 +10,45 @@ $mainClass    = 'container' . ($_layoutWide ? ' container--wide' : '');
 // Inline-Scripts. Controller/Views setzen $_pageStyles / $_pageScripts.
 $_pageStyles  = $_pageStyles  ?? [];
 $_pageScripts = $_pageScripts ?? [];
+// SEO & Social Meta-Tags
+$_metaDescription = $_metaDescription ?? 'GRAVA — Finde, fahre und erobere deine Gravel- und Bikepacking-Touren. Objektive Wegqualität, Community-Power und Territorialspiel in einer App.';
+$_metaKeywords    = $_metaKeywords    ?? 'Gravel, Bikepacking, Radtouren, Wegqualität, Schotter, Rennrad, Community, GPS';
+$_ogTitle         = $_ogTitle         ?? ($_title ?? 'GRAVA');
+$_ogDescription   = $_ogDescription   ?? $_metaDescription;
+$_ogImage         = $_ogImage         ?? '/assets/brand/icon-512.png';
+$_ogUrl           = $_ogUrl           ?? ($_SERVER['REQUEST_URI'] ?? '/');
 ?><!doctype html>
 <html lang="de">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title><?= htmlspecialchars($_title ?? 'GRAVA', ENT_QUOTES, 'UTF-8') ?></title>
+
+    <!-- SEO Meta-Tags -->
+    <meta name="description" content="<?= htmlspecialchars($_metaDescription, ENT_QUOTES, 'UTF-8') ?>">
+    <meta name="keywords" content="<?= htmlspecialchars($_metaKeywords, ENT_QUOTES, 'UTF-8') ?>">
+    <meta name="author" content="GRAVA">
+    <meta name="robots" content="index, follow">
+    <link rel="canonical" href="<?= htmlspecialchars($_ogUrl, ENT_QUOTES, 'UTF-8') ?>">
+
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="<?= htmlspecialchars($_ogUrl, ENT_QUOTES, 'UTF-8') ?>">
+    <meta property="og:title" content="<?= htmlspecialchars($_ogTitle, ENT_QUOTES, 'UTF-8') ?>">
+    <meta property="og:description" content="<?= htmlspecialchars($_ogDescription, ENT_QUOTES, 'UTF-8') ?>">
+    <meta property="og:image" content="<?= htmlspecialchars($_ogImage, ENT_QUOTES, 'UTF-8') ?>">
+    <meta property="og:locale" content="de_DE">
+    <meta property="og:site_name" content="GRAVA">
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:url" content="<?= htmlspecialchars($_ogUrl, ENT_QUOTES, 'UTF-8') ?>">
+    <meta name="twitter:title" content="<?= htmlspecialchars($_ogTitle, ENT_QUOTES, 'UTF-8') ?>">
+    <meta name="twitter:description" content="<?= htmlspecialchars($_ogDescription, ENT_QUOTES, 'UTF-8') ?>">
+    <meta name="twitter:image" content="<?= htmlspecialchars($_ogImage, ENT_QUOTES, 'UTF-8') ?>">
+
+    <!-- Theme Color -->
+    <meta name="theme-color" content="#2f5233">
     <!-- Google tag (gtag.js) — Loader extern, Init aus same-origin /assets/js/ga.js (CSP) -->
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-HVRGQSKQNV"></script>
     <script src="/assets/js/ga.js"></script>
@@ -28,7 +61,7 @@ $_pageScripts = $_pageScripts ?? [];
 </head>
 <body>
     <header class="site-header">
-        <a href="/" class="brand"><span class="brand-mark">G</span><span class="brand-word">GRAVA</span></a>
+        <a href="/" class="brand"><img src="/assets/brand/icon-512.png" alt="GRAVA" class="brand-icon"><span class="brand-word">GRAVA</span></a>
         <nav>
         <?php $_surfaceCheck = \App\Config\Config::instance()->bool('SURFACE_CHECK_ENABLED', true); ?>
         <?php if ($_authedUser !== null): ?>
