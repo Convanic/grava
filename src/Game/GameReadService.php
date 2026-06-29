@@ -147,12 +147,29 @@ final class GameReadService
         $recordsHeld = ($userId !== null && $this->records !== null)
             ? $this->records->recordsHeld($userId)
             : 0;
-        return [
+        $out = [
             'held_edges'      => $s['held'],
             'pioneered_edges' => $s['pioneered'],
             'held_length_m'   => $s['held_length_m'],
             'records_held'    => $recordsHeld,
         ];
+
+        // Wochen-Serie (GAME_EVENTS_BACKEND.md Teil 2), additiv. Trägt die Fahrt
+        // (user_id, der Mensch), daher nur mit bekanntem User berechenbar; ohne
+        // Fahrten = 0/false (iOS-Chip bleibt aus, kein Fehler).
+        if ($userId !== null) {
+            $streak = StreakCalculator::compute(
+                $this->repo->distinctRideWeekMondays($userId),
+                Clock::nowUtc(),
+                $this->config->int('streak_grace_per_month'),
+            );
+            $out['streak_weeks']            = $streak['streak_weeks'];
+            $out['streak_active_this_week'] = $streak['streak_active_this_week'];
+            $out['longest_streak_weeks']    = $streak['longest_streak_weeks'];
+            $out['streak_grace_remaining']  = $streak['streak_grace_remaining'];
+        }
+
+        return $out;
     }
 
     /** @return array<string,mixed> */

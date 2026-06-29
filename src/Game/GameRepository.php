@@ -912,6 +912,28 @@ final class GameRepository
         return array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
     }
 
+    /**
+     * Distinct Montage (Y-m-d) der ISO-Wochen, in denen $userId ≥1 gültigen
+     * Pass hat — Basis für die Wochen-Serie (GAME_EVENTS_BACKEND.md Teil 2).
+     * Quelle ist die Fahrt (user_id, der Mensch), nicht der Claimant; Strava-/
+     * Import-Pässe zählen wie aufgezeichnete. WEEKDAY(date)=0 (Mo)..6 (So), das
+     * Subtrahieren liefert den Montag der ISO-Woche (Montag-Start). Invalidierte
+     * Pässe bleiben außen vor.
+     *
+     * @return list<string>
+     */
+    public function distinctRideWeekMondays(int $userId): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT DISTINCT DATE_FORMAT(DATE_SUB(ridden_on, INTERVAL WEEKDAY(ridden_on) DAY), "%Y-%m-%d") AS wk
+               FROM game_edge_pass
+              WHERE user_id = ? AND invalidated_at IS NULL
+              ORDER BY wk'
+        );
+        $stmt->execute([$userId]);
+        return array_map('strval', $stmt->fetchAll(PDO::FETCH_COLUMN));
+    }
+
     /** @return array{held:int,pioneered:int,held_length_m:float} */
     public function meStats(int $claimantId): array
     {

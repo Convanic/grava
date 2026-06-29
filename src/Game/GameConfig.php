@@ -89,6 +89,10 @@ final class GameConfig
         'record_max_hacc_m'            => '20',
         'record_require_recording'     => '1',
         'edge_records_list_limit'      => '10',
+        // Wochen-Serie / Streak (GAME_EVENTS_BACKEND.md Teil 2). Anzahl
+        // ausgelassener Wochen je Kalendermonat, die die Serie NICHT brechen
+        // ("Streak-Schoner"). 0 = Gnade aus.
+        'streak_grace_per_month'       => '1',
     ];
 
     public function __construct(private readonly PDO $pdo) {}
