@@ -101,9 +101,9 @@
                 <!-- Slide 3: App Screenshots -->
                 <div class="gallery-slide" data-slide="2">
                     <h3 class="slide-title">📱 Die GRAVA App</h3>
-                    <div class="app-screenshots-placeholder">
-                        <div class="screenshot-box">
-                            <p class="screenshot-placeholder-text">Screenshot 1<br>Territorialspiel</p>
+                    <div class="app-screenshots">
+                        <div class="screenshot-item">
+                            <img src="/assets/landing/IMG_1320.PNG" alt="GRAVA Territorialspiel" class="screenshot-img">
                         </div>
                         <div class="screenshot-box">
                             <p class="screenshot-placeholder-text">Screenshot 2<br>Wegqualität-Score</p>

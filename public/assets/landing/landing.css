@@ -708,7 +708,8 @@
 }
 
 /* Slide 3: App Screenshots */
-.app-screenshots-placeholder {
+.app-screenshots-placeholder,
+.app-screenshots {
     display: flex;
     gap: 24px;
     justify-content: center;
@@ -729,6 +730,22 @@
     display: flex;
     align-items: center;
     justify-content: center;
+}
+
+.screenshot-item {
+    flex: 1;
+    min-width: 200px;
+    max-width: 280px;
+    border-radius: var(--radius);
+    overflow: hidden;
+    box-shadow: var(--shadow-card);
+}
+
+.screenshot-img {
+    width: 100%;
+    height: auto;
+    display: block;
+    border-radius: var(--radius);
 }
 
 .screenshot-placeholder-text {
