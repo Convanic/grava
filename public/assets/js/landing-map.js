@@ -18,10 +18,10 @@
     }
 
     // Get configuration from data attributes
-    const edgesUrl = mapContainer.dataset.edgesUrl || '/api/v1/game/edges.geojson';
     const centerLat = parseFloat(mapContainer.dataset.centerLat) || 48.21;
     const centerLon = parseFloat(mapContainer.dataset.centerLon) || 12.40;
     const zoom = parseInt(mapContainer.dataset.zoom) || 11;
+    const radiusKm = parseFloat(mapContainer.dataset.radiusKm) || 50;
 
     // Initialize map
     const map = L.map('landing-map', {
@@ -37,7 +37,20 @@
         maxZoom: 19
     }).addTo(map);
 
+    // Calculate bounding box for API request (radius around center)
+    // Rough approximation: 1 degree lat ≈ 111km, 1 degree lon ≈ 111km * cos(lat)
+    const latDelta = radiusKm / 111;
+    const lonDelta = radiusKm / (111 * Math.cos(centerLat * Math.PI / 180));
+    const bbox = [
+        centerLon - lonDelta, // minLon
+        centerLat - latDelta, // minLat
+        centerLon + lonDelta, // maxLon
+        centerLat + latDelta  // maxLat
+    ].join(',');
+
     // Load and display game edges
+    const edgesUrl = '/api/v1/game/edges?bbox=' + bbox + '&limit=5000';
+
     fetch(edgesUrl)
         .then(response => {
             if (!response.ok) {
@@ -45,31 +58,40 @@
             }
             return response.json();
         })
-        .then(geojson => {
-            L.geoJSON(geojson, {
-                style: function(feature) {
-                    // Color edges based on ownership or default green
-                    const props = feature.properties || {};
-                    const color = props.color || '#2f5233'; // Default GRAVA green
-                    const weight = props.weight || 4;
+        .then(data => {
+            const edges = data.edges || [];
 
-                    return {
-                        color: color,
-                        weight: weight,
-                        opacity: 0.8,
-                        lineCap: 'round',
-                        lineJoin: 'round'
-                    };
-                },
-                onEachFeature: function(feature, layer) {
-                    // Optional: Add popups with edge information
-                    if (feature.properties && feature.properties.owner_handle) {
-                        layer.bindPopup(
-                            '<strong>Erobert von:</strong> @' + feature.properties.owner_handle
-                        );
-                    }
+            // Convert edges to GeoJSON and add to map
+            edges.forEach(edge => {
+                if (!edge.geom || !edge.geom.coordinates) {
+                    return;
                 }
-            }).addTo(map);
+
+                // Determine color based on ownership
+                let color = '#2f5233'; // Default GRAVA green
+                let ownerHandle = null;
+
+                if (edge.owner && edge.owner.handle) {
+                    ownerHandle = edge.owner.handle;
+                    // Could vary color by crew/faction here if needed
+                    color = edge.owner.crew_color || '#2f5233';
+                }
+
+                // Create Leaflet polyline
+                const latLngs = edge.geom.coordinates.map(coord => [coord[1], coord[0]]);
+                const polyline = L.polyline(latLngs, {
+                    color: color,
+                    weight: 4,
+                    opacity: 0.8,
+                    lineCap: 'round',
+                    lineJoin: 'round'
+                }).addTo(map);
+
+                // Add popup with owner info
+                if (ownerHandle) {
+                    polyline.bindPopup('<strong>Erobert von:</strong> @' + ownerHandle);
+                }
+            });
         })
         .catch(error => {
             console.error('Error loading game edges:', error);

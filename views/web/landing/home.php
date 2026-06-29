@@ -59,9 +59,9 @@
                 <div class="gallery-slide active" data-slide="0">
                     <h3 class="slide-title">🗺️ Eroberte Gebiete</h3>
                     <div id="landing-map" class="landing-map"
-                         data-edges-url="/api/v1/game/edges.geojson"
                          data-center-lat="48.21"
                          data-center-lon="12.40"
+                         data-radius-km="50"
                          data-zoom="11"></div>
                     <p class="slide-note">Waldkraiburg & Umgebung — Live-Daten der eroberten Strecken</p>
                 </div>
