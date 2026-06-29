@@ -9,6 +9,7 @@ use App\Game\GameIngestionService;
 use App\Game\GameReadService;
 use App\Game\GameRepository;
 use App\Game\GameRideSummaryService;
+use App\Game\Challenges\ChallengeService;
 use App\Game\MatchUnavailableException;
 use App\Game\RideSummaryNotIngestedException;
 use App\Http\Request;
@@ -34,7 +35,22 @@ final class GameController
         private readonly GeometryParser $parser,
         private readonly GameRideSummaryService $rideSummary,
         private readonly GameEdgesAtRiskService $atRisk,
+        private readonly ?ChallengeService $challenges = null,
     ) {}
+
+    /**
+     * GET /game/challenges (Bearer) — aktive Aufgaben mit Fortschritt,
+     * Belohnung und Countdown (GAME_CHALLENGES_BACKEND.md). title/detail/badge
+     * werden serverseitig in der Sprache des Nutzers (Accept-Language) geliefert.
+     */
+    public function challenges(Request $req): void
+    {
+        $uid = $this->userId($req);
+        if ($this->challenges === null) {
+            Response::json(['challenges' => [], 'points_total' => 0]);
+        }
+        Response::json($this->challenges->forUser($uid, $req->header('Accept-Language')));
+    }
 
     public function edges(Request $req): void
     {

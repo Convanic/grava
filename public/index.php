@@ -414,7 +414,8 @@ $personalHeatmap = new \App\Heatmap\PersonalHeatmapService($routeStorage, new Ge
 $apiMeHeatmap = new \App\Controllers\Api\MeHeatmapController($personalHeatmap);
 $apiHeatmapLines = new HeatmapLinesController($heatmapLines);
 $apiReferral = new ReferralController($referrals);
-$apiGame = new GameController($gameRead, $gameRepo, $gameIngest, $gameConfig, $routeService, new GeometryParser(), $gameRideSummary, $gameAtRisk);
+$gameChallenges = new \App\Game\Challenges\ChallengeService(Db::pdo());
+$apiGame = new GameController($gameRead, $gameRepo, $gameIngest, $gameConfig, $routeService, new GeometryParser(), $gameRideSummary, $gameAtRisk, $gameChallenges);
 $apiEdgeRecords = new EdgeRecordController($edgeRecords);
 $apiPlayerBoard = new PlayerLeaderboardController(new PlayerLeaderboardService($gameRepo, $gameConfig));
 $apiSegment = new SegmentSpeedController(new SegmentSpeedService($gameRepo, $gameConfig));
@@ -616,6 +617,7 @@ $router->get("{$apiBase}/game/edges/{id}",         fn($r) => $apiGame->edge($r),
 $router->get("{$apiBase}/game/edges/{id}/records", fn($r) => $apiEdgeRecords->records($r), [$optionalBearer]);
 $router->get("{$apiBase}/game/me",                 fn($r) => $apiGame->me($r),       [$requireBearer]);
 $router->get("{$apiBase}/game/me/at-risk",         fn($r) => $apiGame->atRisk($r),   [$requireBearer]);
+$router->get("{$apiBase}/game/challenges",         fn($r) => $apiGame->challenges($r), [$requireBearer]);
 $router->get("{$apiBase}/game/config",             fn($r) => $apiGame->config($r),   [$requireBearer]);
 // Solo-/Spieler-Rangliste (S7): world anonym, friends/me brauchen Bearer.
 $router->get("{$apiBase}/game/leaderboard",        fn($r) => $apiPlayerBoard->index($r), [$optionalBearer]);
