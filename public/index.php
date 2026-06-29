@@ -648,7 +648,7 @@ $router->get ("{$apiBase}/presence/active",       fn($r) => $apiPresence->active
 $router->get ("{$apiBase}/community/today",       fn($r) => $apiCommunity->today($r));
 
 // ---- Web pages ----
-$router->get('/',                  fn($r) => Response::redirect('/dashboard'));
+$router->get('/',                  fn($r) => $webLanding->home());
 $router->get('/landing',           fn($r) => $webLanding->home());
 $router->get('/login',             fn($r) => $webAuth->showLogin($r));
 $router->post('/login',            fn($r) => $webAuth->doLogin($r),           [$csrf]);
