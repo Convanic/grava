@@ -66,7 +66,7 @@ final class GameController
         $defaultLimit = 10000;
         $limit = isset($req->query['limit']) ? max(1, (int)$req->query['limit']) : $defaultLimit;
         try {
-            $edges = $this->read->edgesInBbox($bbox, $viewer, null, $limit);
+            $edges = $this->read->edgesInBbox($bbox, $viewer, null, $limit, $this->optionalUserId($req));
         } catch (\InvalidArgumentException $e) {
             Response::error('bad_request', $e->getMessage(), 400);
         }
@@ -252,6 +252,17 @@ final class GameController
         // eigenen (jetzt crew-eigenen) Kanten als fremd: owner_is_me=false und
         // der mine=1-Filter würde sie ausblenden.
         return $uid > 0 ? $this->repo->effectiveClaimantId($uid) : null;
+    }
+
+    /** Optionaler Bearer: liefert die User-ID oder null (für in_reach-Heimatzone). */
+    private function optionalUserId(Request $req): ?int
+    {
+        $u = $req->user;
+        if ($u === null) {
+            return null;
+        }
+        $uid = (int)($u->internal_id ?? 0);
+        return $uid > 0 ? $uid : null;
     }
 
     private function userId(Request $req): int

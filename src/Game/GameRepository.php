@@ -318,6 +318,38 @@ final class GameRepository
         return $out;
     }
 
+    /**
+     * Gültige Pässe der angegebenen Nutzer auf einer Kantenmenge — Basis für
+     * die personalisierte Viewer-Präsenz der in_reach-Berechnung
+     * (GAME_IN_REACH_BACKEND.md). Eine Query für den ganzen bbox-Ausschnitt;
+     * die Tageskappung steckt bereits im Unique (edge_id,user_id,ridden_on).
+     *
+     * @param list<int> $edgeIds
+     * @param list<int> $userIds Mitglieder des Viewer-Claimants (Rider=1)
+     * @return list<array{edge_id:int,ridden_at:string}>
+     */
+    public function passesForEdgesByUsers(array $edgeIds, array $userIds): array
+    {
+        if ($edgeIds === [] || $userIds === []) {
+            return [];
+        }
+        $edgeIn = implode(',', array_fill(0, count($edgeIds), '?'));
+        $userIn = implode(',', array_fill(0, count($userIds), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT edge_id, ridden_at FROM game_edge_pass
+              WHERE edge_id IN ($edgeIn) AND user_id IN ($userIn) AND invalidated_at IS NULL"
+        );
+        $stmt->execute([...array_values($edgeIds), ...array_values($userIds)]);
+        $out = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $out[] = [
+                'edge_id'   => (int)$r['edge_id'],
+                'ridden_at' => (string)$r['ridden_at'],
+            ];
+        }
+        return $out;
+    }
+
     // ----------------------------------------------------------------
     // Rush / Group-Ride-Übernahme (GAME_RUSH_BACKEND.md) — Ingest + Recompute
     // ----------------------------------------------------------------
@@ -511,7 +543,7 @@ final class GameRepository
                 owner_claimant_id = NULL, owner_since = NULL,
                 value_cached = 0, freshness_cached = 0, last_pass_at = NULL,
                 traffic_factor_cached = 1.0, traffic_pass_count = 0, traffic_observations = 0,
-                vulnerability_cached = 0'
+                vulnerability_cached = 0, owner_presence_cached = 0'
         );
     }
 
@@ -527,7 +559,7 @@ final class GameRepository
                 owner_claimant_id = NULL, owner_since = NULL,
                 value_cached = 0, freshness_cached = 0, last_pass_at = NULL,
                 traffic_factor_cached = 1.0, traffic_pass_count = 0, traffic_observations = 0,
-                vulnerability_cached = 0
+                vulnerability_cached = 0, owner_presence_cached = 0
              WHERE id IN ($in)"
         )->execute(array_values($edgeIds));
     }
@@ -544,6 +576,7 @@ final class GameRepository
         int $trafficObservations = 0,
         ?int $discovererClaimantId = null,
         float $vulnerability = 0.0,
+        float $ownerPresence = 0.0,
     ): void {
         $this->pdo->prepare(
             'UPDATE game_edge SET
@@ -556,12 +589,13 @@ final class GameRepository
                 traffic_pass_count = ?,
                 traffic_observations = ?,
                 discoverer_claimant_id = ?,
-                vulnerability_cached = ?
+                vulnerability_cached = ?,
+                owner_presence_cached = ?
              WHERE id = ?'
         )->execute([
             $ownerClaimantId, $ownerSince, $value, $freshness, $lastPassAt,
             $trafficFactor, $trafficPassCount, $trafficObservations,
-            $discovererClaimantId, $vulnerability, $edgeId,
+            $discovererClaimantId, $vulnerability, $ownerPresence, $edgeId,
         ]);
     }
 

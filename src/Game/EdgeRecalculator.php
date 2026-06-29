@@ -74,6 +74,7 @@ final class EdgeRecalculator
         $newOwner = null;
         $ownerSince = null;
         $vulnerability = 0.0;
+        $ownerPresence = 0.0;
         if ($challenger !== null) {
             $currentPresence = $currentOwner !== null ? ($presence[$currentOwner] ?? 0.0) : 0.0;
             // Übernahme weiter ausschließlich über Hysterese (§9.4, kein
@@ -93,6 +94,10 @@ final class EdgeRecalculator
                 $ownerSince = $now->format('Y-m-d H:i:s.v');
             }
             $vulnerability = $this->vulnerability($presence, $newOwner, $hysteresis);
+            // Owner-Präsenz cachen → speist die in_reach-Berechnung beim Lesen
+            // (GAME_IN_REACH_BACKEND.md), ohne pro Request alle Pässe je Kante
+            // neu zu aggregieren. Freie Kante (newOwner null) ⇒ 0.
+            $ownerPresence = $newOwner !== null ? ($presence[$newOwner] ?? 0.0) : 0.0;
         }
 
         $n = $this->repo->distinctRidersTotal($edgeId);
@@ -147,6 +152,7 @@ final class EdgeRecalculator
             $traffic['observations'],
             $discovererClaimant,
             $vulnerability,
+            $ownerPresence,
         );
     }
 

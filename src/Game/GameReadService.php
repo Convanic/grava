@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace App\Game;
 
+use App\Privacy\PrivacyZoneRepository;
 use App\Support\Clock;
 use App\Support\MapLod;
 use DateTimeImmutable;
@@ -19,22 +20,98 @@ final class GameReadService
         private readonly GameRepository $repo,
         private readonly GameConfig $config,
         private readonly ?EdgeRecordService $records = null,
+        private readonly ?PrivacyZoneRepository $zones = null,
     ) {}
 
     /**
      * @param string $bbox "minLon,minLat,maxLon,maxLat"
+     * @param int|null $viewerUserId der anfragende Mensch (für Heimatzone-
+     *        Maskierung der in_reach-Markierung); ohne Bearer null.
      * @return list<array<string,mixed>>
      */
-    public function edgesInBbox(string $bbox, ?int $mineClaimantId, ?DateTimeImmutable $now, int $limit = 500): array
-    {
+    public function edgesInBbox(
+        string $bbox,
+        ?int $mineClaimantId,
+        ?DateTimeImmutable $now,
+        int $limit = 500,
+        ?int $viewerUserId = null,
+    ): array {
         $now ??= Clock::nowUtc();
         [$minLon, $minLat, $maxLon, $maxLat] = $this->parseBbox($bbox);
         $rows = $this->repo->edgesInBbox($minLon, $minLat, $maxLon, $maxLat, null, $limit);
+
+        // in_reach (GAME_IN_REACH_BACKEND.md) nur personalisiert (mit Bearer).
+        // Ohne Viewer-Claimant bleibt das Feld weg (anonyme Kartenansicht, AC5).
+        $viewerPresence = [];
+        $zone = null;
+        if ($mineClaimantId !== null) {
+            $edgeIds = array_map(static fn($r) => (int)$r['id'], $rows);
+            $members = $this->repo->usersForClaimant($mineClaimantId);
+            $windowDays = $this->config->int('presence_window_days');
+            foreach ($this->repo->passesForEdgesByUsers($edgeIds, $members) as $p) {
+                $w = GameMath::presenceWeight($this->ageDays($p['ridden_at'], $now), $windowDays);
+                $eid = $p['edge_id'];
+                $viewerPresence[$eid] = ($viewerPresence[$eid] ?? 0.0) + $w;
+            }
+            if ($viewerUserId !== null && $this->zones !== null) {
+                $zone = $this->zones->enabledZoneForUser($viewerUserId);
+            }
+        }
+        // Hysterese-Faktor identisch zur Übernahme-Entscheidung im Recalculator.
+        $hysteresis = $this->config->floatOrNull('rush_hysteresis_factor')
+            ?? $this->config->float('hysteresis_factor');
+
         $out = [];
         foreach ($rows as $row) {
-            $out[] = $this->formatEdge($row, $mineClaimantId, $now);
+            $edge = $this->formatEdge($row, $mineClaimantId, $now);
+            if ($mineClaimantId !== null) {
+                $edge['in_reach'] = $this->inReach(
+                    $row,
+                    $edge['owner_is_me'],
+                    $viewerPresence[(int)$row['id']] ?? 0.0,
+                    $hysteresis,
+                    $zone,
+                );
+            }
+            $out[] = $edge;
         }
         return $out;
+    }
+
+    /**
+     * `in_reach` einer Kante für den Viewer (GAME_IN_REACH_BACKEND.md):
+     * true, wenn die Kante nicht dem Viewer gehört und ein einziger weiterer
+     * authentischer Pass (Gewicht 1,0) seine Präsenz über die Übernahme-
+     * Schwelle des aktuellen Besitzers heben würde:
+     *   P(du) + 1,0 > P(Besitzer) × Hysterese
+     * Bei freier Kante (owner_presence_cached = 0) genügt der erste Pass.
+     * Heimatzonen-maskierte Kanten sind nie in Reichweite (AC4).
+     */
+    private function inReach(
+        array $row,
+        bool $ownerIsMe,
+        float $viewerPresence,
+        float $hysteresis,
+        ?\App\Privacy\PrivacyZone $zone,
+    ): bool {
+        if ($ownerIsMe) {
+            return false;
+        }
+        if ($zone !== null) {
+            $geom = json_decode((string)($row['geom_geojson'] ?? ''), true);
+            $coords = is_array($geom) ? ($geom['coordinates'] ?? null) : null;
+            if (is_array($coords) && $zone->intersectsPolyline($coords)) {
+                return false;
+            }
+        }
+        $ownerPresence = isset($row['owner_presence_cached']) ? (float)$row['owner_presence_cached'] : 0.0;
+        return ($viewerPresence + 1.0) > ($ownerPresence * $hysteresis);
+    }
+
+    private function ageDays(string $mysqlDatetime, DateTimeImmutable $now): float
+    {
+        $dt = new DateTimeImmutable($mysqlDatetime, new DateTimeZone('UTC'));
+        return max(0.0, ($now->getTimestamp() - $dt->getTimestamp()) / 86400.0);
     }
 
     /**
