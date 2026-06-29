@@ -12,8 +12,8 @@
         <div class="hero-badge">🚀 Launch-Phase: Sei einer der Ersten</div>
 
         <h1 class="hero-title">
-            Fahre, erobere, baue die Map:<br>
-            Oberfläche, Verkehr & Hinweise für alle Radfahrer
+            Ergänze die Karte und erobere Deine Region,<br>
+            Solo oder in der Crew
         </h1>
 
         <p class="hero-subtitle">
