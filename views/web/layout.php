@@ -119,6 +119,7 @@ $_ogUrl           = $_ogUrl           ?? ($_SERVER['REQUEST_URI'] ?? '/');
                 <h4 class="footer-heading">Folgen</h4>
                 <a href="https://instagram.com/gravaapp" target="_blank" rel="noopener">Instagram</a>
                 <a href="https://twitter.com/gravaapp" target="_blank" rel="noopener">Twitter</a>
+                <a href="https://www.strava.com/clubs/gravaworld" target="_blank" rel="noopener">Strava Club</a>
             </div>
 
             <div class="footer-section">
