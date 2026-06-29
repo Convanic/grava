@@ -335,8 +335,8 @@ if ($requestIsHttps) {
 }
 header(
     "Content-Security-Policy: default-src 'self'; "
-  . "script-src 'self' https://www.googletagmanager.com; "
-  . "style-src 'self' 'unsafe-inline'; "
+  . "script-src 'self' https://www.googletagmanager.com https://unpkg.com; "
+  . "style-src 'self' 'unsafe-inline' https://unpkg.com; "
   . "img-src 'self' data: https://*.tile.openstreetmap.org https://www.googletagmanager.com https://*.google-analytics.com; "
   . "connect-src 'self' https://www.googletagmanager.com https://*.google-analytics.com https://*.analytics.google.com; "
   . "form-action 'self'; frame-ancestors 'none'; base-uri 'self'; object-src 'none'"
