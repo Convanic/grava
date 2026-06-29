@@ -82,6 +82,7 @@ $_ogUrl           = $_ogUrl           ?? ($_SERVER['REQUEST_URI'] ?? '/');
                 <button type="submit" class="nav-button">Abmelden</button>
             </form>
         <?php else: ?>
+            <a href="/features">Funktionen</a>
             <a href="/discover">Entdecken</a>
             <a href="/heatmap">Heatmap</a>
             <a href="/login">Login</a>
