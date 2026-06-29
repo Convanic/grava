@@ -97,11 +97,42 @@ $_ogUrl           = $_ogUrl           ?? ($_SERVER['REQUEST_URI'] ?? '/');
         <?= $content ?? '' ?>
     </main>
     <footer class="site-footer">
-        <small>&copy; <?= date('Y') ?> GRAVA</small>
-        <nav class="footer-links">
-            <a href="/privacy">Datenschutz</a>
-            <a href="/terms">Nutzungsbedingungen</a>
-        </nav>
+        <div class="footer-content">
+            <div class="footer-section">
+                <h4 class="footer-heading">Produkt</h4>
+                <a href="/features">Funktionen</a>
+                <a href="/discover">Entdecken</a>
+                <a href="/heatmap">Heatmap</a>
+                <?php if ($_authedUser === null): ?>
+                <a href="/register">App laden</a>
+                <?php endif; ?>
+            </div>
+
+            <div class="footer-section">
+                <h4 class="footer-heading">Rechtliches</h4>
+                <a href="/privacy">Datenschutz</a>
+                <a href="/terms">Nutzungsbedingungen</a>
+                <a href="/imprint">Impressum</a>
+            </div>
+
+            <div class="footer-section">
+                <h4 class="footer-heading">Folgen</h4>
+                <a href="https://instagram.com/gravaapp" target="_blank" rel="noopener">Instagram</a>
+                <a href="https://twitter.com/gravaapp" target="_blank" rel="noopener">Twitter</a>
+            </div>
+
+            <div class="footer-section">
+                <h4 class="footer-heading">GRAVA</h4>
+                <p class="footer-tagline">
+                    Fahre, erobere, baue die Map.<br>
+                    Oberfläche · Verkehr · Hinweise
+                </p>
+            </div>
+        </div>
+
+        <div class="footer-bottom">
+            <small>&copy; <?= date('Y') ?> GRAVA. Alle Rechte vorbehalten.</small>
+        </div>
     </footer>
     <?php foreach ($_pageScripts as $_src): ?>
     <script src="<?= htmlspecialchars((string)$_src, ENT_QUOTES, 'UTF-8') ?>"></script>

@@ -212,17 +212,73 @@ button.btn-secondary {
 .badge-ok   { background: var(--success-bg); color: var(--success-text); }
 
 .site-footer {
-    text-align: center;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
     color: var(--muted);
-    padding: 24px;
+    padding: 48px 24px 24px;
+    margin-top: 80px;
 }
-.footer-links {
-    margin-top: 6px;
+
+.footer-content {
+    max-width: 1200px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 40px;
+    margin-bottom: 32px;
+}
+
+.footer-section {
     display: flex;
-    gap: 16px;
-    justify-content: center;
-    flex-wrap: wrap;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.footer-heading {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+    margin: 0 0 4px 0;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.footer-section a {
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 14px;
+    transition: color 0.2s;
+}
+
+.footer-section a:hover {
+    color: var(--primary);
+}
+
+.footer-tagline {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--muted);
+}
+
+.footer-bottom {
+    text-align: center;
+    padding-top: 24px;
+    border-top: 1px solid var(--border);
     font-size: 13px;
+}
+
+@media (max-width: 768px) {
+    .footer-content {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 32px;
+    }
+}
+
+@media (max-width: 480px) {
+    .footer-content {
+        grid-template-columns: 1fr;
+    }
 }
 
 /* Rechtsseiten: gut lesbarer Fließtext, mobil-tauglich. */
