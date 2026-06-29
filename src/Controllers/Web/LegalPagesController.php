@@ -26,6 +26,8 @@ final class LegalPagesController
     {
         $this->view->render('legal/privacy', [
             '_title' => 'Datenschutzerklärung · GRAVA',
+            '_pageStyles' => ['/assets/landing/landing.css'],
+            '_layoutWide' => true,
             'flash'  => null,
         ]);
     }
@@ -34,6 +36,18 @@ final class LegalPagesController
     {
         $this->view->render('legal/terms', [
             '_title' => 'Nutzungsbedingungen · GRAVA',
+            '_pageStyles' => ['/assets/landing/landing.css'],
+            '_layoutWide' => true,
+            'flash'  => null,
+        ]);
+    }
+
+    public function imprint(Request $req): void
+    {
+        $this->view->render('legal/imprint', [
+            '_title' => 'Impressum · GRAVA',
+            '_pageStyles' => ['/assets/landing/landing.css'],
+            '_layoutWide' => true,
             'flash'  => null,
         ]);
     }

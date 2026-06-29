@@ -662,6 +662,7 @@ $router->get('/verify-email',      fn($r) => $webAuth->showVerify($r));
 // Öffentliche Rechtsseiten (M5): anonym, kein Login, kein Redirect.
 $router->get('/privacy',           fn($r) => $webLegal->privacy($r));
 $router->get('/terms',             fn($r) => $webLegal->terms($r));
+$router->get('/imprint',           fn($r) => $webLegal->imprint($r));
 $router->get('/dashboard',         fn($r) => $webHome->show($r));
 $router->get('/features',          fn($r) => $webFeatures->show($r));
 $router->post('/logout',           fn($r) => $webAuth->doLogout($r),          [$csrf]);
