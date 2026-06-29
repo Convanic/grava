@@ -18,8 +18,8 @@
 
         <p class="hero-subtitle">
             Wie rau ist die Strecke? Wie viel Verkehr? Durchfahrt blockiert?
-            GRAVA misst und speichert alles — automatisch per Radarlicht, manuell per Tipp.
-            Sammle dein Gebiet und hilf der Community, die Datenbank aufzubauen.
+            Mit GRAVA können wir die Karten ergänzen — automatisch mit Handy, Fahrradcomputer und Radarrücklicht.
+            Und während Du die Informationen ergänzt, eroberst Du und Deine Crew auch noch die Region und stehst im Duell mit anderen.
         </p>
 
         <div class="hero-cta">
