@@ -104,6 +104,25 @@ final class GameController
         return $geom;
     }
 
+    /**
+     * GET /game/ownership/map?bbox=&grid= — Besitz-Dichte je Gitterzelle für
+     * weite Zooms (GameOwnershipOverview_Backend_Spec). OptionalBearer: mit
+     * Bearer wird mine_length_m je Zelle für den Anfragenden gefüllt.
+     */
+    public function ownershipMap(Request $req): void
+    {
+        $bbox = (string)($req->query['bbox'] ?? '');
+        $parsed = \App\Support\MapLod::parseBbox($bbox);
+        if ($parsed === null) {
+            Response::error('bad_request', 'bbox erforderlich (minLon,minLat,maxLon,maxLat).', 400);
+        }
+        [$minLon, $minLat, $maxLon, $maxLat] = $parsed;
+        $grid = \App\Support\MapLod::gridFromQuery($req->query);
+        Response::json($this->read->ownershipMap(
+            $minLon, $minLat, $maxLon, $maxLat, $this->viewerClaimant($req), $grid,
+        ));
+    }
+
     public function edge(Request $req): void
     {
         $id = (int)($req->routeParams['id'] ?? 0);

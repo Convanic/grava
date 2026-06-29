@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace App\Game;
 
 use App\Support\Clock;
+use App\Support\MapLod;
 use DateTimeImmutable;
 use DateTimeZone;
 
@@ -34,6 +35,73 @@ final class GameReadService
             $out[] = $this->formatEdge($row, $mineClaimantId, $now);
         }
         return $out;
+    }
+
+    /**
+     * Besitz-Übersicht für weite Zooms (GameOwnershipOverview_Backend_Spec):
+     * aggregiert die Spielkanten im Ausschnitt in ein Gitter und liefert pro
+     * Zelle die eroberte/fremde/freie Länge + den dominanten Zustand. Pendant
+     * zu /game/factions/map und /heatmap?grid=, gedacht für den Bereich, in dem
+     * der Client wegen zu vieler Kanten keine Einzellinien mehr zeichnet.
+     *
+     * @param float|null $gridOverride Gitterweite (Grad) vom Client; fehlt sie,
+     *        wählt der Server eine zoom-passende Weite
+     *        (`max(min_grid, snap125(span / 40))`, gleiche Logik wie der Client
+     *        via {@see MapLod::adaptiveGrid}).
+     * @return array{cells:list<array<string,mixed>>}
+     */
+    public function ownershipMap(
+        float $minLon,
+        float $minLat,
+        float $maxLon,
+        float $maxLat,
+        ?int $viewerClaimantId,
+        ?float $gridOverride = null,
+    ): array {
+        $minGrid = $this->config->float('ownership_map_min_grid');
+        if ($minGrid <= 0.0) {
+            $minGrid = 0.01;
+        }
+        if ($gridOverride !== null && $gridOverride > 0.0) {
+            $grid = $gridOverride;
+        } else {
+            $span = max($maxLon - $minLon, $maxLat - $minLat);
+            $grid = MapLod::adaptiveGrid($span > 0.0 ? $span : null, $minGrid);
+        }
+
+        $cells = [];
+        foreach ($this->repo->ownershipCellsInBbox($minLon, $minLat, $maxLon, $maxLat, $grid, $viewerClaimantId) as $c) {
+            $mine   = $c['mine_length_m'];
+            $others = $c['others_length_m'];
+            $free   = $c['free_length_m'];
+            $cells[] = [
+                // SW-Eckanker der Zelle (der Client zeichnet das Quadrat aus
+                // lat/lon + grid). Zellschlüssel war floor(coord/grid).
+                'lat'             => round($c['cy'] * $grid, 6),
+                'lon'             => round($c['cx'] * $grid, 6),
+                'grid'            => $grid,
+                'mine_length_m'   => round($mine, 1),
+                'others_length_m' => round($others, 1),
+                'free_length_m'   => round($free, 1),
+                'dominant'        => self::dominantState($mine, $others, $free),
+            ];
+        }
+        return ['cells' => $cells];
+    }
+
+    /**
+     * Größter der drei Längenwerte gewinnt; bei Gleichstand Priorität
+     * mine > others > free (Spec).
+     */
+    private static function dominantState(float $mine, float $others, float $free): string
+    {
+        if ($mine >= $others && $mine >= $free) {
+            return 'mine';
+        }
+        if ($others >= $free) {
+            return 'others';
+        }
+        return 'free';
     }
 
     /** @return array<string,mixed>|null */

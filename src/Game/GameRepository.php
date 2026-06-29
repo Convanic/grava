@@ -693,6 +693,75 @@ final class GameRepository
     }
 
     /**
+     * Aggregiert die Spielkanten im Ausschnitt zu Besitz-Dichte-Zellen eines
+     * Gitters der Weite $grid (Grad) — die LOD-Stufe für weite Zooms, in denen
+     * Einzelkanten zu zahlreich sind (GameOwnershipOverview_Backend_Spec).
+     *
+     * Zellschlüssel = floor(midLon/grid), floor(midLat/grid). Je Kante wird die
+     * Länge ihrer Mittelpunkt-Zelle zugeordnet und nach Besitz aufgeteilt:
+     *   - owner == $mineClaimantId       → mine_length_m
+     *   - owner != null (und != mine)    → others_length_m
+     *   - owner == null (herrenlos/frei) → free_length_m
+     *
+     * Privatzonen sind bereits beim Ingest ausgeschlossen (Fremdsegmente in
+     * Schutzzonen erzeugen keine Pässe/Kanten) — gelesen wird dieselbe Quelle
+     * `game_edge` wie bei /game/edges, also ohne zusätzliche Filter. Die
+     * Aggregation läuft als GROUP BY in der DB, damit auch sehr weite Zooms mit
+     * zehntausenden Kanten als wenige Zellen über die Leitung gehen.
+     *
+     * @param int|null $mineClaimantId effektiver Claimant des Anfragenden oder
+     *        null (ohne Bearer) → mine_length_m bleibt 0, Besessenes zählt als
+     *        others.
+     * @return list<array{cx:int,cy:int,mine_length_m:float,others_length_m:float,free_length_m:float}>
+     */
+    public function ownershipCellsInBbox(
+        float $minLon,
+        float $minLat,
+        float $maxLon,
+        float $maxLat,
+        float $grid,
+        ?int $mineClaimantId,
+    ): array {
+        if ($grid <= 0.0) {
+            return [];
+        }
+        // Claimant-IDs sind > 0; 0 als "kein Viewer" matcht nie ⇒ Besessenes
+        // fällt vollständig in others, NULL-Besitz in free.
+        $mine = $mineClaimantId ?? 0;
+        $sql = 'SELECT
+                    FLOOR(((min_lon + max_lon) / 2) / ?) AS cx,
+                    FLOOR(((min_lat + max_lat) / 2) / ?) AS cy,
+                    SUM(CASE WHEN owner_claimant_id = ? THEN length_m ELSE 0 END) AS mine_len,
+                    SUM(CASE WHEN owner_claimant_id IS NOT NULL AND owner_claimant_id <> ? THEN length_m ELSE 0 END) AS others_len,
+                    SUM(CASE WHEN owner_claimant_id IS NULL THEN length_m ELSE 0 END) AS free_len
+                  FROM game_edge
+                 WHERE max_lat >= ? AND min_lat <= ? AND max_lon >= ? AND min_lon <= ?
+                 GROUP BY cx, cy';
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->bindValue(1, $grid);
+        $stmt->bindValue(2, $grid);
+        $stmt->bindValue(3, $mine, PDO::PARAM_INT);
+        $stmt->bindValue(4, $mine, PDO::PARAM_INT);
+        $stmt->bindValue(5, $minLat);
+        $stmt->bindValue(6, $maxLat);
+        $stmt->bindValue(7, $minLon);
+        $stmt->bindValue(8, $maxLon);
+        $stmt->execute();
+
+        $out = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $out[] = [
+                'cx'              => (int)$r['cx'],
+                'cy'              => (int)$r['cy'],
+                'mine_length_m'   => (float)$r['mine_len'],
+                'others_length_m' => (float)$r['others_len'],
+                'free_length_m'   => (float)$r['free_len'],
+            ];
+        }
+        return $out;
+    }
+
+    /**
      * Kanten für die Admin-Übersichtskarte: Geometrie + Anzeige-Props inkl.
      * Owner-Handle. BBox optional (null = alle, bis $limit). Rein lesend.
      *

@@ -53,6 +53,10 @@ final class GameConfig
         // Stufe 3 (Fraktionen, GAME_STAGE3_BACKEND.md §6).
         'faction_switch_cooldown_days' => '30',
         'faction_map_grid'             => '0.05',
+        // Besitz-Übersicht für weite Zooms (GameOwnershipOverview_Backend_Spec).
+        // Feinste Gitterweite (Grad), unter die der adaptive Default nicht geht;
+        // spiegelt den Client-Wert adaptiveGrid(region, minGrid: 0.01).
+        'ownership_map_min_grid'       => '0.01',
         // Segment-Speed / Tempo-Wertung (GAME_SEGMENT_SPEED_BACKEND.md).
         'segment_min_length_m'      => '200',
         'segment_min_speed_kmh'     => '5',

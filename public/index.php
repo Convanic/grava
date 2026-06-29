@@ -602,6 +602,7 @@ $router->get("{$apiBase}/me/heatmap",                             fn($r) => $api
 $router->get("{$apiBase}/referrals/me",                           fn($r) => $apiReferral->me($r), [$requireBearer]);
 
 // ---- Game (Stufe 1 — Territorialspiel) ----
+$router->get("{$apiBase}/game/ownership/map",      fn($r) => $apiGame->ownershipMap($r), [$optionalBearer]);
 $router->get("{$apiBase}/game/edges",              fn($r) => $apiGame->edges($r),    [$optionalBearer]);
 $router->get("{$apiBase}/game/edges/{id}",         fn($r) => $apiGame->edge($r),     [$optionalBearer]);
 $router->get("{$apiBase}/game/edges/{id}/records", fn($r) => $apiEdgeRecords->records($r), [$optionalBearer]);
