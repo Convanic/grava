@@ -27,7 +27,12 @@ $e = static fn($v): string => htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8');
                 <tr>
                     <td><label for="cfg_<?= $e($key) ?>"><?= $e($key) ?></label></td>
                     <td>
-                        <input type="text" id="cfg_<?= $e($key) ?>" name="<?= $e($key) ?>" value="<?= $e($val) ?>">
+                        <?php $trimmed = ltrim((string)$val); $isJson = $trimmed !== '' && ($trimmed[0] === '{' || $trimmed[0] === '['); ?>
+                        <?php if ($isJson): ?>
+                            <textarea id="cfg_<?= $e($key) ?>" name="<?= $e($key) ?>" rows="3" style="width:100%;font-family:monospace"><?= $e($val) ?></textarea>
+                        <?php else: ?>
+                            <input type="text" id="cfg_<?= $e($key) ?>" name="<?= $e($key) ?>" value="<?= $e($val) ?>">
+                        <?php endif; ?>
                         <?php if (isset($errors[$key])): ?>
                             <span class="muted"><?= $e($errors[$key]) ?></span>
                         <?php endif; ?>

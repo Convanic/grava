@@ -32,6 +32,15 @@ final class GameConfigAdminService
         'presence_decay' => ['linear'],
         'value_combine'  => ['max','sum'],
     ];
+    /**
+     * JSON-Parameter (Ränge & Abzeichen, RankBadges_Concept.md §8) — als
+     * gültiges JSON validiert. Brauchen die verbreiterte config_value-Spalte
+     * (Migration 0039). So sind Stufenschwellen/Gate im Admin pflegbar.
+     */
+    private const JSON_KEYS = [
+        'progression_ap_weights', 'progression_rank_ap',
+        'progression_rank_gate', 'progression_catalog',
+    ];
 
     public function __construct(
         private readonly PDO $pdo,
@@ -75,6 +84,16 @@ final class GameConfigAdminService
             } elseif (in_array($key, self::BOOL_KEYS, true)) {
                 if (!in_array(strtolower($value), ['0','1','true','false','yes','no','on','off'], true)) {
                     $errors[$key] = 'muss boolesch sein';
+                    continue;
+                }
+                $clean[$key] = $value;
+            } elseif (in_array($key, self::JSON_KEYS, true)) {
+                if ($value === '' || json_decode($value) === null) {
+                    $errors[$key] = 'muss gueltiges JSON sein';
+                    continue;
+                }
+                if (strlen($value) > 512) {
+                    $errors[$key] = 'zu lang (max. 512 Zeichen)';
                     continue;
                 }
                 $clean[$key] = $value;
