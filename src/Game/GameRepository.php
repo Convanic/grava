@@ -1025,6 +1025,21 @@ final class GameRepository
     }
 
     /**
+     * Anzahl Rushes, an denen der Fahrer teilgenommen hat (monoton): distinct
+     * rush_id über seine echten (nicht invalidierten) Pässe. Basis für die
+     * Crew/Rush-Abzeichen-Familie.
+     */
+    public function rushParticipationCount(int $userId): int
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT COUNT(DISTINCT rush_id) FROM game_edge_pass
+              WHERE user_id = ? AND rush_id IS NOT NULL AND invalidated_at IS NULL'
+        );
+        $stmt->execute([$userId]);
+        return (int)$stmt->fetchColumn();
+    }
+
+    /**
      * Verdiente Abzeichen-Stufen eines Nutzers (Peak-Historie, §13.4).
      * @return list<array{family:string,tier:int,value_at_earn:float,earned_at:string}>
      */

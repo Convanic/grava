@@ -93,6 +93,12 @@ final class PlayerProgressionServiceTest extends IntegrationTestCase
         $this->assertTrue($byFamily['erschliesser']['core']);
         $this->assertCount(5, $byFamily['erschliesser']['tiers']);
         $this->assertFalse($byFamily['schnellster']['core']);
+        // Crew/Rush-Familie (optional) ist vorhanden.
+        $this->assertArrayHasKey('crew', $byFamily);
+        $this->assertFalse($byFamily['crew']['core']);
+        $this->assertCount(5, $byFamily['crew']['tiers']);
+        // Ohne Rush-Pässe zählt die Teilnahme 0.
+        $this->assertSame(0, $this->repo->rushParticipationCount($this->u1));
 
         // Gate enthält R10 mit all_core_gold.
         $r10 = null;
