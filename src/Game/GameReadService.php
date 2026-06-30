@@ -334,7 +334,10 @@ final class GameReadService
         $pioneer = GameMath::pioneer($n, $this->config->float('pioneer_p0'),
             $this->config->float('pioneer_k'), $this->config->float('pioneer_s'));
         $popularity = GameMath::popularity($n90, $this->config->float('popularity_c'));
-        $curation = 0.0; // Stufe 1
+        // Kuratierung (§5.3) — identisch zur value_cached-Berechnung im
+        // EdgeRecalculator, damit die Aufschlüsselung zum Kartenwert passt.
+        $curation = $this->repo->curationForEdge($edgeId, $this->config->float('curation_match_radius_m'))
+            * $this->config->float('curation_per_hint');
         return [
             'total'      => GameMath::combineValue($pioneer, $popularity, $curation),
             'pioneer'    => $pioneer,
