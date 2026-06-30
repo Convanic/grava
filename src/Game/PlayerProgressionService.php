@@ -60,6 +60,7 @@ final class PlayerProgressionService
             'stammfahrer'  => (float)$longestStreakWeeks,
             'schnellster'  => (float)$recordsHeld,
             'crew'         => (float)$this->repo->rushParticipationCount($userId),
+            'challenger'   => (float)$this->repo->completedChallengeCount($userId),
         ];
 
         // Neu erreichte Stufen materialisieren (idempotent; Peak bleibt erhalten).

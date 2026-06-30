@@ -69,6 +69,10 @@ final class ChallengeService
         foreach ($challenges as $c) {
             if ($c['progress'] >= $c['target']) {
                 $pointsTotal += (int)$c['reward_points'];
+                // Abschluss festhalten (idempotent), speist die Challenger-
+                // Abzeichen-Familie (§5.2). Lazy-on-read: greift, wenn der Nutzer
+                // die Aufgaben in der erfüllten Woche ansieht.
+                $this->recordCompletion($userId, (string)$c['id'], $mondayDate);
             }
         }
 
@@ -118,6 +122,23 @@ final class ChallengeService
         );
         $stmt->execute([$type, $userId, $sinceDate]);
         return (int)$stmt->fetchColumn();
+    }
+
+    /**
+     * Hält den Abschluss einer Challenge fest (idempotent über den Primär-
+     * schlüssel (user, challenge, Woche)). Best effort — ein Fehler hier darf
+     * die Aufgaben-Anzeige nicht stören.
+     */
+    private function recordCompletion(int $userId, string $challengeId, string $periodStart): void
+    {
+        try {
+            $this->pdo->prepare(
+                'INSERT IGNORE INTO game_challenge_completion (user_id, challenge_id, period_start)
+                 VALUES (?, ?, ?)'
+            )->execute([$userId, $challengeId, $periodStart]);
+        } catch (\PDOException) {
+            // Tabelle (noch) nicht migriert o. Ä. — Anzeige bleibt funktionsfähig.
+        }
     }
 
     /** Montag (00:00 UTC) der ISO-Woche von $dt. */
