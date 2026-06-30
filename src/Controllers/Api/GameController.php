@@ -168,6 +168,18 @@ final class GameController
         Response::json($this->atRisk->atRisk($uid));
     }
 
+    /**
+     * GET /game/me/pioneered (Bearer) — zuletzt vom Fahrer erschlossene Kanten
+     * (Erstbefahrer-Recht §7) für den Pionier-Showcase. `limit` (Default 10, max 50).
+     */
+    public function pioneered(Request $req): void
+    {
+        $uid = $this->userId($req);
+        $claimant = $this->repo->effectiveClaimantId($uid);
+        $limit = max(1, min(50, (int)($req->query['limit'] ?? 10)));
+        Response::json($this->read->pioneeredShowcase($claimant, $limit));
+    }
+
     public function config(Request $req): void
     {
         $this->userId($req); // Bearer erzwungen

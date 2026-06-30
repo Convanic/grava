@@ -464,6 +464,34 @@ final class GameRepository
         return $out;
     }
 
+    /**
+     * Zuletzt von diesem Claimant ERSCHLOSSENE Kanten (Erstbefahrer-Recht §7) —
+     * für den Pionier-Showcase im Profil. Geometrie + Erschließungs-Datum.
+     * @return list<array{id:int,geom:string,discovered_at:?string}>
+     */
+    public function recentPioneeredEdges(int $claimantId, int $limit): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT id, geom_geojson, discovered_at
+               FROM game_edge
+              WHERE discoverer_claimant_id = ?
+              ORDER BY discovered_at DESC, id DESC
+              LIMIT ?'
+        );
+        $stmt->bindValue(1, $claimantId, PDO::PARAM_INT);
+        $stmt->bindValue(2, $limit, PDO::PARAM_INT);
+        $stmt->execute();
+        $out = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $out[] = [
+                'id'           => (int)$r['id'],
+                'geom'         => (string)$r['geom_geojson'],
+                'discovered_at' => $r['discovered_at'] !== null ? (string)$r['discovered_at'] : null,
+            ];
+        }
+        return $out;
+    }
+
     /** Setzt discovered_at/discoverer + distinct_riders_total aus den Pässen. */
     public function refreshEdgeDiscovery(int $edgeId): void
     {

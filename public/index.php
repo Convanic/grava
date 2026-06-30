@@ -617,6 +617,7 @@ $router->get("{$apiBase}/game/edges/{id}",         fn($r) => $apiGame->edge($r),
 $router->get("{$apiBase}/game/edges/{id}/records", fn($r) => $apiEdgeRecords->records($r), [$optionalBearer]);
 $router->get("{$apiBase}/game/me",                 fn($r) => $apiGame->me($r),       [$requireBearer]);
 $router->get("{$apiBase}/game/me/at-risk",         fn($r) => $apiGame->atRisk($r),   [$requireBearer]);
+$router->get("{$apiBase}/game/me/pioneered",       fn($r) => $apiGame->pioneered($r), [$requireBearer]);
 $router->get("{$apiBase}/game/challenges",         fn($r) => $apiGame->challenges($r), [$requireBearer]);
 $router->get("{$apiBase}/game/config",             fn($r) => $apiGame->config($r),   [$requireBearer]);
 $router->get("{$apiBase}/game/progression",        fn($r) => $apiGame->progression($r), [$requireBearer]);
