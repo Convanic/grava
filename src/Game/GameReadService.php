@@ -244,6 +244,18 @@ final class GameReadService
             $out['streak_active_this_week'] = $streak['streak_active_this_week'];
             $out['longest_streak_weeks']    = $streak['longest_streak_weeks'];
             $out['streak_grace_remaining']  = $streak['streak_grace_remaining'];
+
+            // Ränge & Abzeichen (RankBadges_Concept.md), additiv. Nutzt die
+            // bereits berechneten Stats/Streak/Records (keine Doppel-Queries),
+            // materialisiert neu erreichte Abzeichen-Stufen lazy.
+            $progression = new PlayerProgressionService($this->repo, $this->config);
+            $out += $progression->forMe(
+                $userId,
+                (int)$s['pioneered'],
+                (float)$s['held_length_m'],
+                (int)$streak['longest_streak_weeks'],
+                (int)$recordsHeld,
+            );
         }
 
         return $out;

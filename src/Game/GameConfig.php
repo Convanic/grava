@@ -99,6 +99,22 @@ final class GameConfig
         // auch unter der Schwelle einzeln zugestellt wird.
         'push_game_digest_threshold'   => '3',
         'push_game_digest_window_min'  => '60',
+        // Ränge & Abzeichen (RankBadges_Concept.md §5.2/§6/§13). Als JSON, da
+        // game_config.config_value (VARCHAR 64) zu kurz für den Katalog ist —
+        // hier als Default editierbar; DB-Override erst nach Spalten-Verbreiterung.
+        // AP-Gewichte: NUR monotone Größen (Rang fällt nie, §13.4). Gehaltene
+        // Revierlänge/Records bewusst NICHT in AP (können fallen) — sie sind
+        // Abzeichen-Familien.
+        'progression_ap_weights'       => '{"pioneer":1,"takeover":3,"km":1,"streak_week":10}',
+        // AP-Schwelle je Rang 1..10 (Index 0 = Rang 1).
+        'progression_rank_ap'          => '[0,100,400,1000,2500,5000,10000,20000,40000,80000]',
+        // Abzeichen-Katalog: Familie → core (zählt ins Gate) + 5 Stufenschwellen
+        // [Bronze..Onyx]. revierhalter/kondition in km. (§5.2)
+        'progression_catalog'          => '{"erschliesser":{"core":true,"tiers":[25,250,1500,6000,25000]},"revierhalter":{"core":true,"tiers":[10,100,400,1000,3000]},"kondition":{"core":true,"tiers":[50,500,2500,10000,40000]},"stammfahrer":{"core":true,"tiers":[2,8,26,52,104]},"schnellster":{"core":false,"tiers":[1,5,20,50,150]}}',
+        // Abzeichen-Gate je Rang (§13.2), v1 skaliert auf die 5 verfügbaren
+        // Familien (mit mehr Familien später anheben). gold/onyx = Stufenanzahl
+        // über alle Familien; allCoreGold = alle Kern-Familien ≥ Gold.
+        'progression_rank_gate'        => '{"6":{"gold":1},"7":{"gold":2},"8":{"gold":3},"9":{"gold":4,"onyx":1},"10":{"onyx":2,"allCoreGold":true}}',
     ];
 
     public function __construct(private readonly PDO $pdo) {}

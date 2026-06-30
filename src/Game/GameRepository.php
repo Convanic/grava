@@ -991,6 +991,77 @@ final class GameRepository
     }
 
     // ----------------------------------------------------------------
+    // Ränge & Abzeichen (RankBadges_Concept.md) — Lese-/Schreib-Helfer
+    // ----------------------------------------------------------------
+
+    /**
+     * Kumulierte gefahrene Distanz (Meter) eines Nutzers — Basis für die
+     * Kondition-Familie. Bewusst OHNE Soft-Delete-Filter, damit der Wert
+     * monoton bleibt (gelöschte Routen senken AP/Rang nicht, §13.4).
+     */
+    public function totalDistanceM(int $userId): float
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT COALESCE(SUM(distance_m),0) FROM routes WHERE user_id = ?'
+        );
+        $stmt->execute([$userId]);
+        return (float)$stmt->fetchColumn();
+    }
+
+    /**
+     * Anzahl Kanten-Übernahmen durch diesen Fahrer (monoton): distinct
+     * (edge_id, ridden_on) über edge_taken-Ereignisse, bei denen er Akteur war.
+     * Das Distinct dedupliziert den Empfänger-Fan-out (mehrere Verlierer je
+     * Übernahme erzeugen je eine Zeile — sie zählen als EINE Übernahme).
+     */
+    public function takeoverCount(int $userId): int
+    {
+        $stmt = $this->pdo->prepare(
+            "SELECT COUNT(DISTINCT edge_id, ridden_on) FROM game_event
+              WHERE type = 'edge_taken' AND actor_user_id = ?"
+        );
+        $stmt->execute([$userId]);
+        return (int)$stmt->fetchColumn();
+    }
+
+    /**
+     * Verdiente Abzeichen-Stufen eines Nutzers (Peak-Historie, §13.4).
+     * @return list<array{family:string,tier:int,value_at_earn:float,earned_at:string}>
+     */
+    public function earnedBadges(int $userId): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT family, tier, value_at_earn, earned_at FROM game_player_badge
+              WHERE user_id = ? ORDER BY family, tier'
+        );
+        $stmt->execute([$userId]);
+        $out = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $out[] = [
+                'family'        => (string)$r['family'],
+                'tier'          => (int)$r['tier'],
+                'value_at_earn' => (float)$r['value_at_earn'],
+                'earned_at'     => (string)$r['earned_at'],
+            ];
+        }
+        return $out;
+    }
+
+    /**
+     * Schreibt eine erreichte Abzeichen-Stufe (idempotent über UNIQUE
+     * (user_id, family, tier)). @return bool true, wenn neu eingefügt.
+     */
+    public function insertBadgeTier(int $userId, string $family, int $tier, float $value): bool
+    {
+        $stmt = $this->pdo->prepare(
+            'INSERT IGNORE INTO game_player_badge (user_id, family, tier, value_at_earn)
+             VALUES (?, ?, ?, ?)'
+        );
+        $stmt->execute([$userId, $family, $tier, $value]);
+        return $stmt->rowCount() > 0;
+    }
+
+    // ----------------------------------------------------------------
     // Spieler-Rangliste (S7) — reine Lese-Aggregationen
     // ----------------------------------------------------------------
 
