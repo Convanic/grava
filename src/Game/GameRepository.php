@@ -296,6 +296,41 @@ final class GameRepository
     }
 
     /**
+     * Kanten-Mittelpunkte (bbox-Zentrum) der gültigen Pässe je Nutzer im Fenster
+     * — Rohbasis der datengetriebenen Homebase (Konzept §20.2). Bewusst KEINE
+     * Nutzereingabe; die Homebase entsteht aus „wo fährt der Nutzer tatsächlich".
+     * Der Median dieser Punkte wird im EdgeRecalculator gebildet (robust gegen
+     * einen einzelnen Urlaubs-Cluster).
+     *
+     * @param list<int> $userIds
+     * @return array<int,list<array{lat:float,lon:float}>>
+     */
+    public function homeBaseMidpointsForUsers(array $userIds, string $sinceDate): array
+    {
+        $userIds = array_values(array_unique(array_map('intval', $userIds)));
+        if ($userIds === []) {
+            return [];
+        }
+        $ph = implode(',', array_fill(0, count($userIds), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT p.user_id AS uid,
+                    (e.min_lat + e.max_lat) / 2 AS mlat,
+                    (e.min_lon + e.max_lon) / 2 AS mlon
+               FROM game_edge_pass p
+               JOIN game_edge e ON e.id = p.edge_id
+              WHERE p.user_id IN ($ph)
+                AND p.invalidated_at IS NULL
+                AND p.ridden_on >= ?"
+        );
+        $stmt->execute([...$userIds, $sinceDate]);
+        $out = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $out[(int)$r['uid']][] = ['lat' => (float)$r['mlat'], 'lon' => (float)$r['mlon']];
+        }
+        return $out;
+    }
+
+    /**
      * @return list<array{claimant_id:int,user_id:int,ridden_on:string,ridden_at:string,rush_id:?int}>
      */
     public function passesForEdge(int $edgeId): array

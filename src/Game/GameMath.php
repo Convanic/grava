@@ -85,6 +85,60 @@ final class GameMath
     }
 
     /**
+     * Großkreis-Distanz in km (Haversine). Basis für den Auswärts-Multiplikator
+     * (Konzept §20.1): Distanz von der Homebase zum Kanten-Mittelpunkt.
+     */
+    public static function haversineKm(float $lat1, float $lon1, float $lat2, float $lon2): float
+    {
+        $r = 6371.0088;
+        $dLat = deg2rad($lat2 - $lat1);
+        $dLon = deg2rad($lon2 - $lon1);
+        $a = sin($dLat / 2) ** 2
+            + cos(deg2rad($lat1)) * cos(deg2rad($lat2)) * sin($dLon / 2) ** 2;
+        return 2.0 * $r * asin(min(1.0, sqrt($a)));
+    }
+
+    /**
+     * Distanz-Rampe 0…1 (Konzept §20.1): 0 bis `nearKm`, linear (oder smoothstep
+     * bei `sigmoid`) auf 1 bei `farKm`, darüber geklemmt.
+     */
+    public static function awayRamp(float $d, float $nearKm, float $farKm, string $curve = 'linear'): float
+    {
+        if ($farKm <= $nearKm) {
+            return $d > $nearKm ? 1.0 : 0.0; // degenerierte Config → harte Schwelle
+        }
+        $t = ($d - $nearKm) / ($farKm - $nearKm);
+        $t = max(0.0, min(1.0, $t));
+        if ($curve === 'sigmoid') {
+            return $t * $t * (3.0 - 2.0 * $t); // smoothstep, gleiche Endpunkte
+        }
+        return $t;
+    }
+
+    /**
+     * Auswärts-Multiplikator: 1 + (max-1)·rampe(d). `d === null` (keine
+     * etablierte Homebase) → neutral 1.0 (Konzept §20.2).
+     */
+    public static function awayMultiplier(?float $d, float $max, float $nearKm, float $farKm, string $curve = 'linear'): float
+    {
+        if ($d === null) {
+            return 1.0;
+        }
+        return 1.0 + ($max - 1.0) * self::awayRamp($d, $nearKm, $farKm, $curve);
+    }
+
+    /**
+     * Kombinierter Tagesbonus eines Passes, gedeckelt (Konzept §20.1):
+     * `min(cap, stacks ? basis·away : max(basis, away))`.
+     * basis = bestehender Solo/Gruppe/Rush-Multiplikator (§16.2/§19.1).
+     */
+    public static function cappedMultiplier(float $basis, float $away, float $cap, bool $stacks): float
+    {
+        $combined = $stacks ? $basis * $away : max($basis, $away);
+        return min($cap, $combined);
+    }
+
+    /**
      * Besitzer-Entscheidung mit Hysterese (Spec §5.2).
      * Gibt die claimant_id des neuen Besitzers zurueck.
      *
