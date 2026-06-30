@@ -49,6 +49,24 @@ final class GameConfigAdminJsonTest extends IntegrationTestCase
         $this->assertSame($catalog, $stored);
     }
 
+    public function testTrafficPenaltyParamsAreEditable(): void
+    {
+        // Vor dem Fix wurden Traffic-Keys als „unbekannt" still verworfen.
+        $errors = $this->svc->update($this->adminId, [
+            'traffic_f_min' => '0.5',   // tieferer Abschlag für dicht befahrene Straßen
+            'traffic_t0'    => '8.0',
+        ]);
+        $this->assertSame([], $errors);
+
+        $cfg = new GameConfig($this->pdo);
+        $this->assertSame(0.5, $cfg->float('traffic_f_min'));
+        $this->assertSame(8.0, $cfg->float('traffic_t0'));
+
+        // Negativ → abgelehnt.
+        $bad = $this->svc->update($this->adminId, ['traffic_f_min' => '-1']);
+        $this->assertArrayHasKey('traffic_f_min', $bad);
+    }
+
     public function testInvalidJsonIsRejected(): void
     {
         $errors = $this->svc->update($this->adminId, ['progression_rank_ap' => '[0,100,']);

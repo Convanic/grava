@@ -11,9 +11,16 @@ final class GameConfigAdminService
     /** @var list<string> */
     private const NUMERIC_KEYS = [
         'presence_window_days','hysteresis_factor','pioneer_p0','pioneer_k','pioneer_s',
-        'popularity_c','curation_per_hint','curation_per_like','auth_min_speed_kmh',
+        'popularity_c','curation_per_hint','curation_per_like','curation_match_radius_m',
+        'auth_min_speed_kmh',
         'auth_max_hacc_m','start_buffer_m','auth_max_speed_kmh','mod_max_new_edges_per_min',
         'mod_max_passes_per_day','game_chunk_size_m','game_chunk_overlap_m',
+        // Radar-Verkehr im Kantenwert (RADAR_TRAFFIC_BACKEND.md §B3): Abschlag für
+        // dicht befahrene Straßen. traffic_f_min = max. Abschlag (0.7 = −30 %),
+        // traffic_f_max = max. Bonus, traffic_t0 = Schwell-Dichte (Vorbeifahrten/km),
+        // traffic_k = Steilheit, traffic_n_prior = Daten-Vertrauen (Shrinkage→1.0).
+        'traffic_t0','traffic_k','traffic_f_min','traffic_f_max','traffic_n_prior',
+        'traffic_match_max_dist_m','radar_min_closing_kmh',
         // Rush (GAME_RUSH_BACKEND.md §2.4).
         'rush_multiplier','rush_min_crew_size','rush_window_hours','rush_window_hours_max',
         'rush_cooldown_days','rush_colocation_radius_m',
