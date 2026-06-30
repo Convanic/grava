@@ -1040,6 +1040,24 @@ final class GameRepository
     }
 
     /**
+     * Anzahl jemals abgeschlossener Challenges eines Nutzers (über alle Wochen).
+     * Basis für die Challenger-Abzeichen-Familie. Monoton (Abschlüsse werden nie
+     * gelöscht). Tolerant, falls die Tabelle noch nicht migriert ist.
+     */
+    public function completedChallengeCount(int $userId): int
+    {
+        try {
+            $stmt = $this->pdo->prepare(
+                'SELECT COUNT(*) FROM game_challenge_completion WHERE user_id = ?'
+            );
+            $stmt->execute([$userId]);
+            return (int)$stmt->fetchColumn();
+        } catch (\PDOException) {
+            return 0;
+        }
+    }
+
+    /**
      * Verdiente Abzeichen-Stufen eines Nutzers (Peak-Historie, §13.4).
      * @return list<array{family:string,tier:int,value_at_earn:float,earned_at:string}>
      */

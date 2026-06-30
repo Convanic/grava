@@ -110,7 +110,7 @@ final class GameConfig
         'progression_rank_ap'          => '[0,100,400,1000,2500,5000,10000,20000,40000,80000]',
         // Abzeichen-Katalog: Familie → core (zählt ins Gate) + 5 Stufenschwellen
         // [Bronze..Onyx]. revierhalter/kondition in km. (§5.2)
-        'progression_catalog'          => '{"erschliesser":{"core":true,"tiers":[25,250,1500,6000,25000]},"revierhalter":{"core":true,"tiers":[10,100,400,1000,3000]},"kondition":{"core":true,"tiers":[50,500,2500,10000,40000]},"stammfahrer":{"core":true,"tiers":[2,8,26,52,104]},"schnellster":{"core":false,"tiers":[1,5,20,50,150]},"crew":{"core":false,"tiers":[1,5,20,50,150]}}',
+        'progression_catalog'          => '{"erschliesser":{"core":true,"tiers":[25,250,1500,6000,25000]},"revierhalter":{"core":true,"tiers":[10,100,400,1000,3000]},"kondition":{"core":true,"tiers":[50,500,2500,10000,40000]},"stammfahrer":{"core":true,"tiers":[2,8,26,52,104]},"schnellster":{"core":false,"tiers":[1,5,20,50,150]},"crew":{"core":false,"tiers":[1,5,20,50,150]},"challenger":{"core":false,"tiers":[1,10,40,120,365]}}',
         // Abzeichen-Gate je Rang (§13.2), v1 skaliert auf die 5 verfügbaren
         // Familien (mit mehr Familien später anheben). gold/onyx = Stufenanzahl
         // über alle Familien; allCoreGold = alle Kern-Familien ≥ Gold.
