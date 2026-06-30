@@ -75,6 +75,36 @@ final class PlayerProgressionServiceTest extends IntegrationTestCase
         $this->assertSame(1, $tiers['schnellster']);   // 6 ≥ 5
     }
 
+    public function testCatalogExposesLadderFamiliesAndGate(): void
+    {
+        $c = $this->svc->catalog();
+
+        // 10 Ränge mit aufsteigenden AP-Schwellen.
+        $this->assertCount(10, $c['ranks']);
+        $this->assertSame(['rank' => 1, 'ap' => 0], $c['ranks'][0]);
+        $this->assertSame(10, $c['ranks'][9]['rank']);
+        $this->assertGreaterThan($c['ranks'][8]['ap'], $c['ranks'][9]['ap']);
+
+        // Familien inkl. core-Flag + 5 Stufen.
+        $byFamily = [];
+        foreach ($c['families'] as $f) {
+            $byFamily[$f['family']] = $f;
+        }
+        $this->assertTrue($byFamily['erschliesser']['core']);
+        $this->assertCount(5, $byFamily['erschliesser']['tiers']);
+        $this->assertFalse($byFamily['schnellster']['core']);
+
+        // Gate enthält R10 mit all_core_gold.
+        $r10 = null;
+        foreach ($c['gate'] as $g) {
+            if ($g['rank'] === 10) {
+                $r10 = $g;
+            }
+        }
+        $this->assertNotNull($r10);
+        $this->assertTrue($r10['all_core_gold']);
+    }
+
     public function testEarnedTierSurvivesValueDrop(): void
     {
         // Erst Gold auf Revierhalter erreichen (450 km).

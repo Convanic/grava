@@ -619,6 +619,7 @@ $router->get("{$apiBase}/game/me",                 fn($r) => $apiGame->me($r),  
 $router->get("{$apiBase}/game/me/at-risk",         fn($r) => $apiGame->atRisk($r),   [$requireBearer]);
 $router->get("{$apiBase}/game/challenges",         fn($r) => $apiGame->challenges($r), [$requireBearer]);
 $router->get("{$apiBase}/game/config",             fn($r) => $apiGame->config($r),   [$requireBearer]);
+$router->get("{$apiBase}/game/progression",        fn($r) => $apiGame->progression($r), [$requireBearer]);
 // Solo-/Spieler-Rangliste (S7): world anonym, friends/me brauchen Bearer.
 $router->get("{$apiBase}/game/leaderboard",        fn($r) => $apiPlayerBoard->index($r), [$optionalBearer]);
 // Segment-Speed / Tempo-Wertung: Leaderboard je Kante (OptionalBearer; friends/me
