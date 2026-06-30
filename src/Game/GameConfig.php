@@ -79,6 +79,21 @@ final class GameConfig
         'rush_require_colocation'      => '0',
         'rush_colocation_radius_m'     => '100',
         'rush_hysteresis_factor'       => '',
+        // Auswärts-Multiplikator (GAME_AWAY_MULTIPLIER_BACKEND.md / Konzept §20).
+        // Homebase-Ferne verstärkt die Präsenz. Master-Schalter standardmäßig AUS
+        // → Deploy bleibt bit-identisch (§20.5); im Admin nach iOS-Rollout an.
+        'away_enabled'                 => '0',
+        'away_max'                     => '2.0',
+        'away_near_km'                 => '30',
+        'away_far_km'                  => '150',
+        'away_curve'                   => 'linear',   // linear | sigmoid
+        'away_stacks_with_rush'        => '1',        // 1 = basis·away; 0 = max(basis,away)
+        'tagesbonus_max'               => '4.0',      // Deckel des kombinierten Tagesbonus
+        'home_window_days'             => '180',      // Fenster zur Homebase-Berechnung
+        'home_min_rides'               => '10',       // darunter: keine Homebase → away=1
+        'home_method'                  => 'grid_median',
+        // Future-Hook (NULL = erbt §4.1-Hysterese 1.15; noch nicht verdrahtet).
+        'away_hysteresis_factor'       => '',
         // Live-Aktiv-Zähler (PRESENCE_BACKEND.md).
         'presence_ttl_seconds'         => '180',
         'presence_count_anonymous'     => '1',

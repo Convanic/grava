@@ -21,6 +21,70 @@ final class EdgeRecalculator
         private readonly GameConfig $config,
     ) {}
 
+    /**
+     * Homebase je Nutzer, memoisiert über einen Recompute-Lauf (eine Instanz
+     * wird über alle Kanten wiederverwendet, GameRecomputeService). Key = der
+     * abgeleitete `sinceDate`; ändert sich `now`, wird der Cache verworfen.
+     * Wert: ['lat'=>..,'lon'=>..] oder null (keine etablierte Homebase, §20.2).
+     *
+     * @var array<int,array{lat:float,lon:float}|null>
+     */
+    private array $homeCache = [];
+    private ?string $homeCacheSince = null;
+
+    /** Datengetriebene Homebase eines Nutzers (Median der Pass-Mittelpunkte). */
+    private function homeForUser(int $userId, DateTimeImmutable $now): ?array
+    {
+        $windowDays = $this->config->int('home_window_days');
+        $since = $now->modify("-{$windowDays} days")->format('Y-m-d');
+        if ($this->homeCacheSince !== $since) {
+            $this->homeCache = [];
+            $this->homeCacheSince = $since;
+        }
+        if (array_key_exists($userId, $this->homeCache)) {
+            return $this->homeCache[$userId];
+        }
+        $mids = $this->repo->homeBaseMidpointsForUsers([$userId], $since)[$userId] ?? [];
+        if (count($mids) < $this->config->int('home_min_rides')) {
+            return $this->homeCache[$userId] = null; // kein etabliertes Zuhause → neutral
+        }
+        $lats = array_column($mids, 'lat');
+        $lons = array_column($mids, 'lon');
+        return $this->homeCache[$userId] = [
+            'lat' => self::median($lats),
+            'lon' => self::median($lons),
+        ];
+    }
+
+    /** Auswärts-Multiplikator eines Nutzers für diese Kante (§20.1). */
+    private function awayFactorForUser(int $userId, float $edgeLat, float $edgeLon, DateTimeImmutable $now): float
+    {
+        $home = $this->homeForUser($userId, $now);
+        if ($home === null) {
+            return 1.0;
+        }
+        $d = GameMath::haversineKm($home['lat'], $home['lon'], $edgeLat, $edgeLon);
+        return GameMath::awayMultiplier(
+            $d,
+            $this->config->float('away_max'),
+            $this->config->float('away_near_km'),
+            $this->config->float('away_far_km'),
+            $this->config->string('away_curve'),
+        );
+    }
+
+    /** @param list<float> $xs */
+    private static function median(array $xs): float
+    {
+        sort($xs);
+        $n = count($xs);
+        if ($n === 0) {
+            return 0.0;
+        }
+        $mid = intdiv($n, 2);
+        return $n % 2 ? $xs[$mid] : ($xs[$mid - 1] + $xs[$mid]) / 2.0;
+    }
+
     /** @return array<int,float> Präsenz je effektivem Claimant (read-only, on-demand). */
     public function presenceByClaimant(int $edgeId, ?DateTimeImmutable $now = null): array
     {
@@ -279,6 +343,28 @@ final class EdgeRecalculator
         $minMembers = $this->config->int('group_ride_min_members');
         [$rushApplies, $rushMult, $rushStacks] = $this->resolveRush($edgeId, $passes);
 
+        // Auswärts-Multiplikator (§20). Standardmäßig AUS → der bestehende
+        // Aggregationspfad bleibt unberührt (bit-identisch, §20.5). Nur wenn
+        // aktiv, werden pro Pass die Homebase-Distanz und der gedeckelte
+        // Tagesbonus angewandt — dazu der Kanten-Mittelpunkt (bbox-Zentrum).
+        $awayEnabled = $this->config->bool('away_enabled');
+        $awayStacks  = $this->config->bool('away_stacks_with_rush');
+        $tagesbonusMax = $this->config->float('tagesbonus_max');
+        $edgeLat = 0.0;
+        $edgeLon = 0.0;
+        if ($awayEnabled) {
+            $edge = $this->repo->edgeById($edgeId);
+            if ($edge !== null && $edge['min_lat'] !== null && $edge['min_lon'] !== null) {
+                $edgeLat = ((float)$edge['min_lat'] + (float)$edge['max_lat']) / 2.0;
+                $edgeLon = ((float)$edge['min_lon'] + (float)$edge['max_lon']) / 2.0;
+            } else {
+                $awayEnabled = false; // ohne Geometrie kein Distanz-Bezug → neutral
+            }
+        }
+        $away = [];        // uid => Auswärts-Faktor (nur wenn aktiv)
+        $nrPasses = [];    // [cid][on] => list<{uid,w}>  (Nicht-Rush, nur wenn aktiv)
+        $rushPasses = [];  // [cid][on][rid] => list<{uid,w}> (nur wenn aktiv)
+
         $dayNonRush = [];
         $dayRush    = [];
         $dayMembers = [];
@@ -298,10 +384,21 @@ final class EdgeRecalculator
             $w = GameMath::presenceWeight($this->ageDays($p['ridden_at'], $now), $windowDays);
             $dayMembers[$cid][$on][$uid] = true;
             $rid = $p['rush_id'];
-            if ($rid !== null && ($rushApplies[$rid] ?? false)) {
+            $isRush = $rid !== null && ($rushApplies[$rid] ?? false);
+            if ($isRush) {
                 $dayRush[$cid][$on][$rid] = ($dayRush[$cid][$on][$rid] ?? 0.0) + $w;
             } else {
                 $dayNonRush[$cid][$on] = ($dayNonRush[$cid][$on] ?? 0.0) + $w;
+            }
+            if ($awayEnabled) {
+                if (!isset($away[$uid])) {
+                    $away[$uid] = $this->awayFactorForUser($uid, $edgeLat, $edgeLon, $now);
+                }
+                if ($isRush) {
+                    $rushPasses[$cid][$on][$rid][] = ['uid' => $uid, 'w' => $w];
+                } else {
+                    $nrPasses[$cid][$on][] = ['uid' => $uid, 'w' => $w];
+                }
             }
             if (!isset($lastPassByClaimant[$cid]) || $p['ridden_at'] > $lastPassByClaimant[$cid]) {
                 $lastPassByClaimant[$cid] = $p['ridden_at'];
@@ -327,10 +424,26 @@ final class EdgeRecalculator
             foreach ($days as $on) {
                 $members = count($dayMembers[$cid][$on] ?? []);
                 $g = (($isGroup[$cid] ?? false) && $bonus !== 1.0 && $members >= $minMembers) ? $bonus : 1.0;
-                $sum += $g * ($dayNonRush[$cid][$on] ?? 0.0);
-                foreach (($dayRush[$cid][$on] ?? []) as $rid => $rw) {
-                    $m = $rushMult[$rid] ?? 1.0;
-                    $sum += ($rushStacks ? $m * $g : $m) * $rw;
+                if (!$awayEnabled) {
+                    // Bestehender Pfad — unverändert (bit-identisch, §20.5).
+                    $sum += $g * ($dayNonRush[$cid][$on] ?? 0.0);
+                    foreach (($dayRush[$cid][$on] ?? []) as $rid => $rw) {
+                        $m = $rushMult[$rid] ?? 1.0;
+                        $sum += ($rushStacks ? $m * $g : $m) * $rw;
+                    }
+                } else {
+                    // Auswärts aktiv: pro Pass basis·away, gedeckelt (§20.1).
+                    foreach (($nrPasses[$cid][$on] ?? []) as $pp) {
+                        $mult = GameMath::cappedMultiplier($g, $away[$pp['uid']] ?? 1.0, $tagesbonusMax, $awayStacks);
+                        $sum += $mult * $pp['w'];
+                    }
+                    foreach (($rushPasses[$cid][$on] ?? []) as $rid => $list) {
+                        $basis = $rushStacks ? ($rushMult[$rid] ?? 1.0) * $g : ($rushMult[$rid] ?? 1.0);
+                        foreach ($list as $pp) {
+                            $mult = GameMath::cappedMultiplier($basis, $away[$pp['uid']] ?? 1.0, $tagesbonusMax, $awayStacks);
+                            $sum += $mult * $pp['w'];
+                        }
+                    }
                 }
             }
             $presence[(int)$cid] = $sum;
