@@ -24,7 +24,7 @@ $badge = static function (string $label, string $kind = 'ok'): string {
         <h1 class="hero-title" style="font-size: 42px;">Funktionen &amp; Neuigkeiten</h1>
         <p class="hero-subtitle">
             Was GRAVA heute alles kann — und was als Nächstes kommt.
-            <br><strong>Version 0.1.0</strong> · 2026-06-23
+            <br><strong>Version 0.1.0</strong> · 2026-06-30
         </p>
     </div>
 </section>
@@ -90,7 +90,23 @@ $badge = static function (string $label, string $kind = 'ok'): string {
                 <li>Crews: gründen, beitreten, Mitgliederliste, Crew-Rangliste</li>
                 <li>Fraktionen: Grün vs. Blau, Meta-Karte mit Zellen-Gewinnern</li>
                 <li>Spieler-Rangliste: Welt/Freunde × Woche/Saison/Gesamt</li>
+                <li>Segment-Bestzeiten: schnellste Zeiten je Abschnitt (nach Rad-Typ)</li>
+                <li>Rush: Gruppenfahrten mit gemeinsamer Übernahme</li>
                 <li>Spielregeln &amp; Hilfe direkt in der App</li>
+            </ul>
+        </div>
+
+        <div class="feature-card">
+            <div class="feature-icon">🏅</div>
+            <h3 class="feature-title">Ränge, Level &amp; Abzeichen</h3>
+            <ul class="feature-list">
+                <li>Aufstieg über mehrere Ränge mit eigener In-App-Aufstiegs-Feier</li>
+                <li>Rang-Leiter und Abzeichen-Galerie zum Durchblättern</li>
+                <li>Abzeichen in mehreren Familien und Stufen zum Freischalten</li>
+                <li>Wochen-Serie (Streak): Flammen-Chip für Wochen in Folge mit Fahrt</li>
+                <li>Aufgaben: wechselnde Wochen- und Saison-Ziele mit Belohnung</li>
+                <li>Pionier &amp; Erstbefahrer: Namensrecht für die erste Befahrung</li>
+                <li>Revier-Recap nach der Fahrt mit Punkte-Übersicht</li>
             </ul>
         </div>
 
@@ -138,7 +154,7 @@ $badge = static function (string $label, string $kind = 'ok'): string {
             <ul style="list-style:none; padding:0; display:flex; flex-direction:column; gap:1rem;">
                 <li style="padding: 20px; background: var(--surface); border-radius: var(--radius); border: 1px solid var(--border);">
                     <?= $badge('Verfügbar') ?>
-                    <strong>Onboarding, Heimat-/Privatzone, Spielregeln, Crew- &amp; Spieler-Rangliste, Einstellungen und Live Activity</strong> sind bereits an Bord.
+                    <strong>Ränge &amp; Abzeichen, Wochen-Serie, Aufgaben, Pionier-Namensrecht, Segment-Bestzeiten, Crew- &amp; Spieler-Rangliste, Onboarding, Heimat-/Privatzone, Spielregeln und Live Activity</strong> sind bereits an Bord.
                 </li>
                 <li style="padding: 20px; background: var(--surface); border-radius: var(--radius); border: 1px solid var(--border);">
                     <?= $badge('In Kürze', 'soon') ?>
