@@ -48,6 +48,10 @@ final class DiscoveryPagesController
         private readonly ?RouteInsights $insights = null,
         private readonly ?PrivacyZoneRepository $privacyZones = null,
         private readonly ?RoutePrivacyTrimmer $trimmer = null,
+        // Erkennt Admins (E-Mail in ADMIN_EMAILS). Kommt der Request mit
+        // gültigem Bearer-Token (App) oder Web-Session eines Admins, dürfen
+        // auch nicht-öffentliche Routen samt Geometrie ausgeliefert werden.
+        private readonly ?\App\Game\Admin\AdminGuard $adminGuard = null,
     ) {
         $this->view = new WebView($viewsPath);
     }
@@ -187,6 +191,7 @@ final class DiscoveryPagesController
         $handle   = (string)($req->routeParams['handle'] ?? '');
         $routePid = (string)($req->routeParams['id'] ?? '');
         [$viewerId, $authedUser] = $this->maybeAuthed();
+        [, $isAdmin] = $this->viewerAndAdmin($req);
 
         $profile = $this->profile->getProfile($handle, $viewerId);
         if ($profile === null) {
@@ -198,11 +203,11 @@ final class DiscoveryPagesController
         // Wir reusen searchPublic per Profile-Routes, finden den
         // einen Treffer per public_id-Check. Das ist nicht super
         // effizient (ein Vollscan über ein Limit-50-Window), aber
-        // für die View völlig OK.
+        // für die View völlig OK. Admins sehen auch nicht-öffentliche.
         $listing = $this->profile->getProfileRoutes($handle, $viewerId, [
             'limit'  => 50,
             'offset' => 0,
-        ]);
+        ], $isAdmin);
         $route = null;
         foreach (($listing['routes'] ?? []) as $r) {
             if ((string)$r['id'] === $routePid) {
@@ -265,15 +270,16 @@ final class DiscoveryPagesController
     {
         $handle   = (string)($req->routeParams['handle'] ?? '');
         $routePid = (string)($req->routeParams['id'] ?? '');
-        [$viewerId] = $this->maybeAuthed();
+        [$viewerId, $isAdmin] = $this->viewerAndAdmin($req);
 
         // Sichtbarkeit exakt wie profileRoute(): Profil muss sichtbar
         // sein und die Route im sichtbaren Listing des Viewers liegen.
+        // Admins sehen zusätzlich nicht-öffentliche Routen.
         $profile = $this->profile->getProfile($handle, $viewerId);
         if ($profile === null || $this->routesService === null || $this->geo === null) {
             GeoJsonResponse::error(404);
         }
-        $listing = $this->profile->getProfileRoutes($handle, $viewerId, ['limit' => 50, 'offset' => 0]);
+        $listing = $this->profile->getProfileRoutes($handle, $viewerId, ['limit' => 50, 'offset' => 0], $isAdmin);
         $visible = false;
         foreach (($listing['routes'] ?? []) as $r) {
             if ((string)$r['id'] === $routePid) {
@@ -297,7 +303,8 @@ final class DiscoveryPagesController
         }
         // Privacy: an Fremde wird die Route innerhalb der Eigentümer-Zone
         // getrimmt; der Eigentümer selbst sieht sie ungekürzt (§17 Punkt 2).
-        if ($this->privacyZones !== null && $this->trimmer !== null) {
+        // Admins (Inspektion) sehen die Geometrie ebenfalls ungekürzt.
+        if (!$isAdmin && $this->privacyZones !== null && $this->trimmer !== null) {
             $owner = $this->privacyZones->ownerZoneForRoute($routePid);
             if ($owner !== null && $owner['owner_id'] !== $viewerId) {
                 $fc = $this->trimmer->trim($fc, $owner['zone']);
@@ -404,6 +411,29 @@ final class DiscoveryPagesController
         $user = $this->auth->loadUserPublic($ctx['user_id']);
         $user['internal_id'] = $ctx['user_id'];
         return [$ctx['user_id'], $user];
+    }
+
+    /**
+     * Liefert `[viewerId, isAdmin]` für die anonym-erlaubten Profil-Routen.
+     * Identität kommt entweder per Bearer-Token (App — OptionalBearer-
+     * Middleware setzt `$req->user`) oder Web-Session (Cookie). Admin =
+     * E-Mail in ADMIN_EMAILS; ein Admin darf nicht-öffentliche Routen samt
+     * Geometrie sehen.
+     *
+     * @return array{0: ?int, 1: bool}
+     */
+    private function viewerAndAdmin(Request $req): array
+    {
+        // 1) Bearer (App): von OptionalBearer befülltes User-Objekt.
+        if (isset($req->user)) {
+            $id    = (int)($req->user->internal_id ?? 0);
+            $email = (string)($req->user->email ?? '');
+            return [$id > 0 ? $id : null, $this->adminGuard?->isAdminEmail($email) ?? false];
+        }
+        // 2) Web-Session (Cookie): Admin-Erkennung über die geladene E-Mail.
+        [$sid, $user] = $this->maybeAuthed();
+        $email = (string)($user['email'] ?? '');
+        return [$sid, $this->adminGuard?->isAdminEmail($email) ?? false];
     }
 
     /**

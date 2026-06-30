@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace App\Controllers\Api;
 
 use App\Discovery\ProfileService;
+use App\Game\Admin\AdminGuard;
 use App\Http\Request;
 use App\Http\Response;
 
@@ -16,7 +17,13 @@ use App\Http\Response;
  */
 final class ProfileController
 {
-    public function __construct(private readonly ProfileService $profile) {}
+    public function __construct(
+        private readonly ProfileService $profile,
+        // Optional: erkennt Admins (E-Mail in ADMIN_EMAILS), die auch
+        // nicht-öffentliche Routen eines Profils sehen dürfen. Nullable,
+        // damit bestehende Aufrufer/Tests ohne Guard konstruieren können.
+        private readonly ?AdminGuard $adminGuard = null,
+    ) {}
 
     public function show(Request $req): void
     {
@@ -45,7 +52,7 @@ final class ProfileController
             $filters['q'] = substr(trim($q), 0, 100);
         }
 
-        $res = $this->profile->getProfileRoutes($handle, $viewerId, $filters);
+        $res = $this->profile->getProfileRoutes($handle, $viewerId, $filters, $this->viewerIsAdmin($req));
         if ($res === null) {
             Response::error('not_found', 'Profil existiert nicht.', 404);
         }
@@ -106,6 +113,18 @@ final class ProfileController
     {
         $id = isset($req->user) ? (int)($req->user->internal_id ?? 0) : 0;
         return $id > 0 ? $id : null;
+    }
+
+    /**
+     * True, wenn der eingeloggte Viewer Admin ist (E-Mail in ADMIN_EMAILS).
+     * Anonyme Viewer oder fehlender Guard → false.
+     */
+    private function viewerIsAdmin(Request $req): bool
+    {
+        if ($this->adminGuard === null || !isset($req->user)) {
+            return false;
+        }
+        return $this->adminGuard->isAdminEmail((string)($req->user->email ?? ''));
     }
 
     private function sortParam(string $v): string

@@ -395,12 +395,17 @@ $stravaServ    = new StravaService(
 $gameRideSummary = new \App\Game\GameRideSummaryService($gameRepo, $gameRushRepo, $privacyZoneRepo, $privacyTrimmer);
 $gameAtRisk      = new \App\Game\GameEdgesAtRiskService($gameRepo, $gameConfig, $gameRecalc, $privacyZoneRepo);
 
+// Admin-Gate (E-Mail in ADMIN_EMAILS) — wird sowohl von API- als auch
+// Web-Controllern genutzt, damit Admins zu Inspektionszwecken auch
+// nicht-öffentliche Routen sehen (Test-/Entwicklungsphase).
+$adminGuard = new \App\Game\Admin\AdminGuard((string)$config->get('ADMIN_EMAILS', ''));
+
 $apiAuth    = new AuthController($auth, $rate);
 $apiUsers   = new UserController($auth);
 $apiRoutes  = new RouteController($routeService, $shareTokens, $config, $referrals);
 $apiShared  = new SharedRouteController($shareTokens);
 $apiDiscover = new DiscoverController($discovery);
-$apiProfile  = new ProfileController($profileServ);
+$apiProfile  = new ProfileController($profileServ, $adminGuard);
 $apiSocial   = new SocialController($followServ, $blockServ);
 $apiFeed     = new FeedController($feedServ);
 $apiLike     = new LikeController($likeServ);
@@ -444,7 +449,7 @@ $webRefresh = new WebRefreshController($cookieAuth, $webSession);
 $webRoutes  = new RoutePagesController($webSession, $auth, $routeService, $shareTokens, $config, $routeGeoJson, $basePath . '/views', $routeInsights);
 $webShare   = new PublicSharePageController($shareTokens, $basePath . '/views', $routeService, $routeGeoJson, $routeInsights, $privacyZoneRepo, $privacyTrimmer);
 $webSetting = new SettingsPagesController($webSession, $auth, $basePath . '/views', $avatarServ);
-$webDiscover = new DiscoveryPagesController($webSession, $auth, $discovery, $profileServ, $feedServ, $basePath . '/views', $likeServ, $commentServ, $notifServ, $heatmapServ, $routeService, $routeGeoJson, $routeInsights, $privacyZoneRepo, $privacyTrimmer);
+$webDiscover = new DiscoveryPagesController($webSession, $auth, $discovery, $profileServ, $feedServ, $basePath . '/views', $likeServ, $commentServ, $notifServ, $heatmapServ, $routeService, $routeGeoJson, $routeInsights, $privacyZoneRepo, $privacyTrimmer, $adminGuard);
 $webSocial   = new SocialPagesController($webSession, $auth, $followServ, $blockServ);
 $webEngage   = new EngagementPagesController($webSession, $likeServ, $commentServ, $auth, $rate);
 $webStrava   = new StravaPagesController($webSession, $auth, $stravaServ, $basePath . '/views');
@@ -455,7 +460,7 @@ $webAdminRef = new AdminReferralPagesController($webSession, $auth, $referrals, 
 $webLanding  = new LandingController($basePath . '/views');
 
 // ---- Game-Admin-Dashboard (Stufe 1) — nur unter admin.grava.world erreichbar ----
-$adminGuard      = new \App\Game\Admin\AdminGuard((string)$config->get('ADMIN_EMAILS', ''));
+// $adminGuard ist bereits oben (bei den API-Controllern) erstellt.
 $gameAudit       = new \App\Game\Admin\GameAuditService(Db::pdo());
 $gameAdminSvc    = new \App\Game\Admin\GameAdminService(Db::pdo(), $gameRepo, $gameConfig);
 $gameCfgAdmin    = new \App\Game\Admin\GameConfigAdminService(Db::pdo(), $gameConfig, $gameAudit);
@@ -760,8 +765,8 @@ $router->get ('/discover',                               fn($r) => $webDiscover-
 $router->get ('/discover/users',                         fn($r) => $webDiscover->discoverUsers($r));
 $router->get ('/heatmap',                                fn($r) => $webDiscover->heatmap($r));
 $router->get ('/u/{handle}',                             fn($r) => $webDiscover->profile($r));
-$router->get ('/u/{handle}/r/{id}',                      fn($r) => $webDiscover->profileRoute($r));
-$router->get ('/u/{handle}/r/{id}/geojson',              fn($r) => $webDiscover->profileRouteGeojson($r));
+$router->get ('/u/{handle}/r/{id}',                      fn($r) => $webDiscover->profileRoute($r),        [$optionalBearer]);
+$router->get ('/u/{handle}/r/{id}/geojson',              fn($r) => $webDiscover->profileRouteGeojson($r), [$optionalBearer]);
 $router->get ('/feed',                                   fn($r) => $webDiscover->feed($r));
 $router->get ('/notifications',                          fn($r) => $webDiscover->notifications($r));
 

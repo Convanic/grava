@@ -103,9 +103,13 @@ final class ProfileService
      *     max_distance_m?: int|null,
      *     q?: string|null,
      * } $filters
+     * @param bool $viewerIsAdmin  Wenn true (Viewer-E-Mail in ADMIN_EMAILS),
+     *        werden auch nicht-öffentliche Routen des Profils gelistet —
+     *        für Inspektion in der Test-/Entwicklungsphase. Der Aufrufer
+     *        (Controller) verantwortet die Admin-Feststellung.
      * @return array{routes: list<array<string,mixed>>, pagination: array<string,mixed>}|null
      */
-    public function getProfileRoutes(string $handle, ?int $viewerUserId, array $filters): ?array
+    public function getProfileRoutes(string $handle, ?int $viewerUserId, array $filters, bool $viewerIsAdmin = false): ?array
     {
         $row = $this->resolveHandle($handle);
         if ($row === null) {
@@ -117,6 +121,9 @@ final class ProfileService
         }
 
         $filters['owner_user_id'] = $userId;
+        if ($viewerIsAdmin) {
+            $filters['include_non_public'] = true;
+        }
         $filters['limit']  = max(1, min(50, (int)($filters['limit']  ?? 20)));
         $filters['offset'] = max(0, (int)($filters['offset'] ?? 0));
 

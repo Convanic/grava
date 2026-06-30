@@ -282,7 +282,17 @@ final class RouteRepository
         $limit  = max(1, min(50, (int)($filters['limit']  ?? 20)));
         $offset = max(0, (int)($filters['offset'] ?? 0));
 
-        $where  = ["r.visibility = 'public'", 'r.deleted_at IS NULL', 'u.public_handle IS NOT NULL', "u.status = 'active'"];
+        // Admin-Bypass: ein Admin (siehe ProfileService/Discovery) darf auch
+        // nicht-öffentliche Routen sehen. Aus Sicherheitsgründen NUR in
+        // Verbindung mit einem konkreten `owner_user_id` — so bleibt der
+        // Bypass auf das eine inspizierte Profil beschränkt und wird nie zum
+        // Firehose über alle privaten Routen (Discovery-Feed o. ä.).
+        $includeNonPublic = !empty($filters['include_non_public']) && !empty($filters['owner_user_id']);
+
+        $where  = ['r.deleted_at IS NULL', 'u.public_handle IS NOT NULL', "u.status = 'active'"];
+        if (!$includeNonPublic) {
+            $where[] = "r.visibility = 'public'";
+        }
         $params = [];
 
         if (!empty($filters['bbox'])) {
