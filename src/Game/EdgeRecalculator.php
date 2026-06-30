@@ -110,7 +110,11 @@ final class EdgeRecalculator
             $this->config->float('pioneer_s'),
         );
         $popularity = GameMath::popularity($n90, $this->config->float('popularity_c'));
-        $value = GameMath::combineValue($pioneer, $popularity, 0.0);
+        // Kuratierung (§5.3): positive Hinweise verschiedener Nutzer im Umkreis
+        // der Kante. „Wert durch Menschen" — hebt schöne, wenig befahrene Wege.
+        $curation = $this->repo->curationForEdge($edgeId, $this->config->float('curation_match_radius_m'))
+            * $this->config->float('curation_per_hint');
+        $value = GameMath::combineValue($pioneer, $popularity, $curation);
 
         // Radar-Verkehr (RADAR_TRAFFIC_BACKEND.md §B3): Faktor f_eff aus den
         // map-gematchten Vorbeifahrten. Keine Daten → 1.0 (neutral). Der

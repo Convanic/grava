@@ -28,6 +28,9 @@ final class GameConfig
         'value_combine'        => 'max',
         'curation_per_hint'    => '5',
         'curation_per_like'    => '2',
+        // Umkreis (Meter), in dem ein positiver Hinweis einer Kante zugerechnet
+        // wird (Kuratierung §5.3). Analog traffic_match_max_dist_m.
+        'curation_match_radius_m' => '30',
         'auth_min_speed_kmh'   => '5',
         'auth_max_hacc_m'      => '30',
         'auth_require_motion'  => '1',

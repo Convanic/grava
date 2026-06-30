@@ -1009,6 +1009,34 @@ final class GameRepository
     }
 
     /**
+     * Kuratierungs-Signal einer Kante (§5.3): Anzahl **verschiedener Nutzer**, die
+     * einen **positiven** Hinweis im Umkreis $radiusM um die Kante gesetzt haben.
+     * Bounding-Box über die gecachten Kanten-Grenzen (game_edge.min/max_lat/lon),
+     * um $radiusM (in Grad) erweitert. Distinct user_id = Anti-Gaming (ein Nutzer
+     * pusht den Wert nicht durch viele eigene Hinweise).
+     */
+    public function curationForEdge(int $edgeId, float $radiusM): int
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT COUNT(DISTINCT r.user_id)
+               FROM game_edge e
+               JOIN route_hints h
+                 ON h.sentiment = \'positive\'
+                AND h.lat BETWEEN e.min_lat - (:r1 / 111320)
+                                AND e.max_lat + (:r2 / 111320)
+                AND h.lon BETWEEN e.min_lon - (:r3 / (111320 * COS(RADIANS((e.min_lat + e.max_lat) / 2))))
+                                AND e.max_lon + (:r4 / (111320 * COS(RADIANS((e.min_lat + e.max_lat) / 2))))
+               JOIN routes r ON r.id = h.route_id
+              WHERE e.id = :edge_id'
+        );
+        $stmt->execute([
+            ':r1' => $radiusM, ':r2' => $radiusM, ':r3' => $radiusM, ':r4' => $radiusM,
+            ':edge_id' => $edgeId,
+        ]);
+        return (int)$stmt->fetchColumn();
+    }
+
+    /**
      * Anzahl Kanten-Übernahmen durch diesen Fahrer (monoton): distinct
      * (edge_id, ridden_on) über edge_taken-Ereignisse, bei denen er Akteur war.
      * Das Distinct dedupliziert den Empfänger-Fan-out (mehrere Verlierer je
