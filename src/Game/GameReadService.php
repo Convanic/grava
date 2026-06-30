@@ -261,6 +261,26 @@ final class GameReadService
         return $out;
     }
 
+    /**
+     * Pionier-Showcase (§7): die zuletzt vom Claimant erschlossenen Kanten mit
+     * Geometrie + Erschließungs-Datum, für die Profil-Sektion „Pionier".
+     * @return array{edges:list<array<string,mixed>>}
+     */
+    public function pioneeredShowcase(int $claimantId, int $limit): array
+    {
+        $edges = [];
+        foreach ($this->repo->recentPioneeredEdges($claimantId, $limit) as $e) {
+            $edges[] = [
+                'id'            => $e['id'],
+                'geom'          => json_decode($e['geom'], true),
+                'discovered_at' => $e['discovered_at'] !== null
+                    ? Clock::toIso8601(substr($e['discovered_at'], 0, 19))
+                    : null,
+            ];
+        }
+        return ['edges' => $edges];
+    }
+
     /** @return array<string,mixed> */
     private function formatEdge(array $row, ?int $viewerClaimantId, DateTimeImmutable $now): array
     {
