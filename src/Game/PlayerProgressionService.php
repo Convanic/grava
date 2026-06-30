@@ -140,6 +140,44 @@ final class PlayerProgressionService
         ];
     }
 
+    /**
+     * Statischer Progressions-Katalog für die UI (Rang-Leiter + Abzeichen-
+     * Galerie): alle AP-Schwellen, das Gate je Rang und die Familien mit ihren
+     * Stufenschwellen. Reine Config-Lese-Operation (kein User-Bezug) → eignet
+     * sich für GET /game/progression. Rang-/Familien-/Stufen-Namen liefert die
+     * App lokalisiert (Schwellen = Single Source of Truth hier).
+     *
+     * @return array{ranks:list<array{rank:int,ap:int}>,families:list<array{family:string,core:bool,tiers:list<float>}>,gate:list<array{rank:int,gold:int,onyx:int,all_core_gold:bool}>}
+     */
+    public function catalog(): array
+    {
+        $ranks = [];
+        foreach (array_values($this->json('progression_rank_ap')) as $i => $ap) {
+            $ranks[] = ['rank' => $i + 1, 'ap' => (int)$ap];
+        }
+
+        $families = [];
+        foreach ($this->json('progression_catalog') as $family => $def) {
+            $families[] = [
+                'family' => (string)$family,
+                'core'   => !empty($def['core']),
+                'tiers'  => array_map('floatval', $def['tiers'] ?? []),
+            ];
+        }
+
+        $gate = [];
+        foreach ($this->json('progression_rank_gate') as $rank => $rule) {
+            $gate[] = [
+                'rank'          => (int)$rank,
+                'gold'          => (int)($rule['gold'] ?? 0),
+                'onyx'          => (int)($rule['onyx'] ?? 0),
+                'all_core_gold' => !empty($rule['allCoreGold']),
+            ];
+        }
+
+        return ['ranks' => $ranks, 'families' => $families, 'gate' => $gate];
+    }
+
     /** @return array<mixed> Dekodierter JSON-Config-Wert (leeres Array bei Fehler). */
     private function json(string $key): array
     {

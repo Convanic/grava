@@ -9,6 +9,7 @@ use App\Game\GameIngestionService;
 use App\Game\GameReadService;
 use App\Game\GameRepository;
 use App\Game\GameRideSummaryService;
+use App\Game\PlayerProgressionService;
 use App\Game\Challenges\ChallengeService;
 use App\Game\MatchUnavailableException;
 use App\Game\RideSummaryNotIngestedException;
@@ -171,6 +172,18 @@ final class GameController
     {
         $this->userId($req); // Bearer erzwungen
         Response::json(['config' => $this->config->all()]);
+    }
+
+    /**
+     * GET /game/progression (Bearer) — statischer Progressions-Katalog für die
+     * Rang-Leiter + Abzeichen-Galerie (RankBadges_Concept.md): AP-Schwellen je
+     * Rang, Gate-Regeln und Familien mit Stufenschwellen. Namen liefert die App
+     * lokalisiert; Schwellen sind hier die Single Source of Truth.
+     */
+    public function progression(Request $req): void
+    {
+        $this->userId($req); // Bearer erzwungen
+        Response::json((new PlayerProgressionService($this->repo, $this->config))->catalog());
     }
 
     public function reingest(Request $req): void
