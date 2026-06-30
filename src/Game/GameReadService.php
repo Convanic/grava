@@ -21,6 +21,7 @@ final class GameReadService
         private readonly GameConfig $config,
         private readonly ?EdgeRecordService $records = null,
         private readonly ?PrivacyZoneRepository $zones = null,
+        private readonly ?EdgeRecalculator $recalc = null,
     ) {}
 
     /**
@@ -182,7 +183,7 @@ final class GameReadService
     }
 
     /** @return array<string,mixed>|null */
-    public function edgeDetail(int $edgeId, ?int $viewerClaimantId, ?DateTimeImmutable $now): ?array
+    public function edgeDetail(int $edgeId, ?int $viewerClaimantId, ?DateTimeImmutable $now, ?int $viewerUserId = null): ?array
     {
         $now ??= Clock::nowUtc();
         $row = $this->repo->edgeById($edgeId);
@@ -191,6 +192,17 @@ final class GameReadService
         }
         $base = $this->formatEdge($row, $viewerClaimantId, $now);
         $breakdown = $this->valueBreakdown($row, $now);
+
+        // Auswärts-Multiplikator (§20) des anfragenden Nutzers — reine Anzeige.
+        // Nur wenn aktiv und > 1 (Boost vorhanden); sonst Feld weglassen (iOS
+        // zeigt dann nichts). Homebase/Distanz werden NICHT ausgeliefert (§20.4).
+        $awayMultiplier = null;
+        if ($viewerUserId !== null && $this->recalc !== null) {
+            $a = $this->recalc->awayMultiplierForUser($edgeId, $viewerUserId, $now);
+            if ($a > 1.0) {
+                $awayMultiplier = round($a, 2);
+            }
+        }
 
         $cohort = [];
         $rank = 1;
@@ -214,6 +226,7 @@ final class GameReadService
             'traffic_class'         => $base['traffic_class'],
             'geom'                  => $base['geom'],
             'fastest'               => (object)($this->records !== null ? $this->records->fastestByClass($edgeId) : []),
+            'away_multiplier'       => $awayMultiplier,
         ];
     }
 

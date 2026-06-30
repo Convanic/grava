@@ -143,7 +143,7 @@ final class GameController
     public function edge(Request $req): void
     {
         $id = (int)($req->routeParams['id'] ?? 0);
-        $detail = $this->read->edgeDetail($id, $this->viewerClaimant($req), null);
+        $detail = $this->read->edgeDetail($id, $this->viewerClaimant($req), null, $this->optionalUserId($req));
         if ($detail === null) {
             Response::error('not_found', 'Kante nicht gefunden.', 404);
         }

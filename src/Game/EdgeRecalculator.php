@@ -56,6 +56,27 @@ final class EdgeRecalculator
         ];
     }
 
+    /**
+     * Auswärts-Multiplikator (§20) eines Nutzers auf einer Kante — reines Read
+     * für die Anzeige (Edge-Detail). `away_enabled` aus, ohne Geometrie oder ohne
+     * etablierte Homebase → 1.0. Liefert NUR den fertigen Faktor; Homebase und
+     * Distanz bleiben serverseitig (Privacy, §20.4).
+     */
+    public function awayMultiplierForUser(int $edgeId, int $userId, ?DateTimeImmutable $now = null): float
+    {
+        if (!$this->config->bool('away_enabled')) {
+            return 1.0;
+        }
+        $now ??= new DateTimeImmutable('now', new DateTimeZone('UTC'));
+        $edge = $this->repo->edgeById($edgeId);
+        if ($edge === null || $edge['min_lat'] === null || $edge['min_lon'] === null) {
+            return 1.0;
+        }
+        $edgeLat = ((float)$edge['min_lat'] + (float)$edge['max_lat']) / 2.0;
+        $edgeLon = ((float)$edge['min_lon'] + (float)$edge['max_lon']) / 2.0;
+        return $this->awayFactorForUser($userId, $edgeLat, $edgeLon, $now);
+    }
+
     /** Auswärts-Multiplikator eines Nutzers für diese Kante (§20.1). */
     private function awayFactorForUser(int $userId, float $edgeLat, float $edgeLon, DateTimeImmutable $now): float
     {
