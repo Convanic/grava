@@ -66,8 +66,11 @@ final class GameController
         // Wert wird 1:1 übernommen (nur auf >= 1 normalisiert).
         $defaultLimit = 10000;
         $limit = isset($req->query['limit']) ? max(1, (int)$req->query['limit']) : $defaultLimit;
+        // Persönliche Gefahr-Sicht (opt-in, nur mit Bearer): zusätzliche Felder
+        // personal_vulnerability + challenger_scope pro Kante.
+        $personal = (string)($req->query['personal'] ?? '') === '1';
         try {
-            $edges = $this->read->edgesInBbox($bbox, $viewer, null, $limit, $this->optionalUserId($req));
+            $edges = $this->read->edgesInBbox($bbox, $viewer, null, $limit, $this->optionalUserId($req), $personal);
         } catch (\InvalidArgumentException $e) {
             Response::error('bad_request', $e->getMessage(), 400);
         }
