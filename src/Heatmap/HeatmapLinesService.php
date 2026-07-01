@@ -59,15 +59,26 @@ final class HeatmapLinesService
         $acc = [];
         $matched = 0;
         $skipped = 0;
+        // Diagnose: zählt Skip-Gründe (reason => count), damit ein
+        // `matched:0`-Lauf erklärbar ist (Payload fehlt? Valhalla weg?
+        // map_snap gescheitert?) — ohne Prod-Shell/Log-Zugriff.
+        $diag = [];
 
         foreach ($rowsR as $r) {
             $pid = (string)$r['public_id'];
             $zone = $zonesByUser[(int)$r['user_id']] ?? null;
             try {
                 $loaded = $this->routes->loadPayloadByPublicId($pid);
-                $this->accumulateOne($acc, $loaded['payload'], $matched, $skipped, $zone);
-            } catch (\Throwable) {
+            } catch (\Throwable $e) {
                 $skipped++;
+                self::bump($diag, 'load_failed:' . self::shortError($e));
+                continue;
+            }
+            try {
+                $this->accumulateOne($acc, $loaded['payload'], $matched, $skipped, $zone, $diag);
+            } catch (\Throwable $e) {
+                $skipped++;
+                self::bump($diag, 'accumulate_threw:' . self::shortError($e));
             }
         }
 
@@ -79,7 +90,35 @@ final class HeatmapLinesService
             'matched' => $matched,
             'skipped' => $skipped,
             'edges'   => count($rows),
+            'diag'    => self::formatDiag($diag),
         ];
+    }
+
+    /** Erhöht den Zähler eines Diagnose-Grundes. */
+    private static function bump(array &$diag, string $reason): void
+    {
+        $diag[$reason] = ($diag[$reason] ?? 0) + 1;
+    }
+
+    /** Kompakte, log-sichere Fehler-Signatur: Klasse + gekürzte Nachricht. */
+    private static function shortError(\Throwable $e): string
+    {
+        $msg = trim($e->getMessage());
+        $msg = $msg === '' ? '' : ' ' . substr($msg, 0, 80);
+        return (new \ReflectionClass($e))->getShortName() . $msg;
+    }
+
+    /** Formatiert die Diagnose-Map als `reason=count, …` (oder `-` wenn leer). */
+    private static function formatDiag(array $diag): string
+    {
+        if ($diag === []) {
+            return '-';
+        }
+        $parts = [];
+        foreach ($diag as $reason => $count) {
+            $parts[] = "{$reason}={$count}";
+        }
+        return implode(', ', $parts);
     }
 
     /**
@@ -287,11 +326,12 @@ final class HeatmapLinesService
      *
      * @param array<string,array<string,mixed>> $acc by-ref Akkumulator
      */
-    private function accumulateOne(array &$acc, string $payload, int &$matched, int &$skipped, ?PrivacyZone $zone = null): void
+    private function accumulateOne(array &$acc, string $payload, int &$matched, int &$skipped, ?PrivacyZone $zone = null, array &$diag = []): void
     {
         $points = $this->extractPoints($payload);
         if (count($points) < 2) {
             $skipped++;
+            self::bump($diag, 'few_points');
             return;
         }
 
@@ -301,10 +341,12 @@ final class HeatmapLinesService
         $runs = $this->splitOutsideZone($points, $zone);
         if ($runs === []) {
             $skipped++;
+            self::bump($diag, 'zone_empty');
             return;
         }
 
         $anyMatched = false;
+        $unavailable = false;
         foreach ($runs as $run) {
             $run   = $this->downsample($run);
             try {
@@ -314,6 +356,7 @@ final class HeatmapLinesService
             } catch (ValhallaUnavailableException $e) {
                 // Engine nicht erreichbar → Run überspringen (wie bisher bei null).
                 $match = null;
+                $unavailable = true;
             }
             if ($match === null) {
                 continue;
@@ -321,7 +364,12 @@ final class HeatmapLinesService
             $this->accumulate($acc, $run, $match);
             $anyMatched = true;
         }
-        $anyMatched ? $matched++ : $skipped++;
+        if ($anyMatched) {
+            $matched++;
+        } else {
+            $skipped++;
+            self::bump($diag, $unavailable ? 'valhalla_unavailable' : 'match_failed');
+        }
     }
 
     /**
