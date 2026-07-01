@@ -286,8 +286,11 @@ $routeInsights = new RouteInsights(new GeometryParser(), new SurfaceTrack());
 
 // M6: Heatmap-Streckenlinien via Map-Matching (Valhalla). Der Valhalla-Client
 // wird nur im Precompute (CLI cron:heatmap-lines) benutzt, nie im Request-Pfad.
+// Gleiche ENV-Auflösung wie $gameValhalla (Zeile ~224): VALHALLA_BASE_URL bevorzugt,
+// Fallback VALHALLA_URL, sonst localhost. Sonst liefe der Rebuild bei gesetztem
+// VALHALLA_BASE_URL fälschlich gegen localhost (→ valhalla_unavailable).
 $valhalla = new ValhallaClient(
-    (string)($config->get('VALHALLA_URL', 'http://localhost:8002') ?? 'http://localhost:8002'),
+    (string)($config->get('VALHALLA_BASE_URL', $config->get('VALHALLA_URL', 'http://localhost:8002')) ?? 'http://localhost:8002'),
     (string)($config->get('VALHALLA_COSTING', 'bicycle') ?? 'bicycle'),
 );
 $heatmapLines = new HeatmapLinesService(
