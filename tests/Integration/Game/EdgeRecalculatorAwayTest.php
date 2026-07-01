@@ -6,6 +6,7 @@ namespace Tests\Integration\Game;
 use App\Game\EdgeRecalculator;
 use App\Game\GameConfig;
 use App\Game\GameMath;
+use App\Game\GameReadService;
 use App\Game\GameRepository;
 use DateTimeImmutable;
 use DateTimeZone;
@@ -152,5 +153,33 @@ final class EdgeRecalculatorAwayTest extends IntegrationTestCase
 
         $this->assertEqualsWithDelta(3.0, $on / $base, 0.02,
             'basis·away (1·5=5) wird durch tagesbonus_max=3.0 gedeckelt');
+    }
+
+    public function testEdgeDetailExposesAwayMultiplierForVisitorOnly(): void
+    {
+        $u1 = $this->createUser('visitor2');
+        $c1 = $this->repo->riderClaimantId($u1);
+        for ($d = 10; $d < 30; $d++) {
+            $this->pass($this->homeEdge, $c1, $u1, $d); // Homebase bei (47,8)
+        }
+        for ($d = 0; $d < 5; $d++) {
+            $this->pass($this->farEdge, $c1, $u1, $d);  // auswärts
+        }
+
+        // away aus → Feld weggelassen
+        $this->setConfig('away_enabled', '0');
+        $read = new GameReadService($this->repo, new GameConfig($this->pdo), null, null, $this->recalc());
+        $detailOff = $read->edgeDetail($this->farEdge, $c1, $this->now(), $u1);
+        $this->assertNull($detailOff['away_multiplier'], 'Flag aus → kein away_multiplier');
+
+        // away an → Besucher bekommt ~2.0
+        $this->setConfig('away_enabled', '1');
+        $read = new GameReadService($this->repo, new GameConfig($this->pdo), null, null, $this->recalc());
+        $detailOn = $read->edgeDetail($this->farEdge, $c1, $this->now(), $u1);
+        $this->assertEqualsWithDelta(2.0, (float)$detailOn['away_multiplier'], 0.02);
+
+        // anonym (kein Viewer) → kein Feld, kein Privacy-Leak
+        $detailAnon = $read->edgeDetail($this->farEdge, null, $this->now(), null);
+        $this->assertNull($detailAnon['away_multiplier']);
     }
 }

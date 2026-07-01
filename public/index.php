@@ -233,7 +233,7 @@ $gameEventRepo     = new \App\Game\GameEventRepository(Db::pdo());
 $gameEventRecorder = new \App\Game\GameEventRecorder($gameRepo, $gameEventRepo);
 $gameIngest    = new GameIngestionService($gameMatcher, $gameRepo, $gameRecalc, $gameConfig, Db::pdo(), null, $privacyZoneRepo, $gameEventRecorder);
 $edgeRecords   = new EdgeRecordService($gameRepo, $gameConfig);
-$gameRead      = new GameReadService($gameRepo, $gameConfig, $edgeRecords, $privacyZoneRepo);
+$gameRead      = new GameReadService($gameRepo, $gameConfig, $edgeRecords, $privacyZoneRepo, $gameRecalc);
 $gameRecompute = new GameRecomputeService($gameRepo, $gameRecalc);
 $privacyZoneSvc = new \App\Privacy\PrivacyZoneService($privacyZoneRepo, $gameRepo, $gameRecalc, Db::pdo());
 // Phase B: Spiel-Push-Dispatcher (Cron game:notify-dispatch + /internal).
