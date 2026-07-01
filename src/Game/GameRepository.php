@@ -385,6 +385,37 @@ final class GameRepository
         return $out;
     }
 
+    /**
+     * Gültige Pässe ALLER Nutzer auf einer Kantenmenge — Basis für die
+     * persönliche Gefahr-Sicht (individuelle Rider-Präsenz je Kante, um dich
+     * mit dem stärksten anderen Einzelfahrer zu vergleichen). Tageskappung
+     * steckt bereits im Unique (edge_id,user_id,ridden_on).
+     *
+     * @param list<int> $edgeIds
+     * @return list<array{edge_id:int,user_id:int,ridden_at:string}>
+     */
+    public function allPassesForEdges(array $edgeIds): array
+    {
+        if ($edgeIds === []) {
+            return [];
+        }
+        $in = implode(',', array_fill(0, count($edgeIds), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT edge_id, user_id, ridden_at FROM game_edge_pass
+              WHERE edge_id IN ($in) AND invalidated_at IS NULL"
+        );
+        $stmt->execute(array_values($edgeIds));
+        $out = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $out[] = [
+                'edge_id'   => (int)$r['edge_id'],
+                'user_id'   => (int)$r['user_id'],
+                'ridden_at' => (string)$r['ridden_at'],
+            ];
+        }
+        return $out;
+    }
+
     // ----------------------------------------------------------------
     // Rush / Group-Ride-Übernahme (GAME_RUSH_BACKEND.md) — Ingest + Recompute
     // ----------------------------------------------------------------

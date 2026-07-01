@@ -36,6 +36,7 @@ final class GameReadService
         ?DateTimeImmutable $now,
         int $limit = 500,
         ?int $viewerUserId = null,
+        bool $personal = false,
     ): array {
         $now ??= Clock::nowUtc();
         [$minLon, $minLat, $maxLon, $maxLat] = $this->parseBbox($bbox);
@@ -62,6 +63,45 @@ final class GameReadService
         $hysteresis = $this->config->floatOrNull('rush_hysteresis_factor')
             ?? $this->config->float('hysteresis_factor');
 
+        // Persönliche Gefahr-Sicht (opt-in, nur mit Bearer): pro Kante deine
+        // individuelle Rider-Präsenz gegen den stärksten ANDEREN Einzelfahrer —
+        // egal ob Crew-Kollege oder fremd. `personal_vulnerability` (Nähe des
+        // Verfolgers, 0…1) nur, wenn du der stärkste Einzelfahrer bist;
+        // `challenger_scope` = 'crew' (Kollege) | 'foreign' (fremd).
+        $personalVuln = [];
+        $personalScope = [];
+        if ($personal && $viewerUserId !== null) {
+            $edgeIds = array_map(static fn($r) => (int)$r['id'], $rows);
+            $myMembers = $mineClaimantId !== null
+                ? array_flip($this->repo->usersForClaimant($mineClaimantId))
+                : [$viewerUserId => 0];
+            $byEdgeUser = [];
+            foreach ($this->repo->allPassesForEdges($edgeIds) as $p) {
+                $w = GameMath::presenceWeight($this->ageDays($p['ridden_at'], $now), $windowDays);
+                $byEdgeUser[$p['edge_id']][$p['user_id']] = ($byEdgeUser[$p['edge_id']][$p['user_id']] ?? 0.0) + $w;
+            }
+            foreach ($byEdgeUser as $eid => $perUser) {
+                $me = $perUser[$viewerUserId] ?? 0.0;
+                $topOther = 0.0;
+                $topOtherUser = null;
+                foreach ($perUser as $uid => $pres) {
+                    if ((int)$uid === $viewerUserId) {
+                        continue;
+                    }
+                    if ($pres > $topOther) {
+                        $topOther = $pres;
+                        $topOtherUser = (int)$uid;
+                    }
+                }
+                // Nur „persönlich deine" umkämpfte Kante: du bist der stärkste
+                // Einzelfahrer UND es gibt einen echten Verfolger.
+                if ($me > 0.0 && $me >= $topOther && $topOther > 0.0) {
+                    $personalVuln[$eid] = round(min(1.0, $topOther / ($me * $hysteresis)), 3);
+                    $personalScope[$eid] = isset($myMembers[$topOtherUser]) ? 'crew' : 'foreign';
+                }
+            }
+        }
+
         $out = [];
         foreach ($rows as $row) {
             $edge = $this->formatEdge($row, $mineClaimantId, $now);
@@ -73,6 +113,10 @@ final class GameReadService
                     $hysteresis,
                     $zone,
                 );
+            }
+            if ($personal && $viewerUserId !== null) {
+                $edge['personal_vulnerability'] = $personalVuln[(int)$row['id']] ?? null;
+                $edge['challenger_scope'] = $personalScope[(int)$row['id']] ?? null;
             }
             $out[] = $edge;
         }
