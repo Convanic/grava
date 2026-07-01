@@ -308,11 +308,23 @@ final class GameReadService
         $observations  = (int)($row['traffic_observations'] ?? 0);
         $trafficFactor = isset($row['traffic_factor_cached']) ? (float)$row['traffic_factor_cached'] : 1.0;
 
+        // Gefahr (vulnerability) NUR für eigene Kanten ausliefern (Verteidigungs-
+        // Sicht; fremde Gefahrwerte bleiben verborgen, sonst Angriffs-Radar).
+        // 0 = sicher … 1 = Verfolger an der Übernahme-Schwelle. `at_risk` = über
+        // risk_threshold. Für fremde/anonyme Sicht null → iOS zeigt nichts.
+        $ownerIsMe = $ownerId !== null && $ownerId === $viewerClaimantId;
+        $vulnerability = ($ownerIsMe && isset($row['vulnerability_cached']))
+            ? round((float)$row['vulnerability_cached'], 3)
+            : null;
+        $atRisk = $vulnerability !== null
+            ? ($vulnerability >= $this->config->float('risk_threshold'))
+            : null;
+
         return [
             'id'                    => (int)$row['id'],
             'geom'                  => json_decode((string)$row['geom_geojson'], true),
             'owner'                 => $owner,
-            'owner_is_me'           => $ownerId !== null && $ownerId === $viewerClaimantId,
+            'owner_is_me'           => $ownerIsMe,
             'value'                 => (float)$row['value_cached'],
             'freshness'             => $this->freshnessNow($row, $now),
             'distinct_riders_total' => (int)$row['distinct_riders_total'],
@@ -321,6 +333,8 @@ final class GameReadService
             // → factor 1.0 / class "unknown" (bricht den iOS-Decoder nicht).
             'traffic_factor'        => round($trafficFactor, 3),
             'traffic_class'         => self::trafficClass($observations, $trafficFactor),
+            'vulnerability'         => $vulnerability,
+            'at_risk'               => $atRisk,
         ];
     }
 
