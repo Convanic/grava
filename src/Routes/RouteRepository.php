@@ -642,6 +642,36 @@ final class RouteRepository
     }
 
     /**
+     * Setzt die Sensor-Ride-Aggregate (Leistung/Trittfrequenz/Balance/Puls)
+     * einer Route. Fehlende Werte werden `NULL` gesetzt (kein Sensor / Fremd-GPX).
+     */
+    public function updateSensorMetrics(int $routeId, SensorMetrics $metrics): void
+    {
+        $stmt = Db::pdo()->prepare(
+            'UPDATE routes SET
+                 avg_power_w           = ?,
+                 max_power_w           = ?,
+                 avg_cadence_rpm       = ?,
+                 avg_pedal_balance_pct = ?,
+                 avg_heart_rate_bpm    = ?,
+                 max_heart_rate_bpm    = ?
+             WHERE id = ?'
+        );
+        $bindNullableInt = static function (int $pos, ?int $v) use ($stmt): void {
+            $stmt->bindValue($pos, $v, $v === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
+        };
+        $bindNullableInt(1, $metrics->avgPowerW);
+        $bindNullableInt(2, $metrics->maxPowerW);
+        $bindNullableInt(3, $metrics->avgCadenceRpm);
+        $stmt->bindValue(4, $metrics->avgPedalBalancePct,
+            $metrics->avgPedalBalancePct === null ? PDO::PARAM_NULL : PDO::PARAM_STR);
+        $bindNullableInt(5, $metrics->avgHeartRateBpm);
+        $bindNullableInt(6, $metrics->maxHeartRateBpm);
+        $stmt->bindValue(7, $routeId, PDO::PARAM_INT);
+        $stmt->execute();
+    }
+
+    /**
      * @return list<string>
      */
     public function listTags(int $routeId): array
@@ -670,6 +700,12 @@ final class RouteRepository
                     r.distance_m,
                     r.elevation_gain_m,
                     r.traffic_passes_per_km,
+                    r.avg_power_w,
+                    r.max_power_w,
+                    r.avg_cadence_rpm,
+                    r.avg_pedal_balance_pct,
+                    r.avg_heart_rate_bpm,
+                    r.max_heart_rate_bpm,
                     r.point_count,
                     r.bbox_min_lat,
                     r.bbox_min_lon,
@@ -720,6 +756,13 @@ final class RouteRepository
                 'elevation_gain_m'  => $row['elevation_gain_m'] === null ? null : (int)$row['elevation_gain_m'],
                 'traffic_passes_per_km' => !array_key_exists('traffic_passes_per_km', $row) || $row['traffic_passes_per_km'] === null
                     ? null : round((float)$row['traffic_passes_per_km'], 2),
+                'avg_power_w'       => self::nullableInt($row, 'avg_power_w'),
+                'max_power_w'       => self::nullableInt($row, 'max_power_w'),
+                'avg_cadence_rpm'   => self::nullableInt($row, 'avg_cadence_rpm'),
+                'avg_pedal_balance_pct' => !array_key_exists('avg_pedal_balance_pct', $row) || $row['avg_pedal_balance_pct'] === null
+                    ? null : round((float)$row['avg_pedal_balance_pct'], 1),
+                'avg_heart_rate_bpm' => self::nullableInt($row, 'avg_heart_rate_bpm'),
+                'max_heart_rate_bpm' => self::nullableInt($row, 'max_heart_rate_bpm'),
                 'point_count'       => $row['point_count']      === null ? null : (int)$row['point_count'],
                 'started_at'        => $row['head_started_at']  === null ? null : self::isoUtc((string)$row['head_started_at']),
                 'ended_at'          => $row['head_ended_at']    === null ? null : self::isoUtc((string)$row['head_ended_at']),
@@ -798,6 +841,18 @@ final class RouteRepository
     private static function isoUtc(string $datetime): string
     {
         return str_replace(' ', 'T', $datetime) . 'Z';
+    }
+
+    /**
+     * Nullable-Int aus einer DB-Zeile, defensiv gegen SELECTs, die die Spalte
+     * (noch) nicht mitliefern — wie die `array_key_exists`-Guard bei
+     * `traffic_passes_per_km`.
+     *
+     * @param array<string,mixed> $row
+     */
+    private static function nullableInt(array $row, string $key): ?int
+    {
+        return !array_key_exists($key, $row) || $row[$key] === null ? null : (int)$row[$key];
     }
 
     private static function assertEnum(string $value, array $allowed, string $name): void

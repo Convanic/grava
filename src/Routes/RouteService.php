@@ -155,6 +155,8 @@ final class RouteService
                 $this->hints?->syncFromPayload($routeId, $payload);
                 // Ride-Aggregat für die Routen-Anzeige (ohne Map-Matching).
                 $this->routes->updateTrafficPassesPerKm($routeId, $radar->passesPerKm);
+                // Sensor-Ride-Aggregate (Leistung/Trittfrequenz/Balance/Puls).
+                $this->routes->updateSensorMetrics($routeId, SensorMetricsParser::parse($payload));
             }
 
             if (!$isNew) {

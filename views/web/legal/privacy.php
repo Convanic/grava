@@ -24,6 +24,8 @@
             <li><strong>Kontodaten:</strong> E-Mail-Adresse, Name, Handle (Benutzername).</li>
             <li><strong>Standort- und Routendaten:</strong> hochgeladene bzw. aufgezeichnete Strecken und Wegpunkte.</li>
             <li><strong>Fahrt-Metriken:</strong> Distanz, Dauer, Belag- und Aktivitätskennzahlen.</li>
+            <li><strong>Fitnessdaten (optional):</strong> Leistung, Trittfrequenz und Pedal-Balance aus einem von dir gekoppelten Bluetooth-Powermeter – nur, wenn ein Sensor verbunden ist und die Fahrt hochgeladen wird.</li>
+            <li><strong>Gesundheitsdaten (optional):</strong> Herzfrequenz aus einem von dir gekoppelten Bluetooth-Sensor – nur, wenn ein Sensor verbunden ist und die Fahrt hochgeladen wird. Reine Aufzeichnung; beim Teilen auf Strava wird sie mit der Aktivität übertragen.</li>
             <li><strong>Profilfotos / Avatare:</strong> von dir hochgeladene Bilder.</li>
             <li><strong>Community-Inhalte:</strong> Kommentare, Hinweise, Likes, Follows.</li>
         </ul>

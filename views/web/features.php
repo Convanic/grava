@@ -41,6 +41,9 @@ $badge = static function (string $label, string $kind = 'ok'): string {
                 <li>Halterungsprofile mit eigener Kalibrierung</li>
                 <li>Höhenprofil über Barometer und GPS</li>
                 <li>Verkehrszählung per Radar (Garmin Varia, Bluetooth)</li>
+                <li>Herzfrequenz per Bluetooth-Sensor – live sowie Puls-Chart und Ø/Max im Fahrt-Detail</li>
+                <li>Leistung, Trittfrequenz &amp; Pedal-Balance per Bluetooth-Powermeter (Shimano, SRAM, Quarq, Stages &hellip;)</li>
+                <li>Sensor-Gerät auswählen &amp; merken – verbindet gezielt dein Gerät, auch mit mehreren Rädern oder in der Gruppenausfahrt</li>
                 <li>Hinweise unterwegs setzen</li>
                 <li>Live Activity auf Sperrbildschirm</li>
             </ul>
