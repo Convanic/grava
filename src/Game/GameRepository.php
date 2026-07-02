@@ -1085,6 +1085,123 @@ final class GameRepository
     }
 
     // ----------------------------------------------------------------
+    // Revier-Verlauf (GameHistory_Backend_Spec.md) — tägliche Snapshots
+    // ----------------------------------------------------------------
+
+    /**
+     * Aktueller Besitz je Claimant in zwei GROUP-BY-Abfragen (statt meStats() pro
+     * Claimant) — Grundlage des täglichen Snapshots über alle aktiven Claimants.
+     * @return array<int,array{held:int,pioneered:int,held_length_m:float}>
+     */
+    public function allClaimantHoldings(): array
+    {
+        $out = [];
+        $held = $this->pdo->query(
+            'SELECT owner_claimant_id AS cid, COUNT(*) AS held, COALESCE(SUM(length_m),0) AS len
+               FROM game_edge WHERE owner_claimant_id IS NOT NULL GROUP BY owner_claimant_id'
+        );
+        foreach ($held->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $out[(int)$r['cid']] = [
+                'held'          => (int)$r['held'],
+                'pioneered'     => 0,
+                'held_length_m' => (float)$r['len'],
+            ];
+        }
+        $pio = $this->pdo->query(
+            'SELECT discoverer_claimant_id AS cid, COUNT(*) AS pio
+               FROM game_edge WHERE discoverer_claimant_id IS NOT NULL GROUP BY discoverer_claimant_id'
+        );
+        foreach ($pio->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $cid = (int)$r['cid'];
+            $out[$cid] ??= ['held' => 0, 'pioneered' => 0, 'held_length_m' => 0.0];
+            $out[$cid]['pioneered'] = (int)$r['pio'];
+        }
+        return $out;
+    }
+
+    /**
+     * Schreibt/aktualisiert den Tages-Snapshot eines Claimants (idempotent über
+     * den UNIQUE-Key claimant_id+snapshot_date). `$date` = „YYYY-MM-DD" (UTC).
+     */
+    public function upsertDailySnapshot(
+        int $claimantId, string $date, int $held, int $pioneered, float $heldLengthM
+    ): void {
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO game_user_stats_daily
+                (claimant_id, snapshot_date, held_edges, pioneered_edges, held_length_m)
+             VALUES (?, ?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE
+                held_edges = VALUES(held_edges),
+                pioneered_edges = VALUES(pioneered_edges),
+                held_length_m = VALUES(held_length_m)'
+        );
+        $stmt->execute([$claimantId, $date, $held, $pioneered, $heldLengthM]);
+    }
+
+    /** Hat der Claimant bereits Snapshot-Zeilen? Steuert das einmalige Backfill. */
+    public function hasDailySnapshots(int $claimantId): bool
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT 1 FROM game_user_stats_daily WHERE claimant_id = ? LIMIT 1'
+        );
+        $stmt->execute([$claimantId]);
+        return (bool)$stmt->fetchColumn();
+    }
+
+    /**
+     * Snapshot-Punkte eines Claimants ab `$sinceDate` (inkl.), chronologisch.
+     * @return list<array{snapshot_date:string,held_edges:int,pioneered_edges:int,held_length_m:float}>
+     */
+    public function dailySnapshots(int $claimantId, string $sinceDate): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT snapshot_date, held_edges, pioneered_edges, held_length_m
+               FROM game_user_stats_daily
+              WHERE claimant_id = ? AND snapshot_date >= ?
+              ORDER BY snapshot_date'
+        );
+        $stmt->execute([$claimantId, $sinceDate]);
+        return array_map(static fn(array $r): array => [
+            'snapshot_date'   => (string)$r['snapshot_date'],
+            'held_edges'      => (int)$r['held_edges'],
+            'pioneered_edges' => (int)$r['pioneered_edges'],
+            'held_length_m'   => (float)$r['held_length_m'],
+        ], $stmt->fetchAll(PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * Erwerbs-/Erschließungs-Daten der aktuell gehaltenen bzw. erschlossenen Kanten
+     * eines Claimants — Grundlage für das einmalige Backfill des Verlaufs. Held ist
+     * dabei die Wachstumskurve des HEUTE gehaltenen Reviers (seither verlorene Kanten
+     * fehlen — dokumentierte Näherung); Pionier ist exakt (Erstbefahrer bleibt es).
+     * @return array{held:list<array{d:string,len:float}>,pioneered:list<string>}
+     */
+    public function edgeAcquisitionDates(int $claimantId): array
+    {
+        $held = $this->pdo->prepare(
+            'SELECT DATE(owner_since) AS d, length_m AS len
+               FROM game_edge
+              WHERE owner_claimant_id = ? AND owner_since IS NOT NULL
+              ORDER BY owner_since'
+        );
+        $held->execute([$claimantId]);
+        $heldRows = array_map(static fn(array $r): array => [
+            'd' => (string)$r['d'], 'len' => (float)$r['len'],
+        ], $held->fetchAll(PDO::FETCH_ASSOC));
+
+        $pio = $this->pdo->prepare(
+            'SELECT DATE(discovered_at) AS d
+               FROM game_edge
+              WHERE discoverer_claimant_id = ? AND discovered_at IS NOT NULL
+              ORDER BY discovered_at'
+        );
+        $pio->execute([$claimantId]);
+        $pioRows = array_map('strval', $pio->fetchAll(PDO::FETCH_COLUMN));
+
+        return ['held' => $heldRows, 'pioneered' => $pioRows];
+    }
+
+    // ----------------------------------------------------------------
     // Ränge & Abzeichen (RankBadges_Concept.md) — Lese-/Schreib-Helfer
     // ----------------------------------------------------------------
 

@@ -18,6 +18,7 @@ grün inkl. der neuen `SegmentSpeedTest` (9 Tests). Routen-Belege aus
 | Crew-Rangliste | ✅ | n/a (Lese-Aggregation) | ✅ | **gebaut** |
 | Block/Unblock | ✅ | ✅ | ✅ | **gebaut** |
 | Segment-Speed (Tempo-Wertung) | ✅ | ✅ (0026) | ✅ | **gebaut** |
+| Revier-Verlauf (Kanten-Historie) | ✅ | ✅ (0042) | ✅ | **gebaut** |
 | Spiel-Stufe 1 (Solo-Claim) | ✅ | ✅ | ✅ | **gebaut (live)** |
 | Spiel-Stufe 2 (Crews) | ✅ | ✅ | ✅ | **gebaut (live)** |
 | Spiel-Stufe 3 (Fraktionen) | ✅ | ✅ | ✅ | **gebaut (live)** |

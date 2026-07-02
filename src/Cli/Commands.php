@@ -26,6 +26,7 @@ final class Commands
         private readonly ?\App\Game\Crew\CrewService $crewService = null,
         private readonly ?\App\Game\EdgeRecordBackfillService $edgeBackfill = null,
         private readonly ?\App\Game\GameNotificationDispatcher $gameDispatcher = null,
+        private readonly ?\App\Game\GameHistoryService $gameHistory = null,
     ) {}
 
     public function run(array $argv): int
@@ -72,6 +73,10 @@ final class Commands
 
             case 'game:notify-dispatch':
                 return $this->notifyDispatch();
+
+            case 'cron:game-snapshot':
+            case 'game:snapshot-daily':
+                return $this->gameSnapshotDaily();
 
             case 'game:test-push':
                 return $this->gameTestPush($argv);
@@ -571,6 +576,26 @@ final class Commands
     }
 
     /** @param list<string> $argv */
+    /**
+     * Täglicher Revier-Verlauf-Snapshot (GameHistory_Backend_Spec.md): schreibt je
+     * aktivem Claimant den heutigen Stand (idempotent) und backfillt beim ersten Lauf
+     * die Vergangenheit aus game_edge.owner_since/discovered_at. Für Cron gedacht
+     * (z. B. täglich ~00:05 UTC).
+     */
+    private function gameSnapshotDaily(): int
+    {
+        if ($this->gameHistory === null) {
+            fwrite(STDERR, "game:snapshot-daily nicht verfügbar (Service nicht verdrahtet).\n");
+            return 1;
+        }
+        $res = $this->gameHistory->snapshotAll();
+        echo sprintf(
+            "Revier-Verlauf: %d Claimant(s) für %s, %d neu backfillt.\n",
+            $res['claimants'], $res['date'], $res['backfilled'],
+        );
+        return 0;
+    }
+
     private function backfillSpeed(array $argv): int
     {
         if ($this->edgeBackfill === null) {

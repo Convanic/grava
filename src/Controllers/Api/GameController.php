@@ -5,6 +5,7 @@ namespace App\Controllers\Api;
 
 use App\Game\GameConfig;
 use App\Game\GameEdgesAtRiskService;
+use App\Game\GameHistoryService;
 use App\Game\GameIngestionService;
 use App\Game\GameReadService;
 use App\Game\GameRepository;
@@ -37,6 +38,7 @@ final class GameController
         private readonly GameRideSummaryService $rideSummary,
         private readonly GameEdgesAtRiskService $atRisk,
         private readonly ?ChallengeService $challenges = null,
+        private readonly ?GameHistoryService $history = null,
     ) {}
 
     /**
@@ -169,6 +171,26 @@ final class GameController
     {
         $uid = $this->userId($req);
         Response::json($this->atRisk->atRisk($uid));
+    }
+
+    /**
+     * GET /game/me/history (Bearer) — zeitlicher Verlauf der eigenen Revier-
+     * Kennzahlen (gehaltene/Pionier-Kanten, Revierlänge) je Tag für den iOS-Chart.
+     * `days` (Default 365, max 730) = Fenster rückwärts ab heute. Effektiver Claimant
+     * wie /game/me (Crew, wenn Mitglied). Leere Antwort, bis Snapshots vorliegen.
+     */
+    public function history(Request $req): void
+    {
+        $uid = $this->userId($req);
+        if ($this->history === null) {
+            Response::json(['points' => []]);
+        }
+        $claimant = $this->repo->effectiveClaimantId($uid);
+        // Self-Heal: heutigen Snapshot sicherstellen (Hoster ohne Cron) — der
+        // Verlauf wächst so allein durchs Öffnen der Ansicht.
+        $this->history->ensureTodaySnapshot($claimant);
+        $days = max(1, min(730, (int)($req->query['days'] ?? 365)));
+        Response::json($this->history->history($claimant, $days));
     }
 
     /**

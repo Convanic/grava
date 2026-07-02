@@ -17,6 +17,7 @@ API-Spec und Akzeptanzkriterien.
 
 | Thema | Endpunkt(e) | Beleg |
 |---|---|---|
+| Revier-Verlauf (Kanten-Historie) | `GET /game/me/history` | [`GAME_HISTORY_BACKEND.md`](GAME_HISTORY_BACKEND.md), `GameHistoryTest`, Migration `0042`, Cron `game:snapshot-daily` |
 | Segment-Speed (Tempo-Wertung) | `GET /game/segments/{id}/leaderboard`, `GET /game/me/segments` | [`GAME_SEGMENT_SPEED_BACKEND.md`](GAME_SEGMENT_SPEED_BACKEND.md), `SegmentSpeedTest`, Migration `0026` |
 | Follower-/Following-Listen | `GET /users/by-handle/{handle}/followers`, `…/following` | [`FOLLOW_LISTS_BACKEND.md`](FOLLOW_LISTS_BACKEND.md), `ProfileFollowListTest` |
 | Solo-/Spieler-Rangliste | `GET /game/leaderboard` | [`PLAYER_LEADERBOARD_BACKEND.md`](PLAYER_LEADERBOARD_BACKEND.md), `PlayerLeaderboardTest` |

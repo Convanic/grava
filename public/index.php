@@ -323,7 +323,7 @@ $routeSurface = new RouteSurfaceService(
 // CLI dispatch
 // ---------------------------------------------------------------------------
 if (PHP_SAPI === 'cli') {
-    $cli = new Commands($basePath, $tokens, $routeService, $config, $notifServ, new HeatmapService(), $heatmapLines, $gameRecompute, $gameRushSvc, $gameCrewSvc, $edgeBackfill, $gameDispatcher);
+    $cli = new Commands($basePath, $tokens, $routeService, $config, $notifServ, new HeatmapService(), $heatmapLines, $gameRecompute, $gameRushSvc, $gameCrewSvc, $edgeBackfill, $gameDispatcher, new \App\Game\GameHistoryService($gameRepo));
     exit($cli->run($_SERVER['argv'] ?? []));
 }
 
@@ -423,7 +423,8 @@ $apiMeHeatmap = new \App\Controllers\Api\MeHeatmapController($personalHeatmap);
 $apiHeatmapLines = new HeatmapLinesController($heatmapLines);
 $apiReferral = new ReferralController($referrals);
 $gameChallenges = new \App\Game\Challenges\ChallengeService(Db::pdo());
-$apiGame = new GameController($gameRead, $gameRepo, $gameIngest, $gameConfig, $routeService, new GeometryParser(), $gameRideSummary, $gameAtRisk, $gameChallenges);
+$gameHistory = new \App\Game\GameHistoryService($gameRepo);
+$apiGame = new GameController($gameRead, $gameRepo, $gameIngest, $gameConfig, $routeService, new GeometryParser(), $gameRideSummary, $gameAtRisk, $gameChallenges, $gameHistory);
 $apiEdgeRecords = new EdgeRecordController($edgeRecords);
 $apiPlayerBoard = new PlayerLeaderboardController(new PlayerLeaderboardService($gameRepo, $gameConfig));
 $apiSegment = new SegmentSpeedController(new SegmentSpeedService($gameRepo, $gameConfig));
@@ -625,6 +626,7 @@ $router->get("{$apiBase}/game/edges/{id}",         fn($r) => $apiGame->edge($r),
 $router->get("{$apiBase}/game/edges/{id}/records", fn($r) => $apiEdgeRecords->records($r), [$optionalBearer]);
 $router->get("{$apiBase}/game/me",                 fn($r) => $apiGame->me($r),       [$requireBearer]);
 $router->get("{$apiBase}/game/me/at-risk",         fn($r) => $apiGame->atRisk($r),   [$requireBearer]);
+$router->get("{$apiBase}/game/me/history",         fn($r) => $apiGame->history($r),  [$requireBearer]);
 $router->get("{$apiBase}/game/me/pioneered",       fn($r) => $apiGame->pioneered($r), [$requireBearer]);
 $router->get("{$apiBase}/game/challenges",         fn($r) => $apiGame->challenges($r), [$requireBearer]);
 $router->get("{$apiBase}/game/config",             fn($r) => $apiGame->config($r),   [$requireBearer]);
@@ -796,7 +798,7 @@ $router->post('/u/{handle}/r/{id}/comments/{cid}/delete', fn($r) => $webEngage->
 // und verhalten sich wie eine unbekannte Route (404).
 $internalToken = (string)($config->get('INTERNAL_TOKEN', '') ?? '');
 $runInternal = function (Request $r, string $command)
-    use ($internalToken, $basePath, $tokens, $routeService, $config, $notifServ, $heatmapLines, $gameRecompute, $gameRushSvc, $gameCrewSvc, $edgeBackfill, $gameDispatcher) {
+    use ($internalToken, $basePath, $tokens, $routeService, $config, $notifServ, $heatmapLines, $gameRecompute, $gameRushSvc, $gameCrewSvc, $edgeBackfill, $gameDispatcher, $gameHistory) {
     if ($internalToken === '') {
         Response::error('not_found', 'Nicht gefunden.', 404);
     }
@@ -804,7 +806,7 @@ $runInternal = function (Request $r, string $command)
     if ($provided === '' || !hash_equals($internalToken, $provided)) {
         Response::error('not_found', 'Nicht gefunden.', 404);
     }
-    $cli = new Commands($basePath, $tokens, $routeService, $config, $notifServ, new HeatmapService(), $heatmapLines, $gameRecompute, $gameRushSvc, $gameCrewSvc, $edgeBackfill, $gameDispatcher);
+    $cli = new Commands($basePath, $tokens, $routeService, $config, $notifServ, new HeatmapService(), $heatmapLines, $gameRecompute, $gameRushSvc, $gameCrewSvc, $edgeBackfill, $gameDispatcher, $gameHistory);
     $argv = ['internal', $command];
     foreach (['limit', 'sleep-ms', 'after-route-id', 'bbox', 'handle', 'user', 'actor', 'actor-id', 'edge'] as $opt) {
         if (isset($r->query[$opt]) && (string)$r->query[$opt] !== '') {
@@ -853,6 +855,8 @@ $router->get('/internal/cron/rush-tick',  fn($r) => $runInternal($r, 'game:rush-
 $router->post('/internal/cron/rush-tick', fn($r) => $runInternal($r, 'game:rush-tick'));
 $router->get('/internal/cron/game-dispatch',  fn($r) => $runInternal($r, 'game:notify-dispatch'));
 $router->post('/internal/cron/game-dispatch', fn($r) => $runInternal($r, 'game:notify-dispatch'));
+$router->get('/internal/cron/game-snapshot',  fn($r) => $runInternal($r, 'game:snapshot-daily'));
+$router->post('/internal/cron/game-snapshot', fn($r) => $runInternal($r, 'game:snapshot-daily'));
 // Einmaliger Push-Feldtest: erzeugt eine edge_taken-Mitteilung (Inbox + APNs).
 $router->get('/internal/game/test-push',  fn($r) => $runInternal($r, 'game:test-push'));
 $router->post('/internal/game/test-push', fn($r) => $runInternal($r, 'game:test-push'));
